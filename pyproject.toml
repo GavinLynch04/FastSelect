@@ -1,0 +1,102 @@
+[build-system]
+# This section is mandatory and tells pip how to build your package.
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "fast-relief"
+version = "0.1.0"
+
+authors = [
+  { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
+]
+
+description = "A Sci-Kit Learn compatible Numba and CUDA-accelerated implementation of Relief-based feature selection algorithms."
+
+readme = "README.md"
+
+requires-python = ">=3.8"
+
+license = { file="LICENSE" }
+
+keywords = ["bioinformatics", "feature selection", "relief", "reliefF", "machine learning", "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "numpy>=1.21",
+    "numba>=0.56",
+    "scikit-learn>=1.1",
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/GavinLynch04/FastRelief"
+#"Documentation" = "https://your-package-name.readthedocs.io"
+"Bug Tracker" = "https://github.com/GavinLynch04/FastRelief/issues"
+
+
+[project.optional-dependencies]
+gpu = [
+    "cupy-cuda11x", # Example: for CUDA 11.x
+]
+
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "skrebate>=0.6",
+]
+
+docs = [
+    "sphinx>=5.0",
+    "furo",
+]
+
+dev = [
+    "fast-relief[gpu, test, docs]", # Installs all other optional dependencies
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "twine>=4.0",
+]
+
+
+
+[tool.setuptools.packages]
+find = { where = ["src"] }
+
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --cov=your_package_name --cov-report=term-missing"
+testpaths = ["tests"]
+
+
+[tool.black]
+line-length = 88
+
+
+[tool.ruff]
+line-length = 88
+# E/W: pycodestyle errors/warnings
+# F: pyflakes errors
+# I: isort import sorting
+# N: pep8-naming
+# UP: pyupgrade
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.ruff.isort]
+known-first-party = ["your_package_name"]
