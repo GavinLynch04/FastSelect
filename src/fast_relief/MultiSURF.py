@@ -1,11 +1,14 @@
 from __future__ import annotations
 import math
 import numpy as np
-from numba import cuda, float32, int32
+from numba import cuda, float32, int32, njit, prange,set_num_threads
 import warnings
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+
+# Set Numba to use 2 threads
+set_num_threads(8)
 
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
@@ -142,17 +145,92 @@ def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray) -> 
     cuda.synchronize()
     
     return scores_d.copy_to_host() / n_samples
-  
-@njit(parallel=True)
-def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, scores_out):
-    # placeholder
-    for i in range(n_kept):
-        scores_out[i] = np.random.rand()
+
+
+@njit(parallel=True, fastmath=True)
+def _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores_out):
+    """
+    Optimized MultiSURF scoring for CPU.
+
+    This version avoids large intermediate allocations inside the parallel loop
+    by recalculating distances in a second pass, which is faster due to
+    Numba's compilation and reduced memory pressure.
+    """
+    n_samples = X.shape[0]
+
+    temp_scores = np.zeros((n_samples, n_kept), dtype=np.float32)
+
+    for i in prange(n_samples):
+        sum_d = 0.0
+        sum_d2 = 0.0
+        for j in range(n_samples):
+            if i == j:
+                continue
+
+            dist = 0.0
+            for k in range(n_kept):
+                f = feat_idx[k]
+                diff = X[i, f] - X[j, f]
+                dist += abs(diff) * recip_full[f]
+
+            sum_d += dist
+            sum_d2 += dist * dist
+
+        mu = sum_d / (n_samples - 1)
+        var = max(0.0, (sum_d2 / (n_samples - 1)) - (mu * mu))
+        sigma = math.sqrt(var)
+        thresh = mu - 0.5 * sigma
+
+        hit_diffs = np.zeros(n_kept, dtype=np.float32)
+        miss_diffs = np.zeros(n_kept, dtype=np.float32)
+        n_hits = 0
+        n_miss = 0
+
+        for j in range(n_samples):
+            if i == j:
+                continue
+
+            dist = 0.0
+            for k in range(n_kept):
+                f = feat_idx[k]
+                diff = X[i, f] - X[j, f]
+                dist += abs(diff) * recip_full[f]
+
+            if dist >= thresh:
+                continue
+
+            is_hit = (y[i] == y[j])
+            if is_hit:
+                n_hits += 1
+            else:
+                n_miss += 1
+
+            for k in range(n_kept):
+                f = feat_idx[k]
+                diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                if is_hit:
+                    hit_diffs[k] += diff
+                else:
+                    miss_diffs[k] += diff
+
+        if n_hits > 0:
+            hit_diffs /= n_hits
+        if n_miss > 0:
+            miss_diffs /= n_miss
+
+        for k in range(n_kept):
+            temp_scores[i, k] = miss_diffs[k] - hit_diffs[k]
+    for k in range(n_kept):
+        scores_out[k] = temp_scores[:, k].sum()
+
+
 
 def _multisurf_cpu_host_caller(X, y, recip_full, feat_idx):
+    """Host caller for the optimized CPU kernel."""
     n_kept = feat_idx.size
     scores = np.zeros(n_kept, dtype=np.float32)
-    _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, scores)
+    # Call the new optimized kernel
+    _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores)
     return scores / X.shape[0]
 
 class MultiSURF(BaseEstimator, TransformerMixin):

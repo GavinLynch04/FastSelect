@@ -1,3 +1,5 @@
+import time
+
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
@@ -6,7 +8,7 @@ from skrebate import MultiSURF as SkrebateMultiSURF
 from sklearn.datasets import make_classification
 from numba import cuda
 
-from fast_relief.estimators import MultiSURF as FastMultiSURF
+from src.fast_relief.MultiSURF import MultiSURF as FastMultiSURF
 
 
 @pytest.fixture(scope="module")
@@ -16,31 +18,32 @@ def synthetic_data():
     'scope="module"' means this function runs only once per test file.
     """
     X, y = make_classification(
-        n_samples=100,
-        n_features=50,
-        n_informative=10,
-        n_redundant=5,
+        n_samples=4000,
+        n_features=4000,
+        n_informative=100,
+        n_redundant=85,
         random_state=42
     )
     return X, y
 
 
 def test_multisurf_agrees_with_skrebate(synthetic_data):
-    """
-    Asserts that the feature scores from our fast implementation are numerically
-    close to the scores from the trusted skrebate implementation.
-    """
     X, y = synthetic_data
 
     skrebate_model = SkrebateMultiSURF(n_features_to_select=10)
+    start_time = time.perf_counter()
     skrebate_model.fit(X, y)
+    end_time = time.perf_counter()
     scores_skrebate = skrebate_model.feature_importances_
-
+    print(f"\nskrebate CPU time: {end_time - start_time:.4f}s")
 
     fast_cpu_model = FastMultiSURF(n_features_to_select=10, backend='cpu')
+    start_time_fast = time.perf_counter()
     fast_cpu_model.fit(X, y)
+    end_time_fast = time.perf_counter()
     scores_fast_cpu = fast_cpu_model.feature_importances_
-    
+    print(f"FastRelief MultiSURF CPU time: {end_time_fast - start_time_fast:.4f}s")
+
     assert_allclose(scores_fast_cpu, scores_skrebate, rtol=1e-5, atol=1e-8,
                     err_msg="CPU implementation scores do not match skrebate scores.")
     print("\nCPU implementation scores match skrebate.")

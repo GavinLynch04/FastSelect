@@ -67,7 +67,7 @@ docs = [
 ]
 
 dev = [
-    "fast-relief[gpu, test, docs]", # Installs all other optional dependencies
+    "fast-relief[gpu, test, docs]",
     "black>=23.0",
     "ruff>=0.1.0",
     "twine>=4.0",
@@ -81,7 +81,7 @@ find = { where = ["src"] }
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q --cov=your_package_name --cov-report=term-missing"
+addopts = "-ra -q --cov=fast_relief --cov-report=term-missing"
 testpaths = ["tests"]
 
 
@@ -99,4 +99,4 @@ line-length = 88
 select = ["E", "F", "W", "I", "N", "UP"]
 
 [tool.ruff.isort]
-known-first-party = ["your_package_name"]
+known-first-party = ["fast_relief"]
