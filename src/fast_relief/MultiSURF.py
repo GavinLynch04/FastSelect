@@ -7,17 +7,13 @@ from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
-# Set Numba to use 2 threads
-set_num_threads(8)
-
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
-
 
 TPB = 64              # Threads Per Block
 MAX_F_TILE = 1024     # Features loaded per shared-memory tile
 
 @cuda.jit
-def _multisurf_score_kernel_idx(X, y, recip_full, feat_idx, n_kept, scores_out):
+def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_out):
     """MultiSURF scoring for an _arbitrary subset_ of features."""
     n_samples = X.shape[0]
     i = cuda.blockIdx.x          # focal sample index
@@ -81,20 +77,24 @@ def _multisurf_score_kernel_idx(X, y, recip_full, feat_idx, n_kept, scores_out):
                 full_idx = feat_idx[f0 + f]
                 diff = X[i, full_idx] - X[j, full_idx]
                 dist += abs(diff) * recip_full[full_idx]
-            if dist >= thresh:
-                continue
             is_hit = y[i] == y[j]
-            for f in range(tile_len):
-                full_idx = feat_idx[f0 + f]
-                diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
+            if dist < thresh:  # This is a NEAR neighbor
+                for f in range(tile_len):
+                    full_idx = feat_idx[f0 + f]
+                    diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
+                    if is_hit:
+                        cuda.atomic.add(hits_tile, f, diff)
+                    else:
+                        cuda.atomic.add(miss_tile, f, diff)
                 if is_hit:
-                    cuda.atomic.add(hits_tile, f, diff)
+                    n_hit_local += 1
                 else:
-                    cuda.atomic.add(miss_tile, f, diff)
-            if is_hit:
-                n_hit_local += 1
-            else:
-                n_miss_local += 1
+                    n_miss_local += 1
+            elif use_star and not is_hit:  # This is a FAR MISS
+                for f in range(tile_len):
+                    full_idx = feat_idx[f0 + f]
+                    diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
+                    cuda.atomic.add(miss_tile, f, -diff)
         cuda.syncthreads()
         # Shared reduction of neighbour counts
         sh_red_i32[tid] = n_hit_local
@@ -131,7 +131,7 @@ def _compute_ranges(X: np.ndarray) -> np.ndarray:
     ranges = (X.max(axis=0) - X.min(axis=0)).astype(np.float32)
     return ranges
 
-def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray) -> np.ndarray:
+def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray, use_star: bool) -> np.ndarray:
     """Host helper function that launches the kernel and returns scores."""
     n_samples, _ = X_d.shape
     n_kept = feat_idx.size
@@ -139,8 +139,8 @@ def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray) -> 
     scores_d = cuda.device_array(n_kept, dtype=np.float32)
     scores_d[:] = 0.0  # Zero-fill on device
     
-    _multisurf_score_kernel_idx[n_samples, TPB](
-        X_d, y_d, recip_full_d, feat_idx_d, n_kept, scores_d
+    _multisurf_gpu_kernel[n_samples, TPB](
+        X_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, scores_d
     )
     cuda.synchronize()
     
@@ -148,7 +148,7 @@ def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray) -> 
 
 
 @njit(parallel=True, fastmath=True)
-def _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores_out):
+def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_out):
     """
     Optimized MultiSURF scoring for CPU.
 
@@ -196,22 +196,25 @@ def _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores_o
                 diff = X[i, f] - X[j, f]
                 dist += abs(diff) * recip_full[f]
 
-            if dist >= thresh:
-                continue
-
             is_hit = (y[i] == y[j])
-            if is_hit:
-                n_hits += 1
-            else:
-                n_miss += 1
-
-            for k in range(n_kept):
-                f = feat_idx[k]
-                diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+            if dist < thresh:  # NEAR neighbor
                 if is_hit:
-                    hit_diffs[k] += diff
+                    n_hits += 1
+                    for k in range(n_kept):
+                        f = feat_idx[k]
+                        diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                        hit_diffs[k] += diff
                 else:
-                    miss_diffs[k] += diff
+                    n_miss += 1
+                    for k in range(n_kept):
+                        f = feat_idx[k]
+                        diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                        miss_diffs[k] += diff
+            elif use_star and not is_hit:  # FAR MISS
+                for k in range(n_kept):
+                    f = feat_idx[k]
+                    diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                    miss_diffs[k] -= diff  # Subtract the contribution
 
         if n_hits > 0:
             hit_diffs /= n_hits
@@ -225,12 +228,12 @@ def _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores_o
 
 
 
-def _multisurf_cpu_host_caller(X, y, recip_full, feat_idx):
+def _multisurf_cpu_host_caller(X, y, recip_full, feat_idx, use_star):
     """Host caller for the optimized CPU kernel."""
     n_kept = feat_idx.size
     scores = np.zeros(n_kept, dtype=np.float32)
     # Call the new optimized kernel
-    _multisurf_cpu_kernel_optimized(X, y, recip_full, feat_idx, n_kept, scores)
+    _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores)
     return scores / X.shape[0]
 
 class MultiSURF(BaseEstimator, TransformerMixin):
@@ -250,7 +253,11 @@ class MultiSURF(BaseEstimator, TransformerMixin):
                   otherwise fall back to 'cpu'.
         - 'gpu': Force use of the GPU. Raises an error if not available.
         - 'cpu': Force use of the CPU.
-    
+
+    use_star : bool, default=False
+        Whether to run the MultiSURF* adaptation of the algorithm.
+        By default, the standard MultiSURF algorithm is used.
+
     Attributes
     ----------
     n_features_in_ : int
@@ -262,9 +269,10 @@ class MultiSURF(BaseEstimator, TransformerMixin):
     effective_backend_ : str
         The backend that was actually used during `fit` ('gpu' or 'cpu').
     """
-    def __init__(self, n_features_to_select: int = 10, backend: str = 'auto'):
+    def __init__(self, n_features_to_select: int = 10, backend: str = 'auto', use_star: bool = False):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
+        self.use_star = use_star
 
         if self.backend not in ['auto', 'gpu', 'cpu']:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
@@ -314,11 +322,11 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             recip_full_d = cuda.to_device(recip_full)
             
             scores = _multisurf_gpu_host_caller(
-                X_d, y_d, recip_full_d, all_feature_indices
+                X_d, y_d, recip_full_d, all_feature_indices, self.use_star
             )
         else:
             scores = _multisurf_cpu_host_caller(
-                X, y, recip_full, all_feature_indices
+                X, y, recip_full, all_feature_indices, self.use_star
             )
 
         self.feature_importances_ = scores

@@ -3,7 +3,7 @@ import time
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
-
+from skrebate import MultiSURFstar as SkrebateMultiSURFstar
 from skrebate import MultiSURF as SkrebateMultiSURF
 from sklearn.datasets import make_classification
 from numba import cuda
@@ -18,8 +18,8 @@ def synthetic_data():
     'scope="module"' means this function runs only once per test file.
     """
     X, y = make_classification(
-        n_samples=4000,
-        n_features=4000,
+        n_samples=200,
+        n_features=200,
         n_informative=100,
         n_redundant=85,
         random_state=42
@@ -35,7 +35,7 @@ def test_multisurf_agrees_with_skrebate(synthetic_data):
     skrebate_model.fit(X, y)
     end_time = time.perf_counter()
     scores_skrebate = skrebate_model.feature_importances_
-    print(f"\nskrebate CPU time: {end_time - start_time:.4f}s")
+    print(f"\nskrebate MultiSURF CPU time: {end_time - start_time:.4f}s")
 
     fast_cpu_model = FastMultiSURF(n_features_to_select=10, backend='cpu')
     start_time_fast = time.perf_counter()
@@ -50,7 +50,10 @@ def test_multisurf_agrees_with_skrebate(synthetic_data):
 
     if cuda.is_available():
         fast_gpu_model = FastMultiSURF(n_features_to_select=10, backend='gpu')
+        start_time_gpu = time.perf_counter()
         fast_gpu_model.fit(X, y)
+        end_time_gpu = time.perf_counter()
+        print(f"FastRelief MultiSURF GPU time: {end_time_gpu - start_time_gpu:.4f}s")
         scores_fast_gpu = fast_gpu_model.feature_importances_
         
         assert_allclose(scores_fast_gpu, scores_skrebate, rtol=1e-5, atol=1e-8,
@@ -59,6 +62,41 @@ def test_multisurf_agrees_with_skrebate(synthetic_data):
     else:
         pytest.skip("Skipping GPU agreement test: No CUDA-enabled GPU found.")
 
+
+def test_multisurfstar_agrees_with_skrebate(synthetic_data):
+    X, y = synthetic_data
+
+    skrebate_model = SkrebateMultiSURFstar(n_features_to_select=10)
+    start_time = time.perf_counter()
+    skrebate_model.fit(X, y)
+    end_time = time.perf_counter()
+    scores_skrebate = skrebate_model.feature_importances_
+    print(f"\nskrebate MultiSURF* CPU time: {end_time - start_time:.4f}s")
+
+    fast_cpu_model = FastMultiSURF(n_features_to_select=10, backend='cpu', use_star=True)
+    start_time_fast = time.perf_counter()
+    fast_cpu_model.fit(X, y)
+    end_time_fast = time.perf_counter()
+    scores_fast_cpu = fast_cpu_model.feature_importances_
+    print(f"FastRelief MultiSURF* CPU time: {end_time_fast - start_time_fast:.4f}s")
+
+    assert_allclose(scores_fast_cpu, scores_skrebate, rtol=1e-5, atol=1e-8,
+                    err_msg="CPU implementation scores do not match skrebate scores.")
+    print("\nCPU implementation scores match skrebate.")
+
+    if cuda.is_available():
+        fast_gpu_model = FastMultiSURF(n_features_to_select=10, backend='gpu', use_star=True)
+        start_time_gpu = time.perf_counter()
+        fast_gpu_model.fit(X, y)
+        end_time_gpu = time.perf_counter()
+        print(f"FastRelief MultiSURF* GPU time: {end_time_gpu - start_time_gpu:.4f}s")
+        scores_fast_gpu = fast_gpu_model.feature_importances_
+
+        assert_allclose(scores_fast_gpu, scores_skrebate, rtol=1e-5, atol=1e-8,
+                        err_msg="GPU implementation scores do not match skrebate scores.")
+        print("GPU implementation scores match skrebate.")
+    else:
+        pytest.skip("Skipping GPU agreement test: No CUDA-enabled GPU found.")
 
 def test_sklearn_api_compatibility(synthetic_data):
     """

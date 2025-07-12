@@ -6,10 +6,7 @@ import warnings
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-
 from fast_relief.MultiSURF import _compute_ranges
-
-set_num_threads(8)
 
 
 @cuda.jit
