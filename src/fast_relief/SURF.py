@@ -1,239 +1,205 @@
-from __future__ import annotations
-import math
+import time
 import numpy as np
-from numba import cuda, float32, int32, njit, prange
-import warnings
-from numba.core.errors import NumbaPerformanceWarning
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.base import BaseEstimator
+from joblib import Parallel, delayed
+import numba
 
-from fast_relief.MultiSURF import _compute_ranges
-
-warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
-
-
-TPB = 64              # Threads Per Block
-MAX_F_TILE = 1024     # Features loaded per shared-memory tile
-
-
-@njit(parallel=True, fastmath=True)
-def _compute_surf_threshold(X, recip_full):
-    n_samples, n_features = X.shape
-    total = 0.0
-    for i in prange(n_samples-1):
-        for j in range(i+1, n_samples):
-            d = 0.0
-            for f in range(n_features):
-                d += abs(X[i,f] - X[j,f]) * recip_full[f]
-            d /= n_features
-            total += d
-    num_pairs = n_samples*(n_samples-1)/2
-    return total / num_pairs if num_pairs else 0.0
+def _get_attribute_info(X, discrete_threshold):
+    attr_info = {}
+    for i in range(X.shape[1]):
+        unique_vals = np.unique(X[:, i][~np.isnan(X[:, i])])
+        if len(unique_vals) <= discrete_threshold:
+            attr_info[i] = ('discrete', 0, 0, 0, 0)
+        else:
+            min_val, max_val = np.min(unique_vals), np.max(unique_vals)
+            attr_info[i] = ('continuous', max_val, min_val, max_val - min_val, np.std(unique_vals))
+    return attr_info
 
 
-@cuda.jit
-def _surf_score_kernel_idx(X, y, recip_full, thresh, feat_idx, n_kept, scores_out):
-    """
-    SURF scoring for an _arbitrary subset_ of features, using a pre-calculated
-    global threshold.
-    """
+@numba.jit(nopython=True, parallel=True)
+def _dist_no_missing(X, c_indices, d_indices, c_diffs, num_attributes):
     n_samples = X.shape[0]
-    i = cuda.blockIdx.x
-    tid = cuda.threadIdx.x
-    hits_tile = cuda.shared.array(shape=MAX_F_TILE, dtype=float32)
-    miss_tile = cuda.shared.array(shape=MAX_F_TILE, dtype=float32)
-    sh_red_i32 = cuda.shared.array(shape=TPB, dtype=int32)
+    dist_array = np.zeros((n_samples, n_samples))
+    num_d_features = len(d_indices)
+    num_c_features = len(c_indices)
 
-    for f0 in range(0, n_kept, MAX_F_TILE):
-        tile_len = min(MAX_F_TILE, n_kept - f0)
-        if tid < tile_len:
-            hits_tile[tid] = 0.0
-            miss_tile[tid] = 0.0
-        cuda.syncthreads()
+    for i in numba.prange(n_samples):
+        for j in range(i + 1, n_samples):
+            c_dist = 0.0
+            if num_c_features > 0:
+                for k_idx, k in enumerate(c_indices):
+                    val1 = X[i, k]
+                    val2 = X[j, k]
+                    if c_diffs[k_idx] > 0:
+                        c_dist += np.abs(val1 - val2) / c_diffs[k_idx]
 
-        n_hit_local = 0
-        n_miss_local = 0
-        for j in range(tid, n_samples, TPB):
-            if j == i:
-                continue
-            dist = 0.0
-            for f_tile_idx in range(tile_len):
-                full_idx = feat_idx[f0 + f_tile_idx]
-                diff = X[i, full_idx] - X[j, full_idx]
-                dist += abs(diff) * recip_full[full_idx]
-
-            dist /= n_kept
-            if dist >= thresh:
-                continue
-
-            is_hit = y[i] == y[j]
-            for f_tile_idx in range(tile_len):
-                full_idx = feat_idx[f0 + f_tile_idx]
-                diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
-                if is_hit:
-                    cuda.atomic.add(hits_tile, f_tile_idx, diff)
-                else:
-                    cuda.atomic.add(miss_tile, f_tile_idx, diff)
-            if is_hit:
-                n_hit_local += 1
+            d_dist_raw = 0.0
+            if num_d_features > 0:
+                for k in d_indices:
+                    if X[i, k] != X[j, k]:
+                        d_dist_raw += 1
+                normalized_d_dist = d_dist_raw / num_d_features
+                d_dist = normalized_d_dist * num_attributes
             else:
-                n_miss_local += 1
-        cuda.syncthreads()
+                d_dist = 0.0
 
-        sh_red_i32[tid] = n_hit_local
-        cuda.syncthreads()
-        off = TPB // 2
-        while off > 0:
-            if tid < off:
-                sh_red_i32[tid] += sh_red_i32[tid + off]
-            cuda.syncthreads()
-            off //= 2
-        total_hits = sh_red_i32[0]
+            final_dist = c_dist + d_dist
+            dist_array[i, j] = final_dist
+            dist_array[j, i] = final_dist
 
-        sh_red_i32[tid] = n_miss_local
-        cuda.syncthreads()
-        off = TPB // 2
-        while off > 0:
-            if tid < off:
-                sh_red_i32[tid] += sh_red_i32[tid + off]
-            cuda.syncthreads()
-            off //= 2
-        total_miss = sh_red_i32[0]
-
-        # Update final scores
-        if tid < tile_len:
-            local_idx = f0 + tid
-            term = 0.0
-            if total_miss > 0:
-                term += miss_tile[tid] / total_miss
-            if total_hits > 0:
-                term -= hits_tile[tid] / total_hits
-            cuda.atomic.add(scores_out, local_idx, term)
-        cuda.syncthreads()
+    return dist_array
 
 
-@njit(parallel=True, fastmath=True)
-def _surf_cpu_kernel(X, y, recip_full, thresh, feat_idx, n_kept, scores_out):
-    """Optimized SURF scoring for CPU using a global threshold."""
-    n_samples = X.shape[0]
-    temp_scores = np.zeros((n_samples, n_kept), dtype=np.float64)
+@numba.jit(nopython=True)
+def _find_surf_neighbors(inst, n_samples, distance_array, avg_dist):
+    neighbors = []
+    for i in range(n_samples):
+        if inst != i:
+            if distance_array[inst, i] < avg_dist:
+                neighbors.append(i)
+    return np.array(neighbors, dtype=np.int32)
 
-    for i in prange(n_samples):
-        hit_diffs = np.zeros(n_kept, dtype=np.float64)
-        miss_diffs = np.zeros(n_kept, dtype=np.float64)
-        n_hits = 0
-        n_miss = 0
 
-        for j in range(n_samples):
-            if i == j:
-                continue
-            dist = 0.0
-            for k in range(n_kept):
-                f = feat_idx[k]
-                diff = X[i, f] - X[j, f]
-                dist += abs(diff) * recip_full[f]
+@numba.jit(nopython=True)
+def _surf_compute_scores(instance_num, X, y, attr_info_arrays, nan_entries, mcmap, neighbors, class_type, labels_std,
+                         data_type):
+    scores = np.zeros(X.shape[1])
+    instance = X[instance_num]
+    n_neighbors = len(neighbors)
 
-            dist /= n_kept
-            if dist >= thresh:
+    if n_neighbors == 0:
+        return scores
+
+    diff_miss = np.zeros(X.shape[1])
+    diff_hit = np.zeros(X.shape[1])
+    n_hits = 0
+
+    is_hit_map = np.zeros(n_neighbors, dtype=numba.boolean)
+    for i, neighbor_idx in enumerate(neighbors):
+        is_hit = False
+        if class_type == 'binary' or class_type == 'multiclass':
+            if y[instance_num] == y[neighbor_idx]:
+                is_hit = True
+        else:
+            if abs(y[instance_num] - y[neighbor_idx]) < labels_std:
+                is_hit = True
+        if is_hit:
+            n_hits += 1
+            is_hit_map[i] = True
+
+    n_misses = n_neighbors - n_hits
+
+    for attr_idx in range(X.shape[1]):
+        if nan_entries[instance_num, attr_idx]:
+            continue
+
+        attr_type = attr_info_arrays[0][attr_idx]
+
+        for i, neighbor_idx in enumerate(neighbors):
+            if nan_entries[neighbor_idx, attr_idx]:
                 continue
 
-            is_hit = (y[i] == y[j])
-            if is_hit:
-                n_hits += 1
+            diff = 0.0
+            if attr_type == 0:
+                if instance[attr_idx] != X[neighbor_idx, attr_idx]:
+                    diff = 1.0
             else:
-                n_miss += 1
-            for k in range(n_kept):
-                f = feat_idx[k]
-                diff = abs(X[i, f] - X[j, f]) * recip_full[f]
-                if is_hit:
-                    hit_diffs[k] += diff
+                attr_max_min_diff = attr_info_arrays[1][attr_idx]
+                if attr_max_min_diff > 0:
+                    diff = abs(instance[attr_idx] - X[neighbor_idx, attr_idx]) / attr_max_min_diff
+
+            if is_hit_map[i]:
+                diff_hit[attr_idx] += diff
+            else:
+                if class_type == 'multiclass':
+                    diff_miss[attr_idx] += diff * mcmap[int(y[neighbor_idx])]
                 else:
-                    miss_diffs[k] += diff
+                    diff_miss[attr_idx] += diff
 
-        if n_hits > 0:
-            hit_diffs /= n_hits
-        if n_miss > 0:
-            miss_diffs /= n_miss
-        for k in range(n_kept):
-            temp_scores[i, k] = miss_diffs[k] - hit_diffs[k]
+    if n_hits > 0:
+        scores -= diff_hit / n_hits
+    if n_misses > 0:
+        scores += diff_miss / n_misses
 
-    for k in prange(n_kept):
-        scores_out[k] = temp_scores[:, k].sum()
+    return scores
 
 
-def _surf_gpu_host_caller(X_d, y_d, recip_full_d, thresh, feat_idx):
-    """Host helper function that launches the SURF GPU kernel."""
-    n_samples, _ = X_d.shape
-    n_kept = feat_idx.size
-    feat_idx_d = cuda.to_device(feat_idx.astype(np.int64, copy=False))
-    scores_d = cuda.device_array(n_kept, dtype=np.float32)
-    scores_d[:] = 0.0
-
-    _surf_score_kernel_idx[n_samples, TPB](
-        X_d, y_d, recip_full_d, thresh, feat_idx_d, n_kept, scores_d
-    )
-    cuda.synchronize()
-    return scores_d.copy_to_host() / n_samples
-
-
-def _surf_cpu_host_caller(X, y, recip_full, thresh, feat_idx):
-    """Host caller for the SURF CPU kernel."""
-    n_kept = feat_idx.size
-    scores = np.zeros(n_kept, dtype=np.float32)
-    _surf_cpu_kernel(X, y, recip_full, thresh, feat_idx, n_kept, scores)
-    return scores / X.shape[0]
-
-
-class SURF(BaseEstimator, TransformerMixin):
-    """GPU and CPU-accelerated feature selection using the SURF algorithm."""
-    def __init__(self, n_features_to_select: int = 10, backend: str = 'auto'):
+class SURF(BaseEstimator):
+    def __init__(self, n_features_to_select=10, discrete_threshold=10, verbose=False, n_jobs=-1):
         self.n_features_to_select = n_features_to_select
-        self.backend = backend
+        self.discrete_threshold = discrete_threshold
+        self.verbose = verbose
+        self.n_jobs = n_jobs
 
-    def fit(self, X: np.ndarray, y: np.ndarray):
-        X, y = check_X_y(X, y, dtype=np.float32, ensure_2d=True)
-        self.n_features_in_ = X.shape[1]
+    def fit(self, X, y):
+        self._X = np.asarray(X, dtype=np.float64)
+        self._y = np.asarray(y, dtype=np.float64)
+        self._datalen, self._num_attributes = self._X.shape
 
-        if self.backend == 'auto':
-            self.effective_backend_ = 'gpu' if cuda.is_available() else 'cpu'
-        elif self.backend == 'gpu':
-            if not cuda.is_available():
-                raise RuntimeError("backend='gpu' selected, but no compatible GPU found.")
-            self.effective_backend_ = 'gpu'
+        self._label_list = np.unique(self._y)
+        if len(self._label_list) <= self.discrete_threshold:
+            self._class_type = 'binary' if len(self._label_list) == 2 else 'multiclass'
         else:
-            self.effective_backend_ = 'cpu'
+            self._class_type = 'continuous'
 
-        feature_ranges = _compute_ranges(X)
-        feature_ranges[feature_ranges == 0] = 1
-        recip_full = (1.0 / feature_ranges).astype(np.float32)
-        all_feature_indices = np.arange(self.n_features_in_, dtype=np.int64)
+        self._labels_std = np.std(self._y, ddof=1) if self._class_type == 'continuous' else 0.0
 
-        # --- Key SURF difference: Calculate global threshold first ---
-        global_thresh = _compute_surf_threshold(X, recip_full)
+        self.attr_ = _get_attribute_info(self._X, self.discrete_threshold)
 
-        if self.effective_backend_ == 'gpu':
-            X_d = cuda.to_device(X)
-            y_d = cuda.to_device(y.astype(np.int32))
-            recip_full_d = cuda.to_device(recip_full)
-            scores = _surf_gpu_host_caller(
-                X_d, y_d, recip_full_d, global_thresh, all_feature_indices
-            )
-        else:
-            scores = _surf_cpu_host_caller(
-                X, y, recip_full, global_thresh, all_feature_indices
-            )
+        c_indices = [i for i, info in self.attr_.items() if info[0] == 'continuous']
+        d_indices = [i for i, info in self.attr_.items() if info[0] == 'discrete']
+        c_diffs = np.array([self.attr_[i][3] for i in c_indices], dtype=np.float64)
 
-        self.feature_importances_ = scores
-        self.top_features_ = np.argsort(scores)[::-1][:self.n_features_to_select]
+        if self.verbose:
+            start_time = time.time()
+            print("Calculating distance array...")
+
+        self._distance_array = _dist_no_missing(self._X,
+                                                np.array(c_indices, dtype=np.int64),
+                                                np.array(d_indices, dtype=np.int64),
+                                                c_diffs,
+                                                self._num_attributes)
+
+        if self.verbose:
+            print(f"Distance array calculated in {time.time() - start_time:.2f} seconds.")
+
+        avg_dist = np.mean(self._distance_array)
+
+        nan_entries = np.isnan(self._X)
+
+        mcmap = np.zeros(int(np.max(self._y)) + 1) if self._class_type == 'multiclass' else np.array([0.0])
+        if self._class_type == 'multiclass':
+            class_counts = np.bincount(self._y.astype(int))
+            class_probs = class_counts / len(self._y)
+            for i, prob in enumerate(class_probs):
+                mcmap[i] = prob
+
+        attr_types = np.array([0 if info[0] == 'discrete' else 1 for info in self.attr_.values()], dtype=np.int64)
+        attr_max_min_diffs = np.array([info[3] for info in self.attr_.values()], dtype=np.float64)
+        attr_info_arrays = (attr_types, attr_max_min_diffs)
+
+        if self.verbose:
+            start_time = time.time()
+            print("Scoring features...")
+
+        scores = Parallel(n_jobs=self.n_jobs)(delayed(_surf_compute_scores)(
+            i, self._X, self._y, attr_info_arrays, nan_entries, mcmap,
+            _find_surf_neighbors(i, self._datalen, self._distance_array, avg_dist),
+            self._class_type, self._labels_std, 'mixed'
+        ) for i in range(self._datalen))
+
+        self.feature_importances_ = np.sum(scores, axis=0) / self._datalen
+        self.top_features_ = np.argsort(self.feature_importances_)[::-1]
+
+        if self.verbose:
+            print(f"Feature scoring completed in {time.time() - start_time:.2f} seconds.")
+
         return self
 
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        check_is_fitted(self)
-        X = check_array(X, dtype=np.float32)
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}.")
-        return X[:, self.top_features_]
+    def transform(self, X):
+        return X[:, self.top_features_[:self.n_features_to_select]]
 
-    def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    def fit_transform(self, X, y):
         self.fit(X, y)
         return self.transform(X)
+
