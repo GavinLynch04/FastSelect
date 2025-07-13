@@ -124,12 +124,102 @@ def _surf_compute_scores(instance_num, X, y, attr_info_arrays, nan_entries, mcma
     return scores
 
 
+@numba.jit(nopython=True)
+def _surf_star_compute_scores(instance_num, X, y, attr_info_arrays, nan_entries, mcmap,
+                              distance_array, avg_dist, class_type, labels_std, data_type, use_star):
+    scores = np.zeros(X.shape[1])
+    instance = X[instance_num]
+    datalen = X.shape[0]
+
+    # --- Near Neighbor Scoring ---
+    diff_miss_near = np.zeros(X.shape[1])
+    diff_hit_near = np.zeros(X.shape[1])
+    n_hits_near = 0
+    n_miss_near = 0
+
+    # --- Far Neighbor Scoring (for SURF*) ---
+    diff_miss_far = np.zeros(X.shape[1])
+    diff_hit_far = np.zeros(X.shape[1])
+    n_hits_far = 0
+    n_miss_far = 0
+
+    for j in range(datalen):
+        if instance_num == j:
+            continue
+
+        # Determine if the instance is a Hit or Miss
+        is_hit = False
+        if class_type == 'binary' or class_type == 'multiclass':
+            if y[instance_num] == y[j]:
+                is_hit = True
+        else:  # Continuous
+            if abs(y[instance_num] - y[j]) < labels_std:
+                is_hit = True
+
+        # Calculate difference for each attribute
+        for attr_idx in range(X.shape[1]):
+            if nan_entries[instance_num, attr_idx] or nan_entries[j, attr_idx]:
+                continue
+
+            diff = 0.0
+            attr_type = attr_info_arrays[0][attr_idx]
+            if attr_type == 0:  # Discrete
+                if instance[attr_idx] != X[j, attr_idx]:
+                    diff = 1.0
+            else:  # Continuous
+                attr_max_min_diff = attr_info_arrays[1][attr_idx]
+                if attr_max_min_diff > 0:
+                    diff = abs(instance[attr_idx] - X[j, attr_idx]) / attr_max_min_diff
+
+            # Weighted diff for multiclass misses
+            mc_weight = mcmap[int(y[j])] if class_type == 'multiclass' and not is_hit else 1.0
+
+            # Check if neighbor is NEAR or FAR
+            is_near = distance_array[instance_num, j] < avg_dist
+
+            if is_near:
+                if is_hit:
+                    diff_hit_near[attr_idx] += diff
+                else:
+                    diff_miss_near[attr_idx] += diff * mc_weight
+            elif use_star:  # Only process far neighbors if use_star is True
+                if is_hit:
+                    diff_hit_far[attr_idx] += diff
+                else:
+                    diff_miss_far[attr_idx] += diff * mc_weight
+
+        # Increment hit/miss counts
+        is_near = distance_array[instance_num, j] < avg_dist
+        if is_near:
+            if is_hit:
+                n_hits_near += 1
+            else:
+                n_miss_near += 1
+        elif use_star:
+            if is_hit:
+                n_hits_far += 1
+            else:
+                n_miss_far += 1
+
+    # --- Final Score Calculation ---
+    # Standard SURF update for near neighbors
+    if n_hits_near > 0: scores -= diff_hit_near / n_hits_near
+    if n_miss_near > 0: scores += diff_miss_near / n_miss_near
+
+    # Inverted SURF* update for far neighbors
+    if use_star:
+        if n_hits_far > 0: scores += diff_hit_far / n_hits_far
+        if n_miss_far > 0: scores -= diff_miss_far / n_miss_far
+
+    return scores
+
 class SURF(BaseEstimator):
-    def __init__(self, n_features_to_select=10, discrete_threshold=10, verbose=False, n_jobs=-1):
+    def __init__(self, n_features_to_select=10, discrete_threshold=10, verbose=False, n_jobs=-1, use_star=False):
         self.n_features_to_select = n_features_to_select
         self.discrete_threshold = discrete_threshold
         self.verbose = verbose
         self.n_jobs = n_jobs
+        self.use_star = use_star #Run SURF* adaptation of the SURF algorithm
 
     def fit(self, X, y):
         self._X = np.asarray(X, dtype=np.float64)
@@ -182,10 +272,10 @@ class SURF(BaseEstimator):
             start_time = time.time()
             print("Scoring features...")
 
-        scores = Parallel(n_jobs=self.n_jobs)(delayed(_surf_compute_scores)(
+        scores = Parallel(n_jobs=self.n_jobs)(delayed(_surf_star_compute_scores)(
             i, self._X, self._y, attr_info_arrays, nan_entries, mcmap,
-            _find_surf_neighbors(i, self._datalen, self._distance_array, avg_dist),
-            self._class_type, self._labels_std, 'mixed'
+            self._distance_array, avg_dist,
+            self._class_type, self._labels_std, 'mixed', self.use_star
         ) for i in range(self._datalen))
 
         self.feature_importances_ = np.sum(scores, axis=0) / self._datalen
