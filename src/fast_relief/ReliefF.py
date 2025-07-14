@@ -148,8 +148,7 @@ def _relieff_cpu_kernel(x, y, recip_full, k_neighbors, scores_out):
             for ki in range(k_neighbors):
                 miss_term += abs(x[i, f] - x[misses[ki], f]) * recip_full[f]
 
-            temp_scores[i, f] = miss_term / k_neighbors
-            -(hit_term / k_neighbors)
+            temp_scores[i, f] = miss_term / k_neighbors - (hit_term / k_neighbors)
 
     # --- Step 3: Reduce scores from all threads ---
     for f in range(n_features):
