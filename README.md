@@ -40,3 +40,117 @@ You can install `fast-relief` directly from PyPI:
 pip install fast-relief
 ```
 
+For developers, install with all testing and documentation dependencies:
+```bash
+git clone https://github.com/your-username/fast-relief.git
+cd fast-relief
+pip install -e .[dev]
+```
+
+## Quickstart
+
+Using `fast-relief` is designed to be simple and familiar for anyone who has used scikit-learn.
+
+```python
+from fast_relief.estimators import MultiSURF
+from sklearn.datasets import make_classification
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression # Example classifier
+
+# 1. Generate a synthetic dataset
+X, y = make_classification(
+    n_samples=500,
+    n_features=1000,
+    n_informative=20,
+    n_redundant=100,
+    random_state=42
+)
+
+# 2. Use the estimator to select the top 15 features
+# The backend will default to 'auto' (uses GPU if available)
+selector = MultiSURF(n_features_to_select=15)
+
+X_selected = selector.fit_transform(X, y)
+
+print(f"Original feature count: {X.shape[1]}")
+print(f"Selected feature count: {X_selected.shape[1]}")
+print(f"Top 15 feature indices: {selector.top_features_}")
+
+# 3. Integrate directly into a scikit-learn Pipeline
+pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('feature_selector', MultiSURF(n_features_to_select=10, backend='cpu')),
+    ('classifier', LogisticRegression())
+])
+
+# The pipeline now uses fast-relief for feature selection!
+# pipeline.fit(X, y)
+```
+
+## Backend Selection (CPU vs. GPU)
+
+You can control the computational backend using the `backend` parameter during initialization.
+
+*   `backend='auto'` (Default): `fast-relief` will automatically detect if a compatible NVIDIA GPU is available via Numba. If so, it will run on the GPU. Otherwise, it will seamlessly fall back to the multi-core CPU implementation.
+*   `backend='gpu'`: Forces the use of the GPU. Will raise a `RuntimeError` if a compatible GPU is not found.
+*   `backend='cpu'`: Forces the use of the CPU, even if a GPU is available.
+
+```python
+# Force CPU usage
+cpu_selector = MultiSURF(n_features_to_select=10, backend='cpu')
+
+# Force GPU usage
+gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
+```
+
+## Benchmarking Highlights
+
+`fast-relief` provides a significant performance leap, enabling analysis on datasets that were previously impossible for Relief-based methods.
+
+![Benchmark Performance Figure](https://raw.githubusercontent.com/your-username/fast-relief/main/docs/assets/benchmark_figure.png)
+
+Our benchmarks against `scikit-rebate` and R's `CORElearn` package show **up to a 50-100x reduction in runtime** and a significant decrease in peak memory usage, especially on large datasets (>10,000 samples/features). Full benchmarking scripts can be found in the `/benchmarks` directory.
+
+## Algorithm Implementations
+
+This library provides optimized versions of the most common Relief-based algorithms. We have paid careful attention to the original academic definitions and the practical implementations in popular libraries.
+
+> Our SURF implementation is designed to be a high-performance, drop-in replacement for the popular `scikit-rebate` library's SURF estimator, and as such, it uses a per-instance mean distance threshold. We also provide an implementation of the original academic SURF algorithm, which uses a single global distance threshold, for researchers interested in comparing against the original definition.
+
+Please see the full documentation for details on each algorithm's implementation.
+
+## Contributing
+
+Contributions are welcome and greatly appreciated! Whether it's reporting a bug, submitting a feature request, or contributing code, we value your input. Please see our [**Contributing Guide**](CONTRIBUTING.md) for details on how to get started.
+
+## License
+
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+
+## How to Cite
+
+If you use `fast-relief` in your research, please cite both the software and our publication.
+
+**1. Citing the Paper (once published):**
+```bibtex
+@article{yourname_2024_fastrelief,
+  author  = {Your Name},
+  title   = {{fast-relief: A high-performance Python package for Relief-based feature selection}},
+  journal = {Journal of Open Source Software},
+  year    = {2024},
+  doi     = {your_paper_doi},
+  url     = {https://your_paper_url}
+}
+```
+
+**2. Citing the Software (specific version):**
+Please cite the specific version of the software you used, which can be found using the Zenodo DOI provided on our GitHub releases page.
+
+## Acknowledgments
+
+This work would not be possible without the foundational contributions of the following projects:
+*   The **Numba** team for creating an incredible JIT compiler.
+*   The **scikit-rebate** authors for their excellent and feature-rich library, which served as our primary benchmark.
+*   The original authors of the Relief family of algorithms for their pioneering work in feature selection.
+```
