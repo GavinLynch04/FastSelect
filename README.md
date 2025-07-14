@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/pypi/l/fast-relief.svg)](https://github.com/your-username/fast-relief/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
-
+<!-- start-include -->
 A high-performance, Numba and CUDA-accelerated Python implementation of the complete Relief family of feature selection algorithms. `fast-relief` is designed for speed and scalability, making it possible to apply these powerful algorithms to modern, large-scale bioinformatics datasets.
 
 ![Benchmark Performance Figure](https://raw.githubusercontent.com/your-username/fast-relief/main/docs/assets/benchmark_figure.png)
@@ -19,7 +19,7 @@ A high-performance, Numba and CUDA-accelerated Python implementation of the comp
 *   **Dual CPU/GPU Backends:** Intelligently auto-detects a compatible GPU or allows the user to explicitly select the `'cpu'` or `'gpu'` backend.
 *   **Comprehensive Algorithm Support:** Provides optimized implementations for ReliefF, SURF, SURF*, MultiSURF, and MultiSURF*.
 *   **Lightweight & Accessible:** Avoids heavy dependencies like PyTorch or TensorFlow, making it easy to install and use for any bioinformatician.
-
+<!-- end-include -->
 ## Table of Contents
 
 - [Installation](#installation)
