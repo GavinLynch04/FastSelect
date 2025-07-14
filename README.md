@@ -42,7 +42,7 @@ pip install fast-relief
 
 For developers, install with all testing and documentation dependencies:
 ```bash
-git clone https://github.com/your-username/fast-relief.git
+git clone https://github.com/GavinLynch04/FastRelief.git
 cd fast-relief
 pip install -e .[dev]
 ```

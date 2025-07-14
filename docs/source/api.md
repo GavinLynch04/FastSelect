@@ -7,7 +7,7 @@ This page provides a detailed API reference for the main classes and functions i
 ### ReliefF
 
 ```{eval-rst}
-.. autoclass:: fast_relief.estimators.ReliefF
+.. autoclass:: fast_relief.ReliefF.ReliefF
    :members:
    :undoc-members:
    :show-inheritance:
@@ -16,7 +16,7 @@ This page provides a detailed API reference for the main classes and functions i
 ### SURF
 
 ```{eval-rst}
-.. autoclass:: fast_relief.estimators.SURF
+.. autoclass:: fast_relief.SURF.SURF
    :members:
    :undoc-members:
    :show-inheritance:
@@ -25,7 +25,7 @@ This page provides a detailed API reference for the main classes and functions i
 ### MultiSURF
 
 ```{eval-rst}
-.. autoclass:: fast_relief.estimators.MultiSURF
+.. autoclass:: fast_relief.MultiSURF.MultiSURF
    :members:
    :undoc-members:
    :show-inheritance:
