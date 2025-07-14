@@ -11,7 +11,7 @@ TPB = 64
 
 
 @cuda.jit
-def _relieff_gpu_kernel(x, y, recip_full, k_neighbors, scores_out):
+def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
     """
     ReliefF scoring kernel for GPU.
     Each block processes one sample.
@@ -100,7 +100,7 @@ def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, k):
 
 
 @njit(parallel=True, fastmath=True)
-def _relieff_cpu_kernel(x, y, recip_full, k_neighbors, scores_out):
+def _relieff_cpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
     """
     Optimized ReliefF scoring for CPU, parallelized over samples.
     """
@@ -117,8 +117,15 @@ def _relieff_cpu_kernel(x, y, recip_full, k_neighbors, scores_out):
                 continue
             dist = 0.0
             for f in range(n_features):
-                diff = x[i, f] - x[j, f]
-                dist += abs(diff) * recip_full[f]
+                val_i = x[i, f]
+                val_j = x[j, f]
+                if is_discrete[f]:
+                    # Discrete diff calculation
+                    if val_i != val_j:
+                        dist += 1.0
+                else:
+                    # Continuous diff calculation
+                    dist += abs(val_i - val_j) * recip_full[f]
             distances[j] = dist
 
         sorted_indices = np.argsort(distances)
@@ -174,6 +181,10 @@ class ReliefF(BaseEstimator, TransformerMixin):
     n_features_to_select : int, default=10
         The number of top features to select.
 
+    discrete_limit : int, default=10
+        The limit for the number of independent feature values to be considered
+        discrete or continuous (affects distance calculation).
+
     k_neighbors : int, default=10
         The number of nearest neighbors to use for score calculation.
 
@@ -195,10 +206,12 @@ class ReliefF(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         n_features_to_select: int = 10,
+        discrete_limit: int = 10,
         k_neighbors: int = 10,
         backend: str = "auto",
     ):
         self.n_features_to_select = n_features_to_select
+        self.discrete_limit = discrete_limit,
         self.k_neighbors = k_neighbors
         self.backend = backend
 
@@ -209,7 +222,13 @@ class ReliefF(BaseEstimator, TransformerMixin):
         """Calculates feature importances using the ReliefF algorithm."""
         x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
-
+        is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
+        
+        for f in range(self.n_features_in_):
+            unique_vals = np.unique(X[:, f])
+            if unique_vals.size <= self.discrete_limit:
+                is_discrete[f] = True
+        
         # Determine backend
         if self.backend == "auto":
             self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
@@ -223,8 +242,9 @@ class ReliefF(BaseEstimator, TransformerMixin):
             self.effective_backend_ = "cpu"
 
         # Compute feature ranges for normalization
-        feature_ranges = _compute_ranges(x)
-        feature_ranges[feature_ranges == 0] = 1
+       feature_ranges = _compute_ranges(X)
+        feature_ranges[is_discrete] = 1.0 
+        feature_ranges[feature_ranges == 0] = 1.0 # Avoid division by zero
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
         if self.effective_backend_ == "gpu":
@@ -232,9 +252,9 @@ class ReliefF(BaseEstimator, TransformerMixin):
             y_d = cuda.to_device(y.astype(np.int32))
             recip_full_d = cuda.to_device(recip_full)
 
-            scores = _relieff_gpu_host_caller(x_d, y_d, recip_full_d, self.k_neighbors)
+            scores = _relieff_gpu_host_caller(x_d, y_d, recip_full_d, is_discrete, self.k_neighbors)
         else:  # CPU backend
-            scores = _relieff_cpu_host_caller(x, y, recip_full, self.k_neighbors)
+            scores = _relieff_cpu_host_caller(x, y, recip_full, is_discrete, self.k_neighbors)
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
