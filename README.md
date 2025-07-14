@@ -116,13 +116,9 @@ Our benchmarks against `scikit-rebate` and R's `CORElearn` package show **up to 
 
 This library provides optimized versions of the most common Relief-based algorithms. We have paid careful attention to the original academic definitions and the practical implementations in popular libraries.
 
-> Our SURF implementation is designed to be a high-performance, drop-in replacement for the popular `scikit-rebate` library's SURF estimator, and as such, it uses a per-instance mean distance threshold. We also provide an implementation of the original academic SURF algorithm, which uses a single global distance threshold, for researchers interested in comparing against the original definition.
-
-Please see the full documentation for details on each algorithm's implementation.
-
 ## Contributing
 
-Contributions are welcome and greatly appreciated! Whether it's reporting a bug, submitting a feature request, or contributing code, we value your input. Please see our [**Contributing Guide**](CONTRIBUTING.md) for details on how to get started.
+Contributions are welcome and greatly appreciated. Please feel free to submit a pull request that adheres to the testing standards and is well documented. These algorithms have been highly optimized over previous implementations, but there is certainly huge room for improvement.
 
 ## License
 
@@ -151,6 +147,6 @@ Please cite the specific version of the software you used, which can be found us
 
 This work would not be possible without the foundational contributions of the following projects:
 *   The **Numba** team for creating an incredible JIT compiler.
-*   The **scikit-rebate** authors for their excellent and feature-rich library, which served as our primary benchmark.
+*   The **scikit-rebate** authors for their excellent and feature-rich library, which served as the primary benchmark.
 *   The original authors of the Relief family of algorithms for their pioneering work in feature selection.
 ```
