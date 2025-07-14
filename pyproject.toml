@@ -69,6 +69,10 @@ dev = [
     "black>=23.0",
     "ruff>=0.1.0",
     "twine>=4.0",
+    "sphinx",
+    "furo",
+    "myst-parser",
+    "sphinx-copybutton",
 ]
 
 
