@@ -7,7 +7,7 @@ import numpy as np
 from numba import cuda, float32, int32, njit, prange
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_x_y
+from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
@@ -305,7 +305,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        x, y = check_x_y(x, y, dtype=np.float32, ensure_2d=True)
+        x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
 
         if self.backend == "auto":

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from numba import cuda, float32, int32, njit, prange
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_x_y
+from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
 from fast_relief.MultiSURF import _compute_ranges
 
@@ -197,7 +197,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """Calculates feature importances using the ReliefF algorithm."""
-        x, y = check_x_y(x, y, dtype=np.float32, ensure_2d=True)
+        x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
 
         # Determine backend
