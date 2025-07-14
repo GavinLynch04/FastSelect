@@ -17,7 +17,7 @@ A high-performance, Numba and CUDA-accelerated Python implementation of the comp
 *   **Fast Performance:** Utilizes **Numba** and **Job-lib** for multi-core CPU acceleration and **Numba CUDA** for massive GPU parallelization, dramatically outperforming existing implementations.
 *   **Scikit-Learn Compatible API:** Designed as a drop-in replacement for `sklearn` transformers with a familiar `.fit()`, `.transform()`, and `.fit_transform()` interface. Easily integrates into existing ML pipelines.
 *   **Dual CPU/GPU Backends:** Intelligently auto-detects a compatible GPU or allows the user to explicitly select the `'cpu'` or `'gpu'` backend.
-*   **Comprehensive Algorithm Support:** Provides optimized implementations for ReliefF, SURF, SURF*, MultiSURF, and MultiSURF*.
+*   **Comprehensive Algorithm Support:** Provides optimized implementations for ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF.
 *   **Lightweight & Accessible:** Avoids heavy dependencies like PyTorch or TensorFlow, making it easy to install and use for any bioinformatician.
 <!-- end-include -->
 ## Table of Contents
