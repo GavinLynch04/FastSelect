@@ -1,21 +1,22 @@
 from __future__ import annotations
-import math
+
 import numpy as np
-from numba import cuda, float32, int32, njit, prange, set_num_threads
-import warnings
-from numba.core.errors import NumbaPerformanceWarning
+from numba import cuda, float32, int32, njit, prange
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted, check_x_y
+
 from fast_relief.MultiSURF import _compute_ranges
+
+TPB = 64
 
 
 @cuda.jit
-def _relieff_gpu_kernel(X, y, recip_full, k_neighbors, scores_out):
+def _relieff_gpu_kernel(x, y, recip_full, k_neighbors, scores_out):
     """
     ReliefF scoring kernel for GPU.
     Each block processes one sample.
     """
-    n_samples, n_features = X.shape
+    n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
@@ -43,7 +44,7 @@ def _relieff_gpu_kernel(X, y, recip_full, k_neighbors, scores_out):
 
         dist = 0.0
         for f in range(n_features):
-            diff = X[i, f] - X[j, f]
+            diff = x[i, f] - x[j, f]
             dist += abs(diff) * recip_full[f]
 
         if y[i] == y[j]:
@@ -76,36 +77,34 @@ def _relieff_gpu_kernel(X, y, recip_full, k_neighbors, scores_out):
 
             for ki in range(k_neighbors):
                 hit_idx = local_hit_idxs[ki]
-                hit_term += abs(X[i, f] - X[hit_idx, f]) * recip_full[f]
+                hit_term += abs(x[i, f] - x[hit_idx, f]) * recip_full[f]
 
             for ki in range(k_neighbors):
                 miss_idx = local_miss_idxs[ki]
-                miss_term += abs(X[i, f] - X[miss_idx, f]) * recip_full[f]
+                miss_term += abs(x[i, f] - x[miss_idx, f]) * recip_full[f]
 
             update = (miss_term / k_neighbors) - (hit_term / k_neighbors)
             cuda.atomic.add(scores_out, f, update)
 
 
-def _relieff_gpu_host_caller(X_d, y_d, recip_full_d, k):
+def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, k):
     """Host helper function that launches the ReliefF kernel."""
-    n_samples, n_features = X_d.shape
+    n_samples, n_features = x_d.shape
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
 
-    _relieff_gpu_kernel[n_samples, 64](
-        X_d, y_d, recip_full_d, k, scores_d
-    )
+    _relieff_gpu_kernel[n_samples, 64](x_d, y_d, recip_full_d, k, scores_d)
     cuda.synchronize()
 
     return scores_d.copy_to_host() / n_samples
 
 
 @njit(parallel=True, fastmath=True)
-def _relieff_cpu_kernel(X, y, recip_full, k_neighbors, scores_out):
+def _relieff_cpu_kernel(x, y, recip_full, k_neighbors, scores_out):
     """
     Optimized ReliefF scoring for CPU, parallelized over samples.
     """
-    n_samples, n_features = X.shape
+    n_samples, n_features = x.shape
 
     temp_scores = np.zeros((n_samples, n_features), dtype=np.float32)
 
@@ -118,7 +117,7 @@ def _relieff_cpu_kernel(X, y, recip_full, k_neighbors, scores_out):
                 continue
             dist = 0.0
             for f in range(n_features):
-                diff = X[i, f] - X[j, f]
+                diff = x[i, f] - x[j, f]
                 dist += abs(diff) * recip_full[f]
             distances[j] = dist
 
@@ -143,25 +142,27 @@ def _relieff_cpu_kernel(X, y, recip_full, k_neighbors, scores_out):
         for f in range(n_features):
             hit_term = 0.0
             for ki in range(k_neighbors):
-                hit_term += abs(X[i, f] - X[hits[ki], f]) * recip_full[f]
+                hit_term += abs(x[i, f] - x[hits[ki], f]) * recip_full[f]
 
             miss_term = 0.0
             for ki in range(k_neighbors):
-                miss_term += abs(X[i, f] - X[misses[ki], f]) * recip_full[f]
+                miss_term += abs(x[i, f] - x[misses[ki], f]) * recip_full[f]
 
-            temp_scores[i, f] = (miss_term / k_neighbors) - (hit_term / k_neighbors)
+            temp_scores[i, f] = miss_term / k_neighbors
+            -(hit_term / k_neighbors)
 
     # --- Step 3: Reduce scores from all threads ---
     for f in range(n_features):
         scores_out[f] = temp_scores[:, f].sum()
 
 
-def _relieff_cpu_host_caller(X, y, recip_full, k):
+def _relieff_cpu_host_caller(x, y, recip_full, k):
     """Host caller for the optimized ReliefF CPU kernel."""
-    _, n_features = X.shape
+    _, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
-    _relieff_cpu_kernel(X, y, recip_full, k, scores)
-    return scores / X.shape[0]
+    _relieff_cpu_kernel(x, y, recip_full, k, scores)
+    return scores / x.shape[0]
+
 
 class ReliefF(BaseEstimator, TransformerMixin):
     """GPU and CPU-accelerated feature selection using the ReliefF algorithm.
@@ -181,61 +182,67 @@ class ReliefF(BaseEstimator, TransformerMixin):
         The compute backend to use.
     """
 
-    def __init__(self, n_features_to_select: int = 10, k_neighbors: int = 10, backend: str = 'auto'):
+    def __init__(
+        self,
+        n_features_to_select: int = 10,
+        k_neighbors: int = 10,
+        backend: str = "auto",
+    ):
         self.n_features_to_select = n_features_to_select
         self.k_neighbors = k_neighbors
         self.backend = backend
 
-        if self.backend not in ['auto', 'gpu', 'cpu']:
+        if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
 
-    def fit(self, X: np.ndarray, y: np.ndarray):
+    def fit(self, x: np.ndarray, y: np.ndarray):
         """Calculates feature importances using the ReliefF algorithm."""
-        X, y = check_X_y(X, y, dtype=np.float32, ensure_2d=True)
-        self.n_features_in_ = X.shape[1]
+        x, y = check_x_y(x, y, dtype=np.float32, ensure_2d=True)
+        self.n_features_in_ = x.shape[1]
 
         # Determine backend
-        if self.backend == 'auto':
-            self.effective_backend_ = 'gpu' if cuda.is_available() else 'cpu'
-        elif self.backend == 'gpu':
+        if self.backend == "auto":
+            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
+        elif self.backend == "gpu":
             if not cuda.is_available():
-                raise RuntimeError("backend='gpu' selected, but no compatible GPU found.")
-            self.effective_backend_ = 'gpu'
+                raise RuntimeError(
+                    "backend='gpu' selected, but no compatible GPU found."
+                )
+            self.effective_backend_ = "gpu"
         else:
-            self.effective_backend_ = 'cpu'
+            self.effective_backend_ = "cpu"
 
         # Compute feature ranges for normalization
-        feature_ranges = _compute_ranges(X)
+        feature_ranges = _compute_ranges(x)
         feature_ranges[feature_ranges == 0] = 1
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
-        if self.effective_backend_ == 'gpu':
-            X_d = cuda.to_device(X)
+        if self.effective_backend_ == "gpu":
+            x_d = cuda.to_device(x)
             y_d = cuda.to_device(y.astype(np.int32))
             recip_full_d = cuda.to_device(recip_full)
 
-            scores = _relieff_gpu_host_caller(
-                X_d, y_d, recip_full_d, self.k_neighbors
-            )
+            scores = _relieff_gpu_host_caller(x_d, y_d, recip_full_d, self.k_neighbors)
         else:  # CPU backend
-            scores = _relieff_cpu_host_caller(
-                X, y, recip_full, self.k_neighbors
-            )
+            scores = _relieff_cpu_host_caller(x, y, recip_full, self.k_neighbors)
 
         self.feature_importances_ = scores
-        self.top_features_ = np.argsort(scores)[::-1][:self.n_features_to_select]
+        self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
 
         return self
 
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        """Reduces X to the selected features."""
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        """Reduces x to the selected features."""
         check_is_fitted(self)
-        X = check_array(X, dtype=np.float32)
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}.")
-        return X[:, self.top_features_]
+        x = check_array(x, dtype=np.float32)
+        if x.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"x has {x.shape[1]} features, but "
+                + "was trained with {self.n_features_in_}."
+            )
+        return x[:, self.top_features_]
 
-    def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    def fit_transform(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
         """Fit to data, then transform it."""
-        self.fit(X, y)
-        return self.transform(X)
+        self.fit(x, y)
+        return self.transform(x)

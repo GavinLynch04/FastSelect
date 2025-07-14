@@ -62,8 +62,6 @@ test = [
 ]
 
 docs = [
-    "sphinx>=5.0",
-    "furo",
 ]
 
 dev = [

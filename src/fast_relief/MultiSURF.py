@@ -1,26 +1,29 @@
 from __future__ import annotations
+
 import math
-import numpy as np
-from numba import cuda, float32, int32, njit, prange,set_num_threads
 import warnings
+
+import numpy as np
+from numba import cuda, float32, int32, njit, prange
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted, check_x_y
 
-warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
+warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
-TPB = 64              # Threads Per Block
-MAX_F_TILE = 1024     # Features loaded per shared-memory tile
+TPB = 64  # Threads Per Block
+MAx_F_TILE = 1024  # Features loaded per shared-memory tile
+
 
 @cuda.jit
-def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_out):
+def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_out):
     """MultiSURF scoring for an _arbitrary subset_ of features."""
-    n_samples = X.shape[0]
-    i = cuda.blockIdx.x          # focal sample index
+    n_samples = x.shape[0]
+    i = cuda.blockIdx.x  # focal sample index
     tid = cuda.threadIdx.x
     # Shared scratch
-    hits_tile = cuda.shared.array(shape=MAX_F_TILE, dtype=float32)
-    miss_tile = cuda.shared.array(shape=MAX_F_TILE, dtype=float32)
+    hits_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
+    miss_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
     sh_red_f32 = cuda.shared.array(shape=TPB, dtype=float32)
     sh_red_i32 = cuda.shared.array(shape=TPB, dtype=int32)
 
@@ -30,11 +33,11 @@ def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
         if j == i:
             continue
         dist = 0.0
-        for f0 in range(0, n_kept, MAX_F_TILE):
-            tile_len = min(MAX_F_TILE, n_kept - f0)
+        for f0 in range(0, n_kept, MAx_F_TILE):
+            tile_len = min(MAx_F_TILE, n_kept - f0)
             for f in range(tile_len):
                 full_idx = feat_idx[f0 + f]
-                diff = X[i, full_idx] - X[j, full_idx]
+                diff = x[i, full_idx] - x[j, full_idx]
                 dist += abs(diff) * recip_full[full_idx]
         sum_d += dist
         sum_d2 += dist * dist
@@ -61,8 +64,8 @@ def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
     sigma = math.sqrt(max(var, 0.0))
     thresh = mu - 0.5 * sigma
 
-    for f0 in range(0, n_kept, MAX_F_TILE):
-        tile_len = min(MAX_F_TILE, n_kept - f0)
+    for f0 in range(0, n_kept, MAx_F_TILE):
+        tile_len = min(MAx_F_TILE, n_kept - f0)
         if tid < tile_len:
             hits_tile[tid] = 0.0
             miss_tile[tid] = 0.0
@@ -75,13 +78,13 @@ def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
             dist = 0.0
             for f in range(tile_len):
                 full_idx = feat_idx[f0 + f]
-                diff = X[i, full_idx] - X[j, full_idx]
+                diff = x[i, full_idx] - x[j, full_idx]
                 dist += abs(diff) * recip_full[full_idx]
             is_hit = y[i] == y[j]
             if dist < thresh:  # This is a NEAR neighbor
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
-                    diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
+                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                     if is_hit:
                         cuda.atomic.add(hits_tile, f, diff)
                     else:
@@ -93,7 +96,7 @@ def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
             elif use_star and not is_hit:  # This is a FAR MISS
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
-                    diff = abs(X[i, full_idx] - X[j, full_idx]) * recip_full[full_idx]
+                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                     cuda.atomic.add(miss_tile, f, -diff)
         cuda.syncthreads()
         # Shared reduction of neighbour counts
@@ -126,29 +129,32 @@ def _multisurf_gpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
         cuda.syncthreads()
 
 
-def _compute_ranges(X: np.ndarray) -> np.ndarray:
+def _compute_ranges(x: np.ndarray) -> np.ndarray:
     """Helper to compute feature ranges on the CPU."""
-    ranges = (X.max(axis=0) - X.min(axis=0)).astype(np.float32)
+    ranges = (x.max(axis=0) - x.min(axis=0)).astype(np.float32)
     return ranges
 
-def _multisurf_gpu_host_caller(X_d, y_d, recip_full_d, feat_idx: np.ndarray, use_star: bool) -> np.ndarray:
+
+def _multisurf_gpu_host_caller(
+    x_d, y_d, recip_full_d, feat_idx: np.ndarray, use_star: bool
+) -> np.ndarray:
     """Host helper function that launches the kernel and returns scores."""
-    n_samples, _ = X_d.shape
+    n_samples, _ = x_d.shape
     n_kept = feat_idx.size
     feat_idx_d = cuda.to_device(feat_idx.astype(np.int64, copy=False))
     scores_d = cuda.device_array(n_kept, dtype=np.float32)
     scores_d[:] = 0.0  # Zero-fill on device
-    
+
     _multisurf_gpu_kernel[n_samples, TPB](
-        X_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, scores_d
+        x_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, scores_d
     )
     cuda.synchronize()
-    
+
     return scores_d.copy_to_host() / n_samples
 
 
 @njit(parallel=True, fastmath=True)
-def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_out):
+def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_out):
     """
     Optimized MultiSURF scoring for CPU.
 
@@ -156,7 +162,7 @@ def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
     by recalculating distances in a second pass, which is faster due to
     Numba's compilation and reduced memory pressure.
     """
-    n_samples = X.shape[0]
+    n_samples = x.shape[0]
 
     temp_scores = np.zeros((n_samples, n_kept), dtype=np.float32)
 
@@ -170,7 +176,7 @@ def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
             dist = 0.0
             for k in range(n_kept):
                 f = feat_idx[k]
-                diff = X[i, f] - X[j, f]
+                diff = x[i, f] - x[j, f]
                 dist += abs(diff) * recip_full[f]
 
             sum_d += dist
@@ -193,27 +199,27 @@ def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
             dist = 0.0
             for k in range(n_kept):
                 f = feat_idx[k]
-                diff = X[i, f] - X[j, f]
+                diff = x[i, f] - x[j, f]
                 dist += abs(diff) * recip_full[f]
 
-            is_hit = (y[i] == y[j])
+            is_hit = y[i] == y[j]
             if dist < thresh:  # NEAR neighbor
                 if is_hit:
                     n_hits += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
-                        diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
                         hit_diffs[k] += diff
                 else:
                     n_miss += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
-                        diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
                         miss_diffs[k] += diff
             elif use_star and not is_hit:  # FAR MISS
                 for k in range(n_kept):
                     f = feat_idx[k]
-                    diff = abs(X[i, f] - X[j, f]) * recip_full[f]
+                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
                     miss_diffs[k] -= diff  # Subtract the contribution
 
         if n_hits > 0:
@@ -227,14 +233,14 @@ def _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores_o
         scores_out[k] = temp_scores[:, k].sum()
 
 
-
-def _multisurf_cpu_host_caller(X, y, recip_full, feat_idx, use_star):
+def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star):
     """Host caller for the optimized CPU kernel."""
     n_kept = feat_idx.size
     scores = np.zeros(n_kept, dtype=np.float32)
     # Call the new optimized kernel
-    _multisurf_cpu_kernel(X, y, recip_full, feat_idx, n_kept, use_star, scores)
-    return scores / X.shape[0]
+    _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores)
+    return scores / x.shape[0]
+
 
 class MultiSURF(BaseEstimator, TransformerMixin):
     """GPU and CPU-accelerated feature selection using the MultiSURF algorithm.
@@ -265,25 +271,31 @@ class MultiSURF(BaseEstimator, TransformerMixin):
 
     feature_importances_ : ndarray of shape (n_features,)
         The calculated importance scores for each feature.
-    
+
     effective_backend_ : str
         The backend that was actually used during `fit` ('gpu' or 'cpu').
     """
-    def __init__(self, n_features_to_select: int = 10, backend: str = 'auto', use_star: bool = False):
+
+    def __init__(
+        self,
+        n_features_to_select: int = 10,
+        backend: str = "auto",
+        use_star: bool = False,
+    ):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
         self.use_star = use_star
 
-        if self.backend not in ['auto', 'gpu', 'cpu']:
+        if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
-          
-    def fit(self, X: np.ndarray, y: np.ndarray):
+
+    def fit(self, x: np.ndarray, y: np.ndarray):
         """
         Calculates feature importances using the MultiSURF algorithm on a GPU/CPU.
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
+        x : array-like of shape (n_samples, n_features)
             The training input samples.
         y : array-like of shape (n_samples,)
             The target values (class labels).
@@ -293,71 +305,75 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        X, y = check_X_y(X, y, dtype=np.float32, ensure_2d=True)
-        self.n_features_in_ = X.shape[1]
-      
-        if self.backend == 'auto':
+        x, y = check_x_y(x, y, dtype=np.float32, ensure_2d=True)
+        self.n_features_in_ = x.shape[1]
+
+        if self.backend == "auto":
             if cuda.is_available():
-                self.effective_backend_ = 'gpu'
+                self.effective_backend_ = "gpu"
             else:
-                self.effective_backend_ = 'cpu'
-        elif self.backend == 'gpu':
+                self.effective_backend_ = "cpu"
+        elif self.backend == "gpu":
             if not cuda.is_available():
-                raise RuntimeError("backend='gpu' was selected, but no compatible "
-                                   "NVIDIA GPU was found or CUDA toolkit is not installed.")
-            self.effective_backend_ = 'gpu'
+                raise RuntimeError(
+                    "backend='gpu' was selected, but no compatible "
+                    "NVIDIA GPU was found or CUDA toolkit is not installed."
+                )
+            self.effective_backend_ = "gpu"
         else:
-            self.effective_backend_ = 'cpu'
-          
-        feature_ranges = _compute_ranges(X)
+            self.effective_backend_ = "cpu"
+
+        feature_ranges = _compute_ranges(x)
 
         feature_ranges[feature_ranges == 0] = 1
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
         all_feature_indices = np.arange(self.n_features_in_, dtype=np.int64)
 
-        if self.effective_backend_ == 'gpu':
-            X_d = cuda.to_device(X)
+        if self.effective_backend_ == "gpu":
+            x_d = cuda.to_device(x)
             y_d = cuda.to_device(y.astype(np.int32))
             recip_full_d = cuda.to_device(recip_full)
-            
+
             scores = _multisurf_gpu_host_caller(
-                X_d, y_d, recip_full_d, all_feature_indices, self.use_star
+                x_d, y_d, recip_full_d, all_feature_indices, self.use_star
             )
         else:
             scores = _multisurf_cpu_host_caller(
-                X, y, recip_full, all_feature_indices, self.use_star
+                x, y, recip_full, all_feature_indices, self.use_star
             )
 
         self.feature_importances_ = scores
-        self.top_features_ = np.argsort(scores)[::-1][:self.n_features_to_select]
-        
+        self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
+
         return self
 
-    def transform(self, X: np.ndarray) -> np.ndarray:
+    def transform(self, x: np.ndarray) -> np.ndarray:
         """
-        Reduces X to the selected features.
+        Reduces x to the selected features.
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
+        x : array-like of shape (n_samples, n_features)
             The input samples to transform.
 
         Returns
         -------
-        X_new : ndarray of shape (n_samples, n_features_to_select)
+        x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
         check_is_fitted(self)
 
-        X = check_array(X, dtype=np.float32)
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but {self.__class__.__name__} "
-                             f"was trained with {self.n_features_in_} features.")
+        x = check_array(x, dtype=np.float32)
+        if x.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"x has {x.shape[1]} features, but {self.__class__.__name__} "
+                f"was trained with {self.n_features_in_} features."
+            )
 
-        return X[:, self.top_features_]
+        return x[:, self.top_features_]
 
-    def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    def fit_transform(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
         """
         Fit to data, then transform it.
 
@@ -366,15 +382,15 @@ class MultiSURF(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
+        x : array-like of shape (n_samples, n_features)
             The training input samples.
         y : array-like of shape (n_samples,)
             The target values (class labels).
 
         Returns
         -------
-        X_new : ndarray of shape (n_samples, n_features_to_select)
+        x_new : ndarray of shape (n_samples, n_features_to_select)
             The transformed input samples.
         """
-        self.fit(X, y)
-        return self.transform(X)
+        self.fit(x, y)
+        return self.transform(x)
