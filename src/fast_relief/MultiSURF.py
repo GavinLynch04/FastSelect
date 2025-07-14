@@ -7,8 +7,7 @@ import numpy as np
 from numba import cuda, float32, int32, njit, prange
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
-
+from sklearn.utils.validation import check_array, check_is_fitted,check_X_y
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
 TPB = 64  # Threads Per Block
