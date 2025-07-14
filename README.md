@@ -1,9 +1,9 @@
 # Fast-Relief: Numba Optimized Relief-Based Feature Selection
 
 [![PyPI version](https://img.shields.io/pypi/v/fast-relief.svg)](https://pypi.org/project/fast-relief/)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/fast-relief/ci.yml?branch=main)](https://github.com/your-username/fast-relief/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/fast-relief/ci.yml?branch=main)](https://github.com/GavinLynch04/FastRelief/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-relief.svg)](https://pypi.org/project/fast-relief/)
-[![License](https://img.shields.io/pypi/l/fast-relief.svg)](https://github.com/your-username/fast-relief/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/fast-relief.svg)](https://github.com/GavinLynch04/FastRelief/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
 <!-- start-include -->
