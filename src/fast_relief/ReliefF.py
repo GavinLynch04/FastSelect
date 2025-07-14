@@ -180,6 +180,17 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
         The compute backend to use.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        The number of features seen during `fit`.
+
+    feature_importances_ : ndarray of shape (n_features,)
+        The calculated importance scores for each feature.
+
+    effective_backend_ : str
+        The backend that was actually used during `fit` ('gpu' or 'cpu').
     """
 
     def __init__(

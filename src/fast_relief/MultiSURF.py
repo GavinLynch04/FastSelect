@@ -255,7 +255,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
         The compute backend to use.
         - 'auto': Use 'gpu' if a compatible NVIDIA GPU is detected,
-                  otherwise fall back to 'cpu'.
+        otherwise fall back to 'cpu'.
         - 'gpu': Force use of the GPU. Raises an error if not available.
         - 'cpu': Force use of the CPU.
 
