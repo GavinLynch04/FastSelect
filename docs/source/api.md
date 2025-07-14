@@ -4,26 +4,28 @@ This page provides a detailed API reference for the main classes and functions i
 
 ## Feature Selection Algorithms
 
+### ReliefF
 
-# ReliefF
 ```{eval-rst}
-.. automodule:: fast_relief.ReliefF
+.. autoclass:: fast_relief.estimators.ReliefF
    :members:
    :undoc-members:
    :show-inheritance:
 ```
 
-# SURF and SURF*
+### SURF
+
 ```{eval-rst}
-.. automodule:: fast_relief.SURF
+.. autoclass:: fast_relief.estimators.SURF
    :members:
    :undoc-members:
    :show-inheritance:
 ```
 
-# MultiSURF and MultiSURF*
+### MultiSURF
+
 ```{eval-rst}
-.. automodule:: fast_relief.MultiSURF
+.. autoclass:: fast_relief.estimators.MultiSURF
    :members:
    :undoc-members:
    :show-inheritance:
