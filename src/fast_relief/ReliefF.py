@@ -164,7 +164,7 @@ def _relieff_cpu_host_caller(x, y, recip_full, k):
     return scores / x.shape[0]
 
 
-class ReliefF(BaseEstimator, TransformerMixin):
+class ReliefF(BaseEstimator):
     """GPU and CPU-accelerated feature selection using the ReliefF algorithm.
 
     This estimator provides a unified API for running ReliefF on either
