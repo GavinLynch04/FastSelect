@@ -30,3 +30,12 @@ This page provides a detailed API reference for the main classes and functions i
    :undoc-members:
    :show-inheritance:
 ```
+
+### TuRF
+
+```{eval-rst}
+.. autoclass:: fast_relief.TuRF.TuRF
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
