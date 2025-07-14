@@ -1,12 +1,10 @@
 import time
-
 import numba
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator
 
 TPB = 64  # Threads Per Block
-
 
 def _get_attribute_info(x, discrete_threshold):
     attr_info = {}
