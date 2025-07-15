@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 import math
 import warnings
-
 import numpy as np
 from numba import cuda, float32, int32, njit, prange
 from numba.core.errors import NumbaPerformanceWarning

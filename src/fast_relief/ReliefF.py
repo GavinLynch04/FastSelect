@@ -5,7 +5,7 @@ from numba import cuda, float32, int32, njit, prange
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
-from fast_relief.MultiSURF import _compute_ranges
+from src.fast_relief.MultiSURF import _compute_ranges
 
 TPB = 64  # Threads‑per‑block for CUDA kernels
 
