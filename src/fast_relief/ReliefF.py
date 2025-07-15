@@ -5,7 +5,7 @@ from numba import cuda, float32, int32, njit, prange
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
-from fast_relief.MultiSURF import _compute_ranges
+from src.fast_relief.MultiSURF import _compute_ranges
 
 TPB = 64
 
@@ -211,7 +211,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         backend: str = "auto",
     ):
         self.n_features_to_select = n_features_to_select
-        self.discrete_limit = discrete_limit,
+        self.discrete_limit = discrete_limit
         self.k_neighbors = k_neighbors
         self.backend = backend
 
@@ -225,7 +225,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
         
         for f in range(self.n_features_in_):
-            unique_vals = np.unique(X[:, f])
+            unique_vals = np.unique(x[:, f])
             if unique_vals.size <= self.discrete_limit:
                 is_discrete[f] = True
         
@@ -242,7 +242,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
             self.effective_backend_ = "cpu"
 
         # Compute feature ranges for normalization
-       feature_ranges = _compute_ranges(X)
+        feature_ranges = _compute_ranges(x)
         feature_ranges[is_discrete] = 1.0 
         feature_ranges[feature_ranges == 0] = 1.0 # Avoid division by zero
         recip_full = (1.0 / feature_ranges).astype(np.float32)
