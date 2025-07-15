@@ -7,166 +7,169 @@ from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
 from fast_relief.MultiSURF import _compute_ranges
 
-TPB = 64
-
+TPB = 64  # Threads‑per‑block for CUDA kernels
 
 @cuda.jit
 def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
-    """
-    ReliefF scoring kernel for GPU.
-    Each block processes one sample.
+    """ReliefF scoring on the GPU (k ≤ 10).
+    Multiclass weighting is still delegated to CPU path for simplicity.
     """
     n_samples, n_features = x.shape
-    i = cuda.blockIdx.x
+    i = cuda.blockIdx.x     # one sample per block
     tid = cuda.threadIdx.x
 
-    # --- Step 1: Find k-nearest hits and misses ---
-    # This part is simplified for the GPU. Using a simple selection process
-    # within each block. More advanced parallel sorting would be faster but
-    # much more complex.
+    # local neighbour buffers (k ≤ 10)
+    local_hit_d = cuda.local.array(10, float32)
+    local_hit_i = cuda.local.array(10, int32)
+    local_mis_d = cuda.local.array(10, float32)
+    local_mis_i = cuda.local.array(10, int32)
 
-    # Each thread will find its own candidate neighbors
-    # Note: For simplicity, this kernel finds k-nearest misses from ALL other
-    # classes combined, which is a common ReliefF variant.
-
-    local_hit_dists = cuda.local.array(shape=10, dtype=float32)
-    local_hit_idxs = cuda.local.array(shape=10, dtype=int32)
-    local_miss_dists = cuda.local.array(shape=10, dtype=float32)
-    local_miss_idxs = cuda.local.array(shape=10, dtype=int32)
-
-    for ki in range(k_neighbors):
-        local_hit_dists[ki] = 3.4e38
-        local_miss_dists[ki] = 3.4e38
+    for k in range(k_neighbors):
+        local_hit_d[k] = 3.4e38
+        local_mis_d[k] = 3.4e38
 
     for j in range(tid, n_samples, TPB):
         if i == j:
             continue
-
         dist = 0.0
         for f in range(n_features):
-            diff = x[i, f] - x[j, f]
-            dist += abs(diff) * recip_full[f]
+            if is_discrete[f]:
+                diff = 1.0 if x[i, f] != x[j, f] else 0.0
+            else:
+                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+            dist += diff
 
-        if y[i] == y[j]:
-            for ki in range(k_neighbors - 1, -1, -1):
-                if dist < local_hit_dists[ki]:
-                    if ki < k_neighbors - 1:
-                        local_hit_dists[ki + 1] = local_hit_dists[ki]
-                        local_hit_idxs[ki + 1] = local_hit_idxs[ki]
-                    local_hit_dists[ki] = dist
-                    local_hit_idxs[ki] = j
+        if y[i] == y[j]:  # hit
+            for k in range(k_neighbors - 1, -1, -1):
+                if dist < local_hit_d[k]:
+                    if k < k_neighbors - 1:
+                        local_hit_d[k + 1] = local_hit_d[k]
+                        local_hit_i[k + 1] = local_hit_i[k]
+                    local_hit_d[k] = dist
+                    local_hit_i[k] = j
                 else:
                     break
-        else:
-            for ki in range(k_neighbors - 1, -1, -1):
-                if dist < local_miss_dists[ki]:
-                    if ki < k_neighbors - 1:
-                        local_miss_dists[ki + 1] = local_miss_dists[ki]
-                        local_miss_idxs[ki + 1] = local_miss_idxs[ki]
-                    local_miss_dists[ki] = dist
-                    local_miss_idxs[ki] = j
+        else:  # miss
+            for k in range(k_neighbors - 1, -1, -1):
+                if dist < local_mis_d[k]:
+                    if k < k_neighbors - 1:
+                        local_mis_d[k + 1] = local_mis_d[k]
+                        local_mis_i[k + 1] = local_mis_i[k]
+                    local_mis_d[k] = dist
+                    local_mis_i[k] = j
                 else:
                     break
-
     cuda.syncthreads()
 
     if tid == 0:
         for f in range(n_features):
-            hit_term = 0.0
-            miss_term = 0.0
+            hit_sum = 0.0
+            miss_sum = 0.0
+            for k in range(k_neighbors):
+                h = local_hit_i[k]
+                m = local_mis_i[k]
+                if is_discrete[f]:
+                    hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
+                    miss_sum += 1.0 if x[i, f] != x[m, f] else 0.0
+                else:
+                    hit_sum += abs(x[i, f] - x[h, f]) * recip_full[f]
+                    miss_sum += abs(x[i, f] - x[m, f]) * recip_full[f]
 
-            for ki in range(k_neighbors):
-                hit_idx = local_hit_idxs[ki]
-                hit_term += abs(x[i, f] - x[hit_idx, f]) * recip_full[f]
-
-            for ki in range(k_neighbors):
-                miss_idx = local_miss_idxs[ki]
-                miss_term += abs(x[i, f] - x[miss_idx, f]) * recip_full[f]
-
-            update = (miss_term / k_neighbors) - (hit_term / k_neighbors)
+            update = (miss_sum - hit_sum) / k_neighbors
             cuda.atomic.add(scores_out, f, update)
 
 
-def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, k):
-    """Host helper function that launches the ReliefF kernel."""
+def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, is_discrete_d, k):
+    """Launch the GPU kernel and collect scores."""
     n_samples, n_features = x_d.shape
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
-
-    _relieff_gpu_kernel[n_samples, 64](x_d, y_d, recip_full_d, k, scores_d)
+    _relieff_gpu_kernel[n_samples, TPB](x_d, y_d, recip_full_d, is_discrete_d, k, scores_d)
     cuda.synchronize()
-
     return scores_d.copy_to_host() / n_samples
 
 
 @njit(parallel=True, fastmath=True)
-def _relieff_cpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
-    """
-    Optimized ReliefF scoring for CPU, parallelized over samples.
-    """
+def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores_out):
     n_samples, n_features = x.shape
-
-    temp_scores = np.zeros((n_samples, n_features), dtype=np.float32)
+    n_classes = class_probs.shape[0]
+    temp = np.zeros((n_samples, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
-
-        distances = np.empty(n_samples, dtype=np.float32)
+        # 1. Distance vector ----------------------------------------------------
+        dists = np.empty(n_samples, dtype=np.float32)
         for j in range(n_samples):
             if i == j:
-                distances[j] = np.inf
+                dists[j] = np.inf
                 continue
-            dist = 0.0
+            d = 0.0
             for f in range(n_features):
-                val_i = x[i, f]
-                val_j = x[j, f]
                 if is_discrete[f]:
-                    # Discrete diff calculation
-                    if val_i != val_j:
-                        dist += 1.0
+                    d += 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
-                    # Continuous diff calculation
-                    dist += abs(val_i - val_j) * recip_full[f]
-            distances[j] = dist
+                    d += abs(x[i, f] - x[j, f]) * recip_full[f]
+            dists[j] = d
 
-        sorted_indices = np.argsort(distances)
+        order = np.argsort(dists)
+        lbl_i = y_enc[i]
 
-        hits = np.empty(k_neighbors, dtype=np.int32)
-        misses = np.empty(k_neighbors, dtype=np.int32)
-        n_hits_found = 0
-        n_miss_found = 0
+        hits = np.empty(k, dtype=np.int32)
+        misses = np.empty((n_classes, k), dtype=np.int32)
+        h_found = 0
+        m_found = np.zeros(n_classes, dtype=np.int32)
 
-        for j_idx in sorted_indices:
-            if n_hits_found < k_neighbors and y[j_idx] == y[i]:
-                hits[n_hits_found] = j_idx
-                n_hits_found += 1
-            elif n_miss_found < k_neighbors and y[j_idx] != y[i]:
-                misses[n_miss_found] = j_idx
-                n_miss_found += 1
-
-            if n_hits_found == k_neighbors and n_miss_found == k_neighbors:
+        for idx in order:
+            lbl = y_enc[idx]
+            if lbl == lbl_i:
+                if h_found < k:
+                    hits[h_found] = idx
+                    h_found += 1
+            else:
+                if m_found[lbl] < k:
+                    misses[lbl, m_found[lbl]] = idx
+                    m_found[lbl] += 1
+            if h_found == k and (m_found >= k).all():
                 break
 
+        denom = 1.0 - class_probs[lbl_i]
+
         for f in range(n_features):
-            hit_term = 0.0
-            for ki in range(k_neighbors):
-                hit_term += abs(x[i, f] - x[hits[ki], f]) * recip_full[f]
+            # 2. Hit contribution ---------------------------------------------
+            h_sum = 0.0
+            for ki in range(h_found):
+                j = hits[ki]
+                if is_discrete[f]:
+                    h_sum += 1.0 if x[i, f] != x[j, f] else 0.0
+                else:
+                    h_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
+            h_avg = h_sum / k
 
-            miss_term = 0.0
-            for ki in range(k_neighbors):
-                miss_term += abs(x[i, f] - x[misses[ki], f]) * recip_full[f]
+            # 3. Miss contribution --------------------------------------------
+            m_total = 0.0
+            for c in range(n_classes):
+                if c == lbl_i or m_found[c] == 0:
+                    continue
+                weight = class_probs[c] / denom
+                m_sum = 0.0
+                for ki in range(m_found[c]):
+                    j = misses[c, ki]
+                    if is_discrete[f]:
+                        m_sum += 1.0 if x[i, f] != x[j, f] else 0.0
+                    else:
+                        m_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
+                m_avg = m_sum / k  # average over k
+                m_total += weight * m_avg
 
-            temp_scores[i, f] = miss_term / k_neighbors - (hit_term / k_neighbors)
+            temp[i, f] = m_total - h_avg
 
-    # --- Step 3: Reduce scores from all threads ---
     for f in range(n_features):
-        scores_out[f] = temp_scores[:, f].sum()
+        scores_out[f] = temp[:, f].sum()
 
 
-def _relieff_cpu_host_caller(x, y, recip_full, k):
-    """Host caller for the optimized ReliefF CPU kernel."""
-    _, n_features = x.shape
+def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs):
+    n_features = x.shape[1]
     scores = np.zeros(n_features, dtype=np.float32)
-    _relieff_cpu_kernel(x, y, recip_full, k, scores)
+    _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores)
     return scores / x.shape[0]
 
 
@@ -211,7 +214,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         backend: str = "auto",
     ):
         self.n_features_to_select = n_features_to_select
-        self.discrete_limit = discrete_limit,
+        self.discrete_limit = discrete_limit
         self.k_neighbors = k_neighbors
         self.backend = backend
 
@@ -220,45 +223,48 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """Calculates feature importances using the ReliefF algorithm."""
-        x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
+        x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
-        is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
-        
-        for f in range(self.n_features_in_):
-            unique_vals = np.unique(X[:, f])
-            if unique_vals.size <= self.discrete_limit:
-                is_discrete[f] = True
-        
-        # Determine backend
-        if self.backend == "auto":
-            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
-        elif self.backend == "gpu":
-            if not cuda.is_available():
-                raise RuntimeError(
-                    "backend='gpu' selected, but no compatible GPU found."
-                )
-            self.effective_backend_ = "gpu"
-        else:
-            self.effective_backend_ = "cpu"
 
-        # Compute feature ranges for normalization
-       feature_ranges = _compute_ranges(X)
-        feature_ranges[is_discrete] = 1.0 
-        feature_ranges[feature_ranges == 0] = 1.0 # Avoid division by zero
+        # Determine discrete features
+        is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
+        for f in range(self.n_features_in_):
+            if np.unique(x[:, f]).size <= self.discrete_limit:
+                is_discrete[f] = True
+
+        # Class encoding and probabilities
+        class_labels, class_counts = np.unique(y, return_counts=True)
+        class_probs = class_counts / len(y)
+        y_enc = np.searchsorted(class_labels, y)
+
+        # Feature range reciprocals (continuous only)
+        feature_ranges = x.max(axis=0) - x.min(axis=0)
+        feature_ranges[is_discrete] = 1.0
+        feature_ranges[feature_ranges == 0] = 1.0  # avoid div/0
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
-        if self.effective_backend_ == "gpu":
-            x_d = cuda.to_device(x)
-            y_d = cuda.to_device(y.astype(np.int32))
-            recip_full_d = cuda.to_device(recip_full)
+        # Select backend
+        if self.backend == "auto":
+            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
+        else:
+            if self.backend == "gpu" and not cuda.is_available():
+                raise RuntimeError("backend='gpu' but no compatible GPU found")
+            self.effective_backend_ = self.backend
 
-            scores = _relieff_gpu_host_caller(x_d, y_d, recip_full_d, is_discrete, self.k_neighbors)
-        else:  # CPU backend
-            scores = _relieff_cpu_host_caller(x, y, recip_full, is_discrete, self.k_neighbors)
+        if self.effective_backend_ == "gpu":
+            x_d = cuda.to_device(x.astype(np.float32))
+            y_d = cuda.to_device(y_enc.astype(np.int32))
+            recip_d = cuda.to_device(recip_full)
+            is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
+            scores = _relieff_gpu_host_caller(
+                x_d, y_d, recip_d, is_discrete_d, self.k_neighbors)
+        else:
+            scores = _relieff_cpu_host_caller(
+                x.astype(np.float32), y_enc.astype(np.int32), recip_full,
+                is_discrete, self.k_neighbors, class_probs.astype(np.float32))
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
-
         return self
 
     def transform(self, x: np.ndarray) -> np.ndarray:
