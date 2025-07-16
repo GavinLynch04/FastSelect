@@ -9,7 +9,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('../')) # Points to project root
 
-project = 'Fast-Relief'
+project = 'Fast-Select'
 copyright = '2025, Gavin Lynch'
 author = 'Gavin Lynch'
 release = '0.1.0'

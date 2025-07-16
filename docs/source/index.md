@@ -1,6 +1,6 @@
 <!-- docs/source/index.md -->
 
-# Fast-Relief
+# Fast-Select
 
 ```{include} ../../README.md
 :start-after: "<!-- start-include -->"

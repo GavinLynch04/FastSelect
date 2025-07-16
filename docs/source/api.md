@@ -1,6 +1,6 @@
 # API Reference
 
-This page provides a detailed API reference for the main classes and functions in `fast-relief`.
+This page provides a detailed API reference for the main classes and functions in `fast-select`.
 
 ## Feature Selection Algorithms
 

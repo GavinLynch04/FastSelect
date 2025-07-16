@@ -56,7 +56,7 @@ cd fast-select
 pip install -e .[dev]
 ```
 
----
+
 
 ## **Quickstart**
 
@@ -96,7 +96,6 @@ pipeline = Pipeline([
 # pipeline.fit(X, y)
 ```
 
----
 
 ## **Backend Selection (CPU vs. GPU)**
 

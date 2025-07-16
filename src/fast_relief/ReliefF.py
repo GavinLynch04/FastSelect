@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import numpy as np
 from numba import cuda, float32, int32, njit, prange
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -96,7 +95,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
     temp = np.zeros((n_samples, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
-        # 1. Distance vector ----------------------------------------------------
         dists = np.empty(n_samples, dtype=np.float32)
         for j in range(n_samples):
             if i == j:
@@ -134,7 +132,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
         denom = 1.0 - class_probs[lbl_i]
 
         for f in range(n_features):
-            # 2. Hit contribution ---------------------------------------------
             h_sum = 0.0
             for ki in range(h_found):
                 j = hits[ki]
@@ -144,7 +141,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                     h_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
             h_avg = h_sum / k
 
-            # 3. Miss contribution --------------------------------------------
             m_total = 0.0
             for c in range(n_classes):
                 if c == lbl_i or m_found[c] == 0:
@@ -157,7 +153,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                         m_sum += 1.0 if x[i, f] != x[j, f] else 0.0
                     else:
                         m_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
-                m_avg = m_sum / k  # average over k
+                m_avg = m_sum / k
                 m_total += weight * m_avg
 
             temp[i, f] = m_total - h_avg
@@ -222,7 +218,21 @@ class ReliefF(BaseEstimator, TransformerMixin):
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
 
     def fit(self, x: np.ndarray, y: np.ndarray):
-        """Calculates feature importances using the ReliefF algorithm."""
+        """
+        Calculates feature importances using the ReliefF algorithm on a GPU/CPU.
+
+        Parameters
+        ----------
+        x : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (class labels).
+
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
         x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
 
@@ -248,7 +258,8 @@ class ReliefF(BaseEstimator, TransformerMixin):
             self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
         else:
             if self.backend == "gpu" and not cuda.is_available():
-                raise RuntimeError("backend='gpu' but no compatible GPU found")
+                    raise RuntimeError("CUDA GPU not detected. Install NVIDIA CUDA toolkit or "
+                       "use `backend='cpu'` instead.")
             self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
@@ -268,7 +279,19 @@ class ReliefF(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, x: np.ndarray) -> np.ndarray:
-        """Reduces x to the selected features."""
+        """
+        Reduces x to the selected features.
+
+        Parameters
+        ----------
+        x : array-like of shape (n_samples, n_features)
+            The input samples to transform.
+
+        Returns
+        -------
+        x_new : ndarray of shape (n_samples, n_features_to_select)
+            The input samples with only the selected features.
+        """
         check_is_fitted(self)
         x = check_array(x, dtype=np.float32)
         if x.shape[1] != self.n_features_in_:
@@ -279,6 +302,23 @@ class ReliefF(BaseEstimator, TransformerMixin):
         return x[:, self.top_features_]
 
     def fit_transform(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """Fit to data, then transform it."""
+        """
+        Fit to data, then transform it.
+
+        A convenience method that fits the model and applies the transformation
+        to the same data.
+
+        Parameters
+        ----------
+        x : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (class labels).
+
+        Returns
+        -------
+        x_new : ndarray of shape (n_samples, n_features_to_select)
+            The transformed input samples.
+        """
         self.fit(x, y)
         return self.transform(x)
