@@ -1,5 +1,4 @@
-# Fast-Relief: Numba Optimized Relief-Based Feature Selection
-
+# **Fast-Select: Accelerated Feature Selection for Modern Datasets**
 [![PyPI version](https://img.shields.io/pypi/v/fast-relief.svg)](https://pypi.org/project/fast-relief/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/fast-relief/ci.yml?branch=main)](https://github.com/GavinLynch04/FastRelief/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-relief.svg)](https://pypi.org/project/fast-relief/)
@@ -7,94 +6,109 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
 <!-- start-include -->
-A high-performance, Numba and CUDA-accelerated Python implementation of the complete Relief family of feature selection algorithms. `fast-relief` is designed for speed and scalability, making it possible to apply these powerful algorithms to modern, large-scale bioinformatics datasets.
+A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
-![Benchmark Performance Figure](https://raw.githubusercontent.com/your-username/fast-relief/main/docs/assets/benchmark_figure.png)
-*(This figure shows a **50-100x speed-up** over existing libraries on a large-scale dataset.)*
+_(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compared to existing libraries.)_
 
-## Key Features
 
-*   **Fast Performance:** Utilizes **Numba** and **Job-lib** for multi-core CPU acceleration and **Numba CUDA** for massive GPU parallelization, dramatically outperforming existing implementations.
-*   **Scikit-Learn Compatible API:** Designed as a drop-in replacement for `sklearn` transformers with a familiar `.fit()`, `.transform()`, and `.fit_transform()` interface. Easily integrates into existing ML pipelines.
-*   **Dual CPU/GPU Backends:** Intelligently auto-detects a compatible GPU or allows the user to explicitly select the `'cpu'` or `'gpu'` backend.
-*   **Comprehensive Algorithm Support:** Provides optimized implementations for ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF.
-*   **Lightweight & Accessible:** Avoids heavy dependencies like PyTorch or TensorFlow, making it easy to install and use for any bioinformatician.
+## **Key Features**
+
+- **Blazing Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
+  
+- **ML Pipeline Integration:** Fully compatible with **Scikit-Learn**, making it easy to fit into any machine learning pipeline with a familiar `.fit()`, `.transform()`, `.fit_transform()` interface.
+  
+- **Flexible Backends:** Offers dual execution modes for both CPU (`Joblib`) and GPU (`CUDA`). Automatically detects hardware with an easy-to-use `backend` parameter.
+  
+- **Feature-Rich Implementation:** Provides lightning-fast implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF—with plans to support additional feature selection algorithms in future releases.
+  
+- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering state-of-the-art acceleration for feature selection workflows.
+  
 <!-- end-include -->
-## Table of Contents
 
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [Backend Selection](#backend-selection-cpu-vs-gpu)
-- [Benchmarking Highlights](#benchmarking-highlights)
-- [Algorithm Implementations](#algorithm-implementations)
-- [Contributing](#contributing)
-- [License](#license)
-- [How to Cite](#how-to-cite)
-- [Acknowledgments](#acknowledgments)
+## **Table of Contents**
 
-## Installation
+1. [Installation](#installation)
+2. [Quickstart](#quickstart)
+3. [Backend Selection](#backend-selection-cpu-vs-gpu)
+4. [Benchmarking Highlights](#benchmarking-highlights)
+5. [Algorithm Implementations](#algorithm-implementations)
+6. [Future Directions](#future-directions)
+7. [Contributing](#contributing)
+8. [License](#license)
+9. [How to Cite](#how-to-cite)
+10. [Acknowledgments](#acknowledgments)
 
-You can install `fast-relief` directly from PyPI:
+---
+
+## **Installation**
+
+Install `fast-select` directly from PyPI:
 
 ```bash
-pip install fast-relief
+pip install fast-select
 ```
 
-For developers, install with all testing and documentation dependencies:
+For development versions (with testing and documentation dependencies):
+
 ```bash
-git clone https://github.com/GavinLynch04/FastRelief.git
-cd fast-relief
+git clone https://github.com/GavinLynch04/FastSelect.git
+cd fast-select
 pip install -e .[dev]
 ```
 
-## Quickstart
+---
 
-Using `fast-relief` is designed to be simple and familiar for anyone who has used scikit-learn.
+## **Quickstart**
+
+Using `fast-select` is simple and seamless for anyone familiar with Scikit-Learn.
 
 ```python
-from fast_relief.estimators import MultiSURF
+from fast_select.estimators import MultiSURF
 from sklearn.datasets import make_classification
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression # Example classifier
+from sklearn.linear_model import LogisticRegression  # Example classifier
 
 # 1. Generate a synthetic dataset
 X, y = make_classification(
-    n_samples=500,
-    n_features=1000,
-    n_informative=20,
-    n_redundant=100,
+    n_samples=500, 
+    n_features=1000, 
+    n_informative=20, 
+    n_redundant=100, 
     random_state=42
 )
 
-# 2. Use the estimator to select the top 15 features
-# The backend will default to 'auto' (uses GPU if available)
+# 2. Use the MultiSURF estimator to select the top 15 features
 selector = MultiSURF(n_features_to_select=15)
-
 X_selected = selector.fit_transform(X, y)
-
 print(f"Original feature count: {X.shape[1]}")
 print(f"Selected feature count: {X_selected.shape[1]}")
 print(f"Top 15 feature indices: {selector.top_features_}")
 
-# 3. Integrate directly into a scikit-learn Pipeline
+# 3. Integrate into a Scikit-Learn Pipeline
 pipeline = Pipeline([
     ('scaler', StandardScaler()),
     ('feature_selector', MultiSURF(n_features_to_select=10, backend='cpu')),
     ('classifier', LogisticRegression())
 ])
 
-# The pipeline now uses fast-relief for feature selection!
+# Fit the pipeline (now featuring fast feature selection!)
 # pipeline.fit(X, y)
 ```
 
-## Backend Selection (CPU vs. GPU)
+---
 
-You can control the computational backend using the `backend` parameter during initialization.
+## **Backend Selection (CPU vs. GPU)**
 
-*   `backend='auto'` (Default): `fast-relief` will automatically detect if a compatible NVIDIA GPU is available via Numba. If so, it will run on the GPU. Otherwise, it will seamlessly fall back to the multi-core CPU implementation.
-*   `backend='gpu'`: Forces the use of the GPU. Will raise a `RuntimeError` if a compatible GPU is not found.
-*   `backend='cpu'`: Forces the use of the CPU, even if a GPU is available.
+You can control the computational backend with the `backend` parameter during initialization:
+
+- **`backend='auto'`**: Automatically detects if an NVIDIA GPU is available. Falls back to CPU if a GPU is not available.
+  
+- **`backend='gpu'`**: Explicitly runs on GPU. Will raise a `RuntimeError` if no compatible GPU is found.
+  
+- **`backend='cpu'`**: Forces CPU computations, even if a GPU is available.
+
+Example usage:
 
 ```python
 # Force CPU usage
@@ -104,35 +118,52 @@ cpu_selector = MultiSURF(n_features_to_select=10, backend='cpu')
 gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 ```
 
-## Benchmarking Highlights
+---
 
-`fast-relief` provides a significant performance leap, enabling analysis on datasets that were previously impossible for Relief-based methods.
+## **Benchmarking Highlights**
 
-![Benchmark Performance Figure](https://raw.githubusercontent.com/your-username/fast-relief/main/docs/assets/benchmark_figure.png)
+Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarks) are available in the repository for further testing.
 
-Our benchmarks against `scikit-rebate` and R's `CORElearn` package show **up to a 50-100x reduction in runtime** and a significant decrease in peak memory usage, especially on large datasets (>10,000 samples/features). Full benchmarking scripts can be found in the `/benchmarks` directory.
+---
 
-## Algorithm Implementations
+## **Algorithm Implementations**
 
-This library provides optimized versions of the most common Relief-based algorithms. We have paid careful attention to the original academic definitions and the practical implementations in popular libraries.
+Currently supported:
 
-## Contributing
+- **Relief-Family Algorithms:**
+  - ReliefF
+  - SURF
+  - SURF*
+  - MultiSURF
+  - MultiSURF*
+  - TuRF
+- **mRMR**
+- **Chi Squared**
 
-Contributions are welcome and greatly appreciated. Please feel free to submit a pull request that adheres to the testing standards and is well documented. These algorithms have been highly optimized over previous implementations, but there is certainly huge room for improvement.
+Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
-## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+## **Contributing**
 
-## How to Cite
+Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable. Please ensure your submissions include relevant test cases and documentation updates.
 
-If you use `fast-relief` in your research, please cite both the software and our publication.
 
-**1. Citing the Paper (once published):**
+## **License**
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for full details.
+
+
+## **How to Cite**
+
+If you use `fast-select` in your research, please cite both the software and any associated publication(s):
+
+### **1. Citing the Publication:**
+(*Exact citation to be provided once paper is published.*)
+
 ```bibtex
-@article{yourname_2024_fastrelief,
+@article{yourname_2024_fastselect,
   author  = {Your Name},
-  title   = {{fast-relief: A high-performance Python package for Relief-based feature selection}},
+  title   = {Fast-Select: Accelerated Feature Selection for Modern Datasets},
   journal = {Journal of Open Source Software},
   year    = {2024},
   doi     = {your_paper_doi},
@@ -140,13 +171,14 @@ If you use `fast-relief` in your research, please cite both the software and our
 }
 ```
 
-**2. Citing the Software (specific version):**
-Please cite the specific version of the software you used, which can be found using the Zenodo DOI provided on our GitHub releases page.
+### **2. Citing the Software (Specific Version):**
+Use the version-specific DOI provided via Zenodo on the [GitHub Release Page](https://github.com/GavinLynch04/FastSelect/releases).
 
-## Acknowledgments
 
-This work would not be possible without the foundational contributions of the following projects:
-*   The **Numba** team for creating an incredible JIT compiler.
-*   The **scikit-rebate** authors for their excellent and feature-rich library, which served as the primary benchmark.
-*   The original authors of the Relief family of algorithms for their pioneering work in feature selection.
-```
+## **Acknowledgments**
+
+This library builds on the exceptional work of the following:
+
+- The **Numba** team for enabling JIT compilation and GPU acceleration.
+- The **scikit-rebate** authors for their inspiring Relief-based library.
+- The original researchers behind the Relief algorithms for their foundational contributions to feature selection.
