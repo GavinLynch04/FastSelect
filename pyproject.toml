@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 
 
 [project]
-name = "fast-relief"
+name = "fast-select"
 version = "0.1.0"
 
 authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
 ]
 
-description = "A Sci-Kit Learn compatible Numba and CUDA-accelerated implementation of Relief-based feature selection algorithms."
+description = "A Sci-Kit Learn compatible Numba and CUDA-accelerated implementation of various feature selection algorithms."
 
 readme = "README.md"
 
@@ -20,7 +20,7 @@ requires-python = ">=3.8"
 
 license = { file="LICENSE" }
 
-keywords = ["bioinformatics", "feature selection", "relief", "reliefF", "machine learning", "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*"]
+keywords = ["bioinformatics", "feature selection", "relief", "reliefF", "machine learning", "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*, mRMR, chi2"]
 
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -45,9 +45,9 @@ dependencies = [
 
 
 [project.urls]
-"Homepage" = "https://github.com/GavinLynch04/FastRelief"
+"Homepage" = "https://github.com/GavinLynch04/FastSelect"
 #"Documentation" = "https://your-package-name.readthedocs.io"
-"Bug Tracker" = "https://github.com/GavinLynch04/FastRelief/issues"
+"Bug Tracker" = "https://github.com/GavinLynch04/FastSelect/issues"
 
 
 [project.optional-dependencies]
@@ -65,7 +65,7 @@ docs = [
 ]
 
 dev = [
-    "fast-relief[gpu, test, docs]",
+    "fast-select[gpu, test, docs]",
     "black>=23.0",
     "ruff>=0.1.0",
     "twine>=4.0",
@@ -101,4 +101,4 @@ line-length = 88
 select = ["E", "F", "W", "I", "N", "UP"]
 
 [tool.ruff.isort]
-known-first-party = ["fast_relief"]
+known-first-party = ["fast_select"]
