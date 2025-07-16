@@ -13,7 +13,7 @@ MAx_F_TILE = 1024  # Features loaded per shared-memory tile
 
 
 @cuda.jit
-def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_out):
+def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out):
     """MultiSURF scoring for an _arbitrary subset_ of features."""
     n_samples = x.shape[0]
     i = cuda.blockIdx.x  # focal sample index
@@ -75,8 +75,11 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_o
             dist = 0.0
             for f in range(tile_len):
                 full_idx = feat_idx[f0 + f]
-                diff = x[i, full_idx] - x[j, full_idx]
-                dist += abs(diff) * recip_full[full_idx]
+                if is_discrete[full_idx]:  # Use binary differences for discrete features
+                    diff = float(x[i, full_idx] != x[j, full_idx])
+                else:  # Use scaled continuous difference for continuous features
+                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
+                dist += diff
             is_hit = y[i] == y[j]
             if dist < thresh:  # This is a NEAR neighbor
                 for f in range(tile_len):
@@ -151,7 +154,7 @@ def _multisurf_gpu_host_caller(
 
 
 @njit(parallel=True, fastmath=True)
-def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_out):
+def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out):
     """
     Optimized MultiSURF scoring for CPU.
 
@@ -196,8 +199,11 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores_o
             dist = 0.0
             for k in range(n_kept):
                 f = feat_idx[k]
-                diff = x[i, f] - x[j, f]
-                dist += abs(diff) * recip_full[f]
+                if is_discrete[f]:
+                    diff = float(x[i, f] != x[j, f])  # Binary difference for discrete
+                else:
+                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]  # Continuous difference
+                dist += diff
 
             is_hit = y[i] == y[j]
             if dist < thresh:  # NEAR neighbor
@@ -260,6 +266,11 @@ class MultiSURF(BaseEstimator, TransformerMixin):
     use_star : bool, default=False
         Whether to run the MultiSURF* adaptation of the algorithm.
         By default, the standard MultiSURF algorithm is used.
+        
+    discrete_limit : int, default=10
+        The limit of individual feature values to determine whether or not
+        a given feature is discrete or continuous. (Effects distance
+        calculation)
 
     Attributes
     ----------
@@ -278,6 +289,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         n_features_to_select: int = 10,
         backend: str = "auto",
         use_star: bool = False,
+        discrete_limit: int = 10,
     ):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
@@ -326,6 +338,11 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
         all_feature_indices = np.arange(self.n_features_in_, dtype=np.int64)
+        
+        is_discrete = np.zeros(self.n_features_in_, dtype=bool)
+        for f in range(self.n_features_in_):
+            if np.unique(x[:, f]).size <= self.discrete_limit:  # Define discrete_limit
+                is_discrete[f] = True
 
         if self.effective_backend_ == "gpu":
             x_d = cuda.to_device(x)
@@ -333,11 +350,11 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             recip_full_d = cuda.to_device(recip_full)
 
             scores = _multisurf_gpu_host_caller(
-                x_d, y_d, recip_full_d, all_feature_indices, self.use_star
+                x_d, y_d, recip_full_d, all_feature_indices, self.use_star, is_discrete
             )
         else:
             scores = _multisurf_cpu_host_caller(
-                x, y, recip_full, all_feature_indices, self.use_star
+                x, y, recip_full, all_feature_indices, self.use_star, is_discrete
             )
 
         self.feature_importances_ = scores
