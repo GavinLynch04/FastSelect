@@ -314,6 +314,9 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
+        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
+            raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
+            
         x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
 
@@ -376,6 +379,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
+        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
+            raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
         check_is_fitted(self)
 
         x = check_array(x, dtype=np.float32)
