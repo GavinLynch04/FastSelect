@@ -39,3 +39,21 @@ This page provides a detailed API reference for the main classes and functions i
    :undoc-members:
    :show-inheritance:
 ```
+
+### Chi2
+
+```{eval-rst}
+.. autoclass:: fast_select.chi2.chi2
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+### mRMR
+
+```{eval-rst}
+.. autoclass:: fast_select.mRMR.mRMR
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
