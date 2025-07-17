@@ -38,8 +38,8 @@ _(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compa
 9. [How to Cite](#how-to-cite)
 10. [Acknowledgments](#acknowledgments)
 
-<!-- start-installation-section -->
 ## **Installation**
+<!-- start-installation-section -->
 
 Install `fast-select` directly from PyPI:
 
@@ -57,9 +57,9 @@ pip install -e .[dev]
 
 <!-- end-installation-section -->
 
-<!-- start-quickstart-section -->
 
 ## **Quickstart**
+<!-- start-quickstart-section -->
 
 Using `fast-select` is simple and seamless for anyone familiar with Scikit-Learn.
 
