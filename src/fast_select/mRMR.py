@@ -29,7 +29,7 @@ def _calculate_mi_optimized(x1, n_states1, x2, n_states2, n_samples):
             p_x = p1[i]
             p_y = p2[j]
             if p_xy > 1e-12 and p_x > 1e-12 and p_y > 1e-12:
-                mi += p_xy * np.log(p_xy / (p_x * p_y))
+                mi += p_xy * log(p_xy / (p_x * p_y))
 
     return mi
 
