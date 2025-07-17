@@ -2,7 +2,7 @@ from __future__ import annotations
 import math
 import warnings
 import numpy as np
-from numba import cuda, float32, int32, njit, prange
+from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted,check_X_y
@@ -34,8 +34,11 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             tile_len = min(MAx_F_TILE, n_kept - f0)
             for f in range(tile_len):
                 full_idx = feat_idx[f0 + f]
-                diff = x[i, full_idx] - x[j, full_idx]
-                dist += abs(diff) * recip_full[full_idx]
+                if is_discrete[full_idx]:
+                    diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
+                else:
+                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
+                dist += diff
         sum_d += dist
         sum_d2 += dist * dist
     # Reduce for mean
@@ -176,8 +179,11 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             dist = 0.0
             for k in range(n_kept):
                 f = feat_idx[k]
-                diff = x[i, f] - x[j, f]
-                dist += abs(diff) * recip_full[f]
+                if is_discrete[f]:
+                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                else:
+                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                dist += diff
 
             sum_d += dist
             sum_d2 += dist * dist
@@ -236,13 +242,21 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
         scores_out[k] = temp_scores[:, k].sum()
 
 
-def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star, is_discrete):
+def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star, is_discrete, n_jobs):
     """Host caller for the optimized CPU kernel."""
+    n_samples = x.shape[0]
     n_kept = feat_idx.size
     scores = np.zeros(n_kept, dtype=np.float32)
-    # Call the new optimized kernel
-    _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores)
-    return scores / x.shape[0]
+    num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
+    original_num_threads = get_num_threads()
+
+    try:
+        set_num_threads(num_threads_to_set)
+        _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores)
+    finally:
+        set_num_threads(original_num_threads)
+
+    return scores / n_samples
 
 
 class MultiSURF(BaseEstimator, TransformerMixin):
@@ -271,6 +285,15 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         The limit of individual feature values to determine whether or not
         a given feature is discrete or continuous. (Effects distance
         calculation)
+    
+    verbose : bool, default=True
+        Controls whether progress updates are printed during the fit.
+        Limited benefit currently, will be expanded in future versions.
+        
+    n_jobs : int, default=-1
+        Controls the number of threads utilized by Numba while running on the cpu.
+        -1 uses all threads avaliable by default. Set to a low number if experiencing
+        difficulties and lagging running the script.
 
     Attributes
     ----------
@@ -290,11 +313,15 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         backend: str = "auto",
         use_star: bool = False,
         discrete_limit: int = 10,
+        n_jobs: int = -1,
+        verbose: bool = False,
     ):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
         self.use_star = use_star
         self.discrete_limit = discrete_limit
+        self.n_jobs = n_jobs
+        self.verbose = verbose
 
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
@@ -358,7 +385,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             )
         else:
             scores = _multisurf_cpu_host_caller(
-                x, y, recip_full, all_feature_indices, self.use_star, is_discrete
+                x, y, recip_full, all_feature_indices, self.use_star, is_discrete, self.n_jobs
             )
 
         self.feature_importances_ = scores
@@ -380,7 +407,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
-        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
+        if np.any(np.isnan(x)):
             raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
         check_is_fitted(self)
 

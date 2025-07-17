@@ -6,7 +6,6 @@ from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 import threading
 import time
 from tqdm import tqdm
-from src.fast_select.MultiSURF import _compute_ranges
 
 TPB = 64  # Threads‑per‑block for CUDA kernels, potentially expose to user
 
@@ -283,10 +282,13 @@ class ReliefF(BaseEstimator, TransformerMixin):
             y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
-            print("Running ReliefF on the GPU now...")
+            if verbose:
+                print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
                 x_d, y_d, recip_d, is_discrete_d, self.k_neighbors)
         else:
+            if verbose:
+                print("Running ReliefF on the CPU now...")
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
                 is_discrete, self.k_neighbors, class_probs.astype(np.float32),
