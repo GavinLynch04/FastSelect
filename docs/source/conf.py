@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../')) # Points to project root
+sys.path.insert(0, os.path.abspath('../../')) # Points to project root
 
 project = 'Fast-Select'
 copyright = '2025, Gavin Lynch'
