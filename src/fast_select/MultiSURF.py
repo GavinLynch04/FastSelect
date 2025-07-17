@@ -379,11 +379,18 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             x_d = cuda.to_device(x)
             y_d = cuda.to_device(y.astype(np.int32))
             recip_full_d = cuda.to_device(recip_full)
-
+            if self.verbose and self.use_start:
+                print("Running MultiSURF* on the GPU now...")
+            elif self.verbose:
+                print("Running MultiSURF on the GPU now...")
             scores = _multisurf_gpu_host_caller(
                 x_d, y_d, recip_full_d, all_feature_indices, self.use_star, is_discrete
             )
         else:
+            if self.verbose and self.use_start:
+                print("Running MultiSURF* on the CPU now...")
+            elif self.verbose:
+                print("Running MultiSURF on the CPU now...")
             scores = _multisurf_cpu_host_caller(
                 x, y, recip_full, all_feature_indices, self.use_star, is_discrete, self.n_jobs
             )

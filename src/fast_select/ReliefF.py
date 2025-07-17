@@ -282,12 +282,12 @@ class ReliefF(BaseEstimator, TransformerMixin):
             y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
-            if verbose:
+            if self.verbose:
                 print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
                 x_d, y_d, recip_d, is_discrete_d, self.k_neighbors)
         else:
-            if verbose:
+            if self.verbose:
                 print("Running ReliefF on the CPU now...")
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
