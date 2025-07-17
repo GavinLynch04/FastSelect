@@ -38,7 +38,7 @@ _(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compa
 9. [How to Cite](#how-to-cite)
 10. [Acknowledgments](#acknowledgments)
 
----
+<!-- start-installation-section -->
 
 ## **Installation**
 
@@ -56,7 +56,9 @@ cd fast-select
 pip install -e .[dev]
 ```
 
+<!-- end-installation-section -->
 
+<!-- start-quickstart-section -->
 
 ## **Quickstart**
 
@@ -95,7 +97,7 @@ pipeline = Pipeline([
 # Fit the pipeline (now featuring fast feature selection!)
 # pipeline.fit(X, y)
 ```
-
+<!-- end-quickstart-section -->
 
 ## **Backend Selection (CPU vs. GPU)**
 
