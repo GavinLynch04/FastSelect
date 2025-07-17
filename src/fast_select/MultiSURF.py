@@ -76,7 +76,7 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             for f in range(tile_len):
                 full_idx = feat_idx[f0 + f]
                 if is_discrete[full_idx]:  # Use binary differences for discrete features
-                    diff = float(x[i, full_idx] != x[j, full_idx])
+                    diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
                 else:  # Use scaled continuous difference for continuous features
                     diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                 dist += diff
@@ -136,7 +136,7 @@ def _compute_ranges(x: np.ndarray) -> np.ndarray:
 
 
 def _multisurf_gpu_host_caller(
-    x_d, y_d, recip_full_d, feat_idx: np.ndarray, use_star: bool
+    x_d, y_d, recip_full_d, feat_idx: np.ndarray, use_star: bool, is_discrete: np.ndarray
 ) -> np.ndarray:
     """Host helper function that launches the kernel and returns scores."""
     n_samples, _ = x_d.shape
@@ -146,7 +146,7 @@ def _multisurf_gpu_host_caller(
     scores_d[:] = 0.0  # Zero-fill on device
 
     _multisurf_gpu_kernel[n_samples, TPB](
-        x_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, scores_d
+        x_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, is_discrete, scores_d
     )
     cuda.synchronize()
 
@@ -200,7 +200,7 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             for k in range(n_kept):
                 f = feat_idx[k]
                 if is_discrete[f]:
-                    diff = float(x[i, f] != x[j, f])  # Binary difference for discrete
+                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
                     diff = abs(x[i, f] - x[j, f]) * recip_full[f]  # Continuous difference
                 dist += diff
@@ -236,12 +236,12 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
         scores_out[k] = temp_scores[:, k].sum()
 
 
-def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star):
+def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star, is_discrete):
     """Host caller for the optimized CPU kernel."""
     n_kept = feat_idx.size
     scores = np.zeros(n_kept, dtype=np.float32)
     # Call the new optimized kernel
-    _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, scores)
+    _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores)
     return scores / x.shape[0]
 
 
@@ -294,6 +294,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
         self.use_star = use_star
+        self.discrete_limit = discrete_limit
 
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")

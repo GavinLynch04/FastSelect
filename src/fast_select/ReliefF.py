@@ -1,12 +1,14 @@
 from __future__ import annotations
 import numpy as np
-from numba import cuda, float32, int32, njit, prange
+from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_threads, config
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
-
+import threading
+import time
+from tqdm import tqdm
 from src.fast_select.MultiSURF import _compute_ranges
 
-TPB = 64  # Threads‑per‑block for CUDA kernels
+TPB = 64  # Threads‑per‑block for CUDA kernels, potentially expose to user
 
 @cuda.jit
 def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
@@ -107,15 +109,12 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 else:
                     d += abs(x[i, f] - x[j, f]) * recip_full[f]
             dists[j] = d
-
         order = np.argsort(dists)
         lbl_i = y_enc[i]
-
         hits = np.empty(k, dtype=np.int32)
         misses = np.empty((n_classes, k), dtype=np.int32)
         h_found = 0
         m_found = np.zeros(n_classes, dtype=np.int32)
-
         for idx in order:
             lbl = y_enc[idx]
             if lbl == lbl_i:
@@ -126,11 +125,8 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 if m_found[lbl] < k:
                     misses[lbl, m_found[lbl]] = idx
                     m_found[lbl] += 1
-            if h_found == k and (m_found >= k).all():
-                break
-
+            if h_found == k and (m_found >= k).all(): break
         denom = 1.0 - class_probs[lbl_i]
-
         for f in range(n_features):
             h_sum = 0.0
             for ki in range(h_found):
@@ -140,11 +136,9 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 else:
                     h_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
             h_avg = h_sum / k
-
             m_total = 0.0
             for c in range(n_classes):
-                if c == lbl_i or m_found[c] == 0:
-                    continue
+                if c == lbl_i or m_found[c] == 0: continue
                 weight = class_probs[c] / denom
                 m_sum = 0.0
                 for ki in range(m_found[c]):
@@ -155,18 +149,26 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                         m_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
                 m_avg = m_sum / k
                 m_total += weight * m_avg
-
             temp[i, f] = m_total - h_avg
 
     for f in range(n_features):
         scores_out[f] = temp[:, f].sum()
 
-
-def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs):
-    n_features = x.shape[1]
+def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs, verbose):
+    n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
-    _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores)
-    return scores / x.shape[0]
+    
+    num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
+    
+    original_num_threads = get_num_threads()
+    set_num_threads(num_threads_to_set)
+    
+    try:
+        _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores)
+    finally:
+        set_num_threads(original_num_threads)
+        
+    return scores / n_samples
 
 
 class ReliefF(BaseEstimator, TransformerMixin):
@@ -189,6 +191,14 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
         The compute backend to use.
+        
+    verbose : bool, default=True
+        Controls whether progress updates are printed during the fit. Only avaliable if backend='cpu'.
+        
+    n_jobs : int, default=-1
+        Controls the number of threads utilized by Numba while running on the cpu.
+        -1 uses all threads avaliable by default. Set to a low number if experiencing
+        difficulties and lagging running the script.
 
     Attributes
     ----------
@@ -208,11 +218,15 @@ class ReliefF(BaseEstimator, TransformerMixin):
         discrete_limit: int = 10,
         k_neighbors: int = 10,
         backend: str = "auto",
+        verbose: bool = False,
+        n_jobs: int = -1,
     ):
         self.n_features_to_select = n_features_to_select
         self.discrete_limit = discrete_limit
         self.k_neighbors = k_neighbors
         self.backend = backend
+        self.verbose = verbose
+        self.n_jobs = n_jobs
 
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
@@ -269,12 +283,14 @@ class ReliefF(BaseEstimator, TransformerMixin):
             y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
+            print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
                 x_d, y_d, recip_d, is_discrete_d, self.k_neighbors)
         else:
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
-                is_discrete, self.k_neighbors, class_probs.astype(np.float32))
+                is_discrete, self.k_neighbors, class_probs.astype(np.float32),
+                self.n_jobs, self.verbose)
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
@@ -294,7 +310,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
-        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
+        if np.any(np.isnan(x)):
             raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
         check_is_fitted(self)
         x = check_array(x, dtype=np.float32)
