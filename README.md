@@ -39,7 +39,6 @@ _(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compa
 10. [Acknowledgments](#acknowledgments)
 
 <!-- start-installation-section -->
-
 ## **Installation**
 
 Install `fast-select` directly from PyPI:
