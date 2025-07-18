@@ -371,6 +371,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         all_feature_indices = np.arange(self.n_features_in_, dtype=np.int64)
         
         is_discrete = np.zeros(self.n_features_in_, dtype=bool)
+        self.is_discrete_ = is_discrete
         for f in range(self.n_features_in_):
             if np.unique(x[:, f]).size <= self.discrete_limit:  # Define discrete_limit
                 is_discrete[f] = True

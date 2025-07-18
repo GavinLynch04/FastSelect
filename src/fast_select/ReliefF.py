@@ -251,6 +251,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
         # Determine discrete features
         is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
+        self.is_discrete_ = is_discrete
         for f in range(self.n_features_in_):
             if np.unique(x[:, f]).size <= self.discrete_limit:
                 is_discrete[f] = True
