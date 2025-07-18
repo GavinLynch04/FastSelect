@@ -426,6 +426,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         """
         x = validate_data(
             self, x,
+            reset=False,
         )
         check_is_fitted(self)
 

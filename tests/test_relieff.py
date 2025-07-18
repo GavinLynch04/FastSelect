@@ -148,8 +148,9 @@ def test_invalid_n_neighbors_raises_error(bad_k):
     """
     Tests that an invalid n_neighbors value raises a ValueError.
     """
+    X, y = simple_classification_data
     with pytest.raises(ValueError):
-        ReliefF(n_neighbors=bad_k)
+        ReliefF(n_neighbors=bad_k).fit(X, y)
 
 @pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
 def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
@@ -157,8 +158,7 @@ def test_invalid_n_features_to_select_raises_error(simple_classification_data, b
     Tests that an invalid n_features_to_select value raises a ValueError.
     """
     X, y = simple_classification_data
-    # A value greater than the number of features should also fail.
-    # X has 4 features, so 100 is invalid.
+
     with pytest.raises(ValueError):
         ReliefF(n_features_to_select=bad_k_select).fit(X, y)
 
@@ -178,13 +178,13 @@ def test_transform_with_wrong_n_features(simple_classification_data):
 
 def test_insufficient_neighbors_in_class(simple_classification_data):
     """
-    Tests behavior when k is larger than the number of available samples
-    in a class for hits or misses. The algorithm should error.
+    Tests that a UserWarning is raised when k is larger than the number of
+    available samples in a class.
     """
     X, y = simple_classification_data
-
+    # n_neighbors=5 is > (samples_in_class - 1) which is 3-1=2
     transformer = ReliefF(n_neighbors=5)
-    with pytest.raises(ValueError):
+    with pytest.warns(UserWarning, match="is greater than or equal to the smallest class size"):
         transformer.fit(X, y)
 
 def test_single_class_input(simple_classification_data):

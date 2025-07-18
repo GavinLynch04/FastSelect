@@ -259,6 +259,22 @@ class ReliefF(BaseEstimator, TransformerMixin):
                 f"n_neighbors ({self.n_neighbors}) must be an integer "
                 f"between 1 and n_samples - 1 ({n_samples - 1})."
             )
+        if self.n_features_to_select <= 0:
+        raise ValueError(
+            "n_features_to_select must be a positive integer, "
+            f"but got {self.n_features_to_select}."
+        )
+        
+        self.classes_, y_encoded = np.unique(y, return_inverse=True)
+        if len(self.classes_) < 2:
+            # If only one class is present, no feature is useful.
+            self.feature_importances_ = np.zeros(self.n_features_in_, dtype=np.float32)
+            n_select = min(self.n_features_to_select, self.n_features_in_)
+            # Select the first n_select features by default.
+            self.top_features_ = np.arange(n_select)
+            # Set effective_backend_ for completeness
+            self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
+            return self
             
         _, y_encoded = np.unique(y, return_inverse=True)
         min_class_size = np.min(np.bincount(y_encoded))
