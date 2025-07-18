@@ -350,6 +350,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         
         if self.n_features_to_select >= self.n_features_in_:
             raise ValueError("Number of features to select must be less than the number of input features.")
+        if self.n_features_to_select < 1:
+            raise ValueError("Number of features to select must be less than zero.")
             
         if self.backend == "auto":
             if cuda.is_available():
