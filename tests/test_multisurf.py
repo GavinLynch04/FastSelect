@@ -35,7 +35,6 @@ def simple_classification_data():
     return X, y
 
 
-# --- Core Logic and Behavior Tests ---
 
 def test_feature_importance_ranking(simple_classification_data):
     """

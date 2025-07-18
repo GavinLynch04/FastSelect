@@ -250,7 +250,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
         
-        if self.n_features_to_select >= self.n_features_in_:
+        if self.n_features_to_select > self.n_features_in_:
             raise ValueError("Number of features to select must be less than the number of input features.")
         if self.n_neighbors >= self.n_features_in_:
             raise ValueError("Number of neighbors must be less than the number of input features.")
