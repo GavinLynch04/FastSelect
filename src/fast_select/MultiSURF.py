@@ -348,7 +348,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        x, y = self._validate_data(
+        x, y = validate_data(
             x, y,
             accept_sparse=False,
             dtype=np.float32,
@@ -428,7 +428,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
-        x = self._validate_data(
+        x = validate_data(
             x,
             accept_sparse=False,
             dtype=np.float32,

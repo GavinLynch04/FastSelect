@@ -2,7 +2,7 @@ from __future__ import annotations
 import numpy as np
 from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_threads, config
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
+from sklearn.utils.validation import check_array, check_is_fitted, check_X_y, validate_data
 import time
 
 TPB = 64  # Threads‑per‑block for CUDA kernels, potentially expose to user
@@ -242,7 +242,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        x, y = self._validate_data(
+        x, y = validate_data(
             x, y,
             accept_sparse=False,
             dtype=np.float32,
@@ -336,7 +336,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
-        x = self._validate_data(
+        x = validate_data(
             x,
             accept_sparse=False,
             dtype=np.float32,
