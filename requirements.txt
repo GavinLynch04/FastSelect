@@ -1,0 +1,9 @@
+numpy
+numba
+scikit-learn
+scipy
+
+# Dependencies for testing
+pytest
+pytest-cov
+skrebate
