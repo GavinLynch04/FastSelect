@@ -260,10 +260,10 @@ class ReliefF(BaseEstimator, TransformerMixin):
                 f"between 1 and n_samples - 1 ({n_samples - 1})."
             )
         if self.n_features_to_select <= 0:
-        raise ValueError(
-            "n_features_to_select must be a positive integer, "
-            f"but got {self.n_features_to_select}."
-        )
+            raise ValueError(
+                "n_features_to_select must be a positive integer, "
+                f"but got {self.n_features_to_select}."
+            )
         
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
         if len(self.classes_) < 2:
