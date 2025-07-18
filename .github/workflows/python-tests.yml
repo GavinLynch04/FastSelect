@@ -1,0 +1,61 @@
+# .github/workflows/python-tests.yml
+
+name: Python Tests
+
+# 1. Controls when the action will run.
+# This workflow runs on pushes and pull requests to the 'main' or 'master' branch.
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+# 2. A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  build:
+    # 3. The type of runner that the job will run on.
+    # We will test on Ubuntu, which is fast and common.
+    runs-on: ubuntu-latest
+
+    # 4. Strategy to create a matrix of jobs.
+    # We will test our code against multiple Python versions.
+    strategy:
+      fail-fast: false # Don't cancel all jobs if one Python version fails
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+
+    # 5. Steps represent a sequence of tasks that will be executed as part of the job.
+    steps:
+      # Step 5a: Checks out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      # Step 5b: Sets up the specific version of Python from our matrix.
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Step 5c: Install dependencies.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # If your code is a package, install it in editable mode
+          # This makes sure pytest can find it.
+          pip install -e .
+
+      # Step 5d: Run tests with pytest.
+      # The --cov flag generates a code coverage report.
+      - name: Run tests with pytest
+        run: |
+          pytest --cov=my_package --cov-report=xml -v
+
+      # Step 5e (Optional but highly recommended): Upload coverage report to Codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # See notes below
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-ubuntu-py${{ matrix.python-version }}
