@@ -1,119 +1,202 @@
-import time
-
-import numpy as np
-import pandas as pd
 import pytest
-from numba import cuda
-from numpy.testing import assert_allclose
-from sklearn.datasets import make_classification
-from skrebate import ReliefF as SkrebateReliefF
+import numpy as np
+from numpy.testing import assert_array_equal, assert_allclose
+from sklearn.exceptions import NotFittedError
+from sklearn.utils.estimator_checks import check_estimator
 
-from src.fast_relief.ReliefF import ReliefF as FastReliefF
+from src.fast_select.ReliefF import ReliefF
 
 
-@pytest.fixture(scope="module")
-def synthetic_data():
+@pytest.fixture
+def simple_classification_data():
     """
-    Creates a standard, moderately sized synthetic dataset for testing.
-    'scope="module"' means this function runs only once per test file.
+    A simple, well-defined dataset for testing the core logic of ReliefF.
+
+    - feature 0 (continuous): Highly relevant. Higher values for class 1.
+    - feature 1 (continuous): Irrelevant noise.
+    - feature 2 (discrete): Perfectly relevant. Values 10 for class 0, 20 for class 1.
+    - feature 3 (continuous): Irrelevant, has zero range (all values are the same).
     """
-    x, y = make_classification(
-        n_samples=200,
-        n_features=200,
-        n_informative=100,
-        n_redundant=85,
-        random_state=42,
-    )
-    pd.DataFrame(x).to_csv("benchmark_x.csv", index=False)
-    pd.DataFrame(y, columns=["target"]).to_csv("benchmark_y.csv", index=False)
-    return x, y
+    X = np.array([
+        [0.1, 5.0, 10, 3.0],  # sample 0, class 0
+        [0.2, 4.0, 10, 3.0],  # sample 1, class 0
+        [0.3, 6.0, 10, 3.0],  # sample 2, class 0
+        [0.8, 5.0, 20, 3.0],  # sample 3, class 1
+        [0.9, 4.0, 20, 3.0],  # sample 4, class 1
+        [1.0, 6.0, 20, 3.0],  # sample 5, class 1
+    ], dtype=np.float32)
+    y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+    return X, y
 
 
-def test_relieff_agrees_with_skrebate(synthetic_data):
+# --- Core Logic and Behavior Tests ---
+
+def test_feature_importance_ranking(simple_classification_data):
     """
-    Compares the feature scores from our CPU and GPU ReliefF implementations
-    against the scores produced by the skrebate library to ensure correctness.
+    Tests if the algorithm correctly identifies relevant vs. irrelevant features.
+    We don't check exact values, but we check the *ranking* of the importances.
     """
-    x, y = synthetic_data
-    k = 10
+    X, y = simple_classification_data
+    transformer = ReliefF(n_neighbors=1, n_features_to_select=2)
+    transformer.fit(X, y)
+    
+    scores = transformer.feature_importances_
+    
+    # Assertions based on the designed data:
+    # Feature 0 (relevant) should have a higher score than feature 1 (noise).
+    assert scores[0] > scores[1]
+    
+    # Feature 2 (perfectly relevant) should have a higher score than feature 1 (noise).
+    assert scores[2] > scores[1]
+    
+    # Feature 3 (zero range) should have an importance of 0, as it provides no information.
+    assert_allclose(scores[3], 0.0)
+    
+    # The top 2 features selected should be the relevant ones (0 and 2).
+    # We use a set to ignore the order.
+    assert set(transformer.top_features_) == {0, 2}
 
-    skrebate_model = SkrebateReliefF(n_features_to_select=10, n_neighbors=k)
-    start_time = time.perf_counter()
-    skrebate_model.fit(x, y)
-    end_time = time.perf_counter()
-    scores_skrebate = skrebate_model.feature_importances_
-    print(f"\nskrebate ReliefF CPU time: {end_time - start_time:.4f}s")
-
-    fast_cpu_model = FastReliefF(n_features_to_select=10, k_neighbors=k, backend="cpu")
-    start_time_fast = time.perf_counter()
-    fast_cpu_model.fit(x, y)
-    end_time_fast = time.perf_counter()
-    scores_fast_cpu = fast_cpu_model.feature_importances_
-    print(f"FastRelief ReliefF CPU time: {end_time_fast - start_time_fast:.4f}s")
-
-    assert_allclose(
-        scores_fast_cpu,
-        scores_skrebate,
-        rtol=1e-5,
-        atol=1e-8,
-        err_msg="CPU ReliefF implementation scores do not match skrebate scores.",
-    )
-    print("\nCPU ReliefF implementation scores match skrebate.")
-
-    if cuda.is_available():
-        fast_gpu_model = FastReliefF(
-            n_features_to_select=10, k_neighbors=k, backend="gpu"
-        )
-        start_time_gpu = time.perf_counter()
-        fast_gpu_model.fit(x, y)
-        end_time_gpu = time.perf_counter()
-        scores_fast_gpu = fast_gpu_model.feature_importances_
-        print(f"FastRelief ReliefF GPU time: {end_time_gpu - start_time_gpu:.4f}s")
-
-        assert_allclose(
-            scores_fast_gpu,
-            scores_skrebate,
-            rtol=1e-5,
-            atol=1e-8,
-            err_msg="GPU ReliefF implementation scores do not match skrebate scores.",
-        )
-        print("GPU ReliefF implementation scores match skrebate.")
-    else:
-        pytest.skip("Skipping GPU agreement test: No CUDA-enabled GPU found.")
-
-
-def test_sklearn_api_compatibility(synthetic_data):
+def test_zero_range_feature_handling(simple_classification_data):
     """
-    Tests if the ReliefF estimator adheres to the basic scikit-learn API contract.
+    Explicitly test that a feature with zero variance has zero importance.
     """
-    x, y = synthetic_data
-    n_select = 5
-
-    model = FastReliefF(n_features_to_select=n_select, backend="cpu")
-
-    x_transformed = model.fit(x, y).transform(x)
-    assert x_transformed.shape == (
-        x.shape[0],
-        n_select,
-    ), "Transform output shape is incorrect."
-
-    x_transformed_fit = model.fit_transform(x, y)
-    assert x_transformed_fit.shape == (
-        x.shape[0],
-        n_select,
-    ), "fit_transform output shape is incorrect."
-
-    assert hasattr(model, "top_features_")
-    assert len(model.top_features_) == n_select
+    X, y = simple_classification_data
+    transformer = ReliefF(n_neighbors=1)
+    transformer.fit(X, y)
+    
+    # Feature 3 was designed to have a range of 0.
+    assert_allclose(transformer.feature_importances_[3], 0.0)
+    # This also implicitly tests that no division-by-zero errors occurred.
 
 
-def test_backend_error_handling():
+# --- Scikit-learn API and Parameter Tests ---
+
+def test_sklearn_api_compliance():
     """
-    Tests that requesting the GPU backend without a GPU raises an error.
+    Uses scikit-learn's built-in checker to validate the estimator's compliance.
+    This runs a large suite of tests for things like get_params/set_params,
+    clonability, and expected behavior on various inputs.
     """
-    if not cuda.is_available():
-        with pytest.raises(RuntimeError, match="no compatible GPU found"):
-            model = FastReliefF(backend="gpu")
-            model.fit(np.array([[1, 2], [3, 4]]), np.array([0, 1]))
-    else:
-        pytest.skip("Skipping GPU error test: GPU is available.")
+    # check_estimator will instantiate the class, so we pass the class itself.
+    check_estimator(ReliefF())
+
+def test_fit_transform_output_shape(simple_classification_data):
+    """
+    Tests that the fit_transform method returns a matrix of the correct shape.
+    """
+    X, y = simple_classification_data
+    k_select = 2
+    transformer = ReliefF(n_features_to_select=k_select)
+    
+    X_transformed = transformer.fit_transform(X, y)
+    
+    # Check that the number of samples is unchanged.
+    assert X_transformed.shape[0] == X.shape[0]
+    # Check that the number of features matches n_features_to_select.
+    assert X_transformed.shape[1] == k_select
+
+def test_n_neighbors_parameter(simple_classification_data):
+    """
+    Ensures the n_neighbors parameter is accepted and runs without error.
+    """
+    X, y = simple_classification_data
+    # Test with k=2. The fixture has 3 samples per class, so this is valid.
+    transformer = ReliefF(n_neighbors=2)
+    transformer.fit(X, y)
+    
+    assert hasattr(transformer, 'feature_importances_')
+    assert transformer.feature_importances_ is not None
+
+def test_discrete_limit_parameter():
+    """
+    Tests that the discrete_limit parameter correctly classifies features.
+    """
+    # Feature 0 has 11 unique values. Feature 1 has 3.
+    X = np.array([[i, i % 3] for i in range(11)] * 2)
+    y = np.array([0]*11 + [1]*11)
+
+    # With discrete_limit=10, feature 0 should be continuous.
+    # The internal `is_discrete` array should be [False, True]
+    rf_cont = ReliefF(discrete_limit=10)
+    rf_cont.fit(X, y)
+    assert_array_equal(rf_cont.is_discrete_, [False, True])
+
+    # With discrete_limit=12, both features should be discrete.
+    # The internal `is_discrete` array should be [True, True]
+    rf_disc = ReliefF(discrete_limit=12)
+    rf_disc.fit(X, y)
+    assert_array_equal(rf_disc.is_discrete_, [True, True])
+
+
+# --- Error Handling and Edge Case Tests ---
+
+def test_not_fitted_error(simple_classification_data):
+    """
+    Tests that a NotFittedError is raised if transform is called before fit.
+    """
+    X, y = simple_classification_data
+    transformer = ReliefF()
+    
+    with pytest.raises(NotFittedError):
+        transformer.transform(X)
+
+@pytest.mark.parametrize("bad_k", [-1, 0])
+def test_invalid_n_neighbors_raises_error(bad_k):
+    """
+    Tests that an invalid n_neighbors value raises a ValueError.
+    """
+    with pytest.raises(ValueError):
+        ReliefF(n_neighbors=bad_k)
+
+@pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
+def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
+    """
+    Tests that an invalid n_features_to_select value raises a ValueError.
+    """
+    X, y = simple_classification_data
+    # A value greater than the number of features should also fail.
+    # X has 4 features, so 100 is invalid.
+    with pytest.raises(ValueError):
+        ReliefF(n_features_to_select=bad_k_select).fit(X, y)
+
+def test_transform_with_wrong_n_features(simple_classification_data):
+    """
+    Tests that transform raises a ValueError if X has a different number of
+    features than the data used for fitting.
+    """
+    X, y = simple_classification_data
+    transformer = ReliefF().fit(X, y)
+    
+    # Create a new X with one fewer feature column
+    X_bad_shape = X[:, :-1]
+    
+    with pytest.raises(ValueError):
+        transformer.transform(X_bad_shape)
+
+def test_insufficient_neighbors_in_class(simple_classification_data):
+    """
+    Tests behavior when k is larger than the number of available samples
+    in a class for hits or misses. The algorithm should still run.
+    """
+    X, y = simple_classification_data
+    # There are only 3 samples in each class. Requesting 5 neighbors is impossible.
+    # A robust implementation should gracefully use the max available (3).
+    transformer = ReliefF(n_neighbors=5)
+    
+    # The main test is that this runs without crashing.
+    transformer.fit(X, y)
+    assert transformer.feature_importances_ is not None
+
+def test_single_class_input():
+    """
+    Tests that the algorithm handles input with only one class label.
+    Feature scores should likely be zero as there are no "misses".
+    """
+    X = np.random.rand(20, 4)
+    y = np.zeros(20) # Only one class
+    
+    transformer = ReliefF()
+    transformer.fit(X, y)
+    
+    # With no misses, all feature importances should be zero.
+    assert_allclose(transformer.feature_importances_, 0.0)

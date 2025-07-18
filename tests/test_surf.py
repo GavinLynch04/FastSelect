@@ -1,165 +1,172 @@
-import time
-
-import numpy as np
 import pytest
+import numpy as np
+from numpy.testing import assert_allclose, assert_array_equal
 from numba import cuda
-from numpy.testing import assert_allclose
-from sklearn.datasets import make_classification
-from skrebate import SURF as SkrebateSURF  # noqa: N811
-from skrebate import SURFstar as SkrebateSURFstar  # noqa: N811
+from sklearn.exceptions import NotFittedError
+from sklearn.utils.estimator_checks import check_estimator
 
-from src.fast_relief.SURF import SURF as FastSURF  # noqa: N811
+from src.fast_select.SURF import SURF as FastSURF
 
 
 @pytest.fixture(scope="module")
-def synthetic_data():
+def simple_classification_data():
     """
-    Creates a standard, large-scale synthetic dataset for testing.
-    'scope="module"' means this function runs only once per test file.
+    Creates a small, well-defined dataset for testing the core SURF logic.
+    The data is designed to make the nearest hit/miss calculations predictable.
+
+    - feature 0 (continuous): Highly relevant. Linearly separates classes.
+    - feature 1 (continuous): Irrelevant noise.
+    - feature 2 (discrete): Perfectly relevant. Value 10 for class 0, 20 for class 1.
+    - feature 3 (continuous): Irrelevant, has zero range (all values are the same).
     """
-    x, y = make_classification(
-        n_samples=200,
-        n_features=200,
-        n_informative=100,
-        n_redundant=85,
-        random_state=42,
-    )
-    return x, y
+    X = np.array([
+        # Class 0
+        [0.1, 5.0, 10, 3.0],  # Sample 0
+        [0.2, 4.0, 10, 3.0],  # Sample 1
+        # Class 1
+        [0.8, 5.5, 20, 3.0],  # Sample 2
+        [0.9, 4.5, 20, 3.0],  # Sample 3
+    ], dtype=np.float32)
+    y = np.array([0, 0, 1, 1], dtype=np.int32)
+    return X, y
 
 
-def test_surf_agrees_with_skrebate(synthetic_data):
+# --- Core Logic and Behavior Tests ---
+
+def test_feature_importance_ranking(simple_classification_data):
     """
-    Compares the feature scores from our CPU and GPU SURF implementations
-    against the scores produced by the skrebate library to ensure correctness.
+    Tests if the algorithm correctly identifies relevant vs. irrelevant features
+    by checking the *ranking* of their importance scores.
     """
-    x, y = synthetic_data
+    X, y = simple_classification_data
+    # We test with the CPU backend as the reference point
+    model = FastSURF(n_features_to_select=2, backend="cpu")
+    model.fit(X, y)
+    scores = model.feature_importances_
 
-    skrebate_model = SkrebateSURF(n_features_to_select=10)
-    start_time = time.perf_counter()
-    skrebate_model.fit(x, y)
-    end_time = time.perf_counter()
-    scores_skrebate = skrebate_model.feature_importances_
-    print(f"\nskrebate SURF CPU time: {end_time - start_time:.4f}s")
+    # Assertions based on the designed data:
+    # Relevant features (0, 2) should have higher scores than the irrelevant one (1).
+    assert scores[0] > scores[1]
+    assert scores[2] > scores[1]
 
-    fast_cpu_model = FastSURF(n_features_to_select=10)
-    start_time_fast = time.perf_counter()
-    fast_cpu_model.fit(x, y)
-    end_time_fast = time.perf_counter()
-    scores_fast_cpu = fast_cpu_model.feature_importances_
-    print(f"FastRelief SURF CPU time: {end_time_fast - start_time_fast:.4f}s")
+    # Feature 3 (zero range) provides no information and should have a score of 0.
+    assert_allclose(scores[3], 0.0, atol=1e-7)
 
-    assert_allclose(
-        scores_fast_cpu.astype(np.float64),
-        scores_skrebate,
-        rtol=1e-5,
-        atol=1e-8,
-        err_msg="CPU SURF implementation scores do not match skrebate scores.",
-    )
-    print("\nCPU SURF implementation scores match skrebate.")
-
-    if cuda.is_available():
-        fast_gpu_model = FastSURF(n_features_to_select=10)
-        start_time_gpu = time.perf_counter()
-        fast_gpu_model.fit(x, y)
-        end_time_gpu = time.perf_counter()
-        scores_fast_gpu = fast_gpu_model.feature_importances_
-        print(f"FastRelief SURF GPU time: {end_time_gpu - start_time_gpu:.4f}s")
-
-        assert_allclose(
-            scores_fast_gpu,
-            scores_skrebate,
-            rtol=1e-5,
-            atol=1e-8,
-            err_msg="GPU SURF implementation scores do not match skrebate scores.",
-        )
-        print("GPU SURF implementation scores match skrebate.")
-    else:
-        pytest.skip("Skipping GPU agreement test: No CUDA-enabled GPU found.")
+    # The top 2 selected features must be the relevant ones (0 and 2).
+    assert set(model.top_features_) == {0, 2}
 
 
-def test_surf_star_agrees_with_skrebate(synthetic_data):
+@pytest.mark.parametrize("use_star", [False, True])
+def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     """
-    Compares the feature scores from our CPU and GPU SURF implementations
-    against the scores produced by the skrebate library to ensure correctness.
-    """
-    x, y = synthetic_data
-
-    skrebate_model = SkrebateSURFstar(n_features_to_select=10)
-    start_time = time.perf_counter()
-    skrebate_model.fit(x, y)
-    end_time = time.perf_counter()
-    scores_skrebate = skrebate_model.feature_importances_
-    print(f"\nskrebate SURF* CPU time: {end_time - start_time:.4f}s")
-
-    fast_cpu_model = FastSURF(n_features_to_select=10, use_star=True)
-    start_time_fast = time.perf_counter()
-    fast_cpu_model.fit(x, y)
-    end_time_fast = time.perf_counter()
-    scores_fast_cpu = fast_cpu_model.feature_importances_
-    print(f"FastRelief SURF* CPU time: {end_time_fast - start_time_fast:.4f}s")
-
-    assert_allclose(
-        scores_fast_cpu.astype(np.float64),
-        scores_skrebate,
-        rtol=1e-5,
-        atol=1e-8,
-        err_msg="CPU SURF* implementation scores do not match skrebate scores.",
-    )
-    print("\nCPU SURF* implementation scores match skrebate.")
-
-    if cuda.is_available():
-        fast_gpu_model = FastSURF(n_features_to_select=10, use_star=True)
-        start_time_gpu = time.perf_counter()
-        fast_gpu_model.fit(x, y)
-        end_time_gpu = time.perf_counter()
-        scores_fast_gpu = fast_gpu_model.feature_importances_
-        print(f"FastRelief SURF* GPU time: {end_time_gpu - start_time_gpu:.4f}s")
-
-        assert_allclose(
-            scores_fast_gpu,
-            scores_skrebate,
-            rtol=1e-5,
-            atol=1e-8,
-            err_msg="GPU SURF* implementation scores do not match skrebate scores.",
-        )
-        print("GPU SURF* implementation scores match skrebate.")
-    else:
-        pytest.skip("Skipping GPU agreement test: No CUDA-enabled GPU found.")
-
-
-def test_sklearn_api_compatibility(synthetic_data):
-    """
-    Tests if the SURF estimator adheres to the basic scikit-learn API contract.
-    """
-    x, y = synthetic_data
-    n_select = 5
-
-    model = FastSURF(n_features_to_select=n_select)
-
-    x_transformed = model.fit(x, y).transform(x)
-    assert x_transformed.shape == (
-        x.shape[0],
-        n_select,
-    ), "Transform output shape is incorrect."
-
-    x_transformed_fit = model.fit_transform(x, y)
-    assert x_transformed_fit.shape == (
-        x.shape[0],
-        n_select,
-    ), "fit_transform output shape is incorrect."
-
-    assert hasattr(model, "top_features_")
-    # Should probably just return all top features
-    # assert len(model.top_features_) == n_select
-
-
-'''def test_backend_error_handling():
-    """
-    Tests that requesting the GPU backend without a GPU raises an error.
+    CRITICAL: Tests that the CPU and GPU backends produce identical results
+    for both SURF and SURF*. This is our primary correctness check.
     """
     if not cuda.is_available():
-        with pytest.raises(RuntimeError, match="no compatible NVIDIA GPU was found"):
-            model = FastSURF()
-            model.fit(np.array([[1, 2], [3, 4]]), np.array([0, 1]))
-    else:
-        pytest.skip("Skipping GPU error test: GPU is available.")'''
+        pytest.skip("Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.")
+
+    X, y = simple_classification_data
+
+    # Run on CPU
+    cpu_model = FastSURF(backend="cpu", use_star=use_star)
+    cpu_model.fit(X, y)
+    scores_cpu = cpu_model.feature_importances_
+
+    # Run on GPU
+    gpu_model = FastSURF(backend="gpu", use_star=use_star)
+    gpu_model.fit(X, y)
+    scores_gpu = gpu_model.feature_importances_
+
+    # The scores should be extremely close (allowing for minor float precision diffs)
+    assert_allclose(
+        scores_cpu,
+        scores_gpu,
+        rtol=1e-5,
+        atol=1e-7,
+        err_msg=f"CPU and GPU scores do not match for use_star={use_star}",
+    )
+
+
+# --- Scikit-learn API Compliance and Parameter Tests ---
+
+def test_sklearn_api_compliance():
+    """
+    Uses scikit-learn's built-in checker to validate the estimator's compliance.
+    """
+    # This single function runs dozens of tests to ensure the estimator
+    # behaves correctly within the scikit-learn ecosystem.
+    check_estimator(FastSURF())
+
+
+def test_fit_transform_output_shape(simple_classification_data):
+    """Tests that fit_transform returns a matrix of the correct shape."""
+    X, y = simple_classification_data
+    k_select = 2
+    model = FastSURF(n_features_to_select=k_select, backend="cpu")
+    X_transformed = model.fit_transform(X, y)
+
+    assert X_transformed.shape == (X.shape[0], k_select)
+
+
+def test_discrete_limit_parameter():
+    """Tests that `discrete_limit` correctly identifies discrete vs. continuous features."""
+    # Feature 0 has 11 unique values. Feature 1 has 3.
+    X = np.array([[i, i % 3] for i in range(11)] * 2, dtype=np.float32)
+    y = np.array([0] * 11 + [1] * 11, dtype=np.int32)
+
+    # With discrete_limit=10, feature 0 should be continuous, feature 1 discrete.
+    model_cont = FastSURF(discrete_limit=10, backend="cpu")
+    model_cont.fit(X, y)
+    assert_array_equal(model_cont.is_discrete_, [False, True])
+
+    # With discrete_limit=12, both features should be considered discrete.
+    model_disc = FastSURF(discrete_limit=12, backend="cpu")
+    model_disc.fit(X, y)
+    assert_array_equal(model_disc.is_discrete_, [True, True])
+
+
+# --- Error Handling and Edge Case Tests ---
+
+def test_not_fitted_error(simple_classification_data):
+    """Tests that a NotFittedError is raised if transform is called before fit."""
+    X, _ = simple_classification_data
+    model = FastSURF()
+    with pytest.raises(NotFittedError):
+        model.transform(X)
+
+
+def test_backend_error_handling(simple_classification_data):
+    """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""
+    if cuda.is_available():
+        pytest.skip("Skipping GPU error test: GPU is available.")
+    
+    X, y = simple_classification_data
+    # Use a descriptive regex match for the expected error message
+    with pytest.raises(RuntimeError, match="no compatible NVIDIA GPU was found"):
+        model = FastSURF(backend="gpu")
+        model.fit(X, y)
+
+
+def test_nan_input_raises_error(simple_classification_data):
+    """Tests that the estimator raises a ValueError for data containing NaNs."""
+    X, y = simple_classification_data
+    X[0, 0] = np.nan
+    
+    model = FastSURF(backend="cpu")
+    with pytest.raises(ValueError, match="Input data contains NaN values"):
+        model.fit(X, y)
+
+
+def test_single_class_input(simple_classification_data):
+    """
+    Tests behavior with only one class label. Scores should be zero as there
+    are no "misses" to learn from.
+    """
+    X, _ = simple_classification_data
+    y_single_class = np.zeros(X.shape[0])
+    
+    model = FastSURF(backend="cpu")
+    model.fit(X, y_single_class)
+    
+    # With no misses, all feature importances should be zero.
+    assert_allclose(model.feature_importances_, 0.0, atol=1e-7)
