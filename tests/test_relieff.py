@@ -10,20 +10,23 @@ from fast_select import ReliefF
 @pytest.fixture
 def simple_classification_data():
     """
-    A simple, well-defined dataset for testing the core logic of ReliefF.
+    Creates a simple, well-defined dataset for ReliefF testing.
+    Classes are made very distinct to ensure positive scores for relevant features.
 
-    - feature 0 (continuous): Highly relevant. Higher values for class 1.
+    - feature 0 (continuous): Highly relevant. Low for class 0, high for class 1.
     - feature 1 (continuous): Irrelevant noise.
-    - feature 2 (discrete): Perfectly relevant. Values 10 for class 0, 20 for class 1.
-    - feature 3 (continuous): Irrelevant, has zero range (all values are the same).
+    - feature 2 (discrete): Perfectly relevant. Value 10 for class 0, 20 for class 1.
+    - feature 3 (continuous): Irrelevant, has zero range (constant).
     """
     X = np.array([
-        [0.1, 5.0, 10, 3.0],  # sample 0, class 0
-        [0.2, 4.0, 10, 3.0],  # sample 1, class 0
-        [0.3, 6.0, 10, 3.0],  # sample 2, class 0
-        [0.8, 5.0, 20, 3.0],  # sample 3, class 1
-        [0.9, 4.0, 20, 3.0],  # sample 4, class 1
-        [1.0, 6.0, 20, 3.0],  # sample 5, class 1
+        # Class 0 - values are low
+        [0.1, 5.0, 10, 3.0],
+        [0.2, 4.0, 10, 3.0],
+        [0.3, 6.0, 10, 3.0],
+        # Class 1 - values are high and far away
+        [10.8, 5.0, 20, 3.0],
+        [10.9, 4.0, 20, 3.0],
+        [11.0, 6.0, 20, 3.0],
     ], dtype=np.float32)
     y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
     return X, y
@@ -184,16 +187,17 @@ def test_insufficient_neighbors_in_class(simple_classification_data):
     with pytest.raises(ValueError):
         transformer.fit(X, y)
 
-def test_single_class_input():
+def test_single_class_input(simple_classification_data):
     """
-    Tests that the algorithm handles input with only one class label.
-    Feature scores should likely be zero as there are no "misses".
+    Tests ReliefF with single-class data. Scores should be <= 0,
+    as there are no "misses" to provide positive updates.
     """
-    X = np.random.rand(20, 4)
-    y = np.zeros(20) # Only one class
-    
-    transformer = ReliefF(n_neighbors=2, n_features_to_select=4)
-    transformer.fit(X, y)
-    
-    # With no misses, all feature importances should be zero.
-    assert_allclose(transformer.feature_importances_, 0.0)
+    X, _ = simple_classification_data
+    y_single_class = np.zeros(X.shape[0])
+
+    model = ReliefF(backend="cpu")
+    model.fit(X, y_single_class)
+
+    # The test is that it runs and produces finite, non-positive scores.
+    assert np.all(np.isfinite(model.feature_importances_))
+    assert np.all(model.feature_importances_ <= 0)

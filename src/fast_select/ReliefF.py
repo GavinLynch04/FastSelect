@@ -305,7 +305,8 @@ class ReliefF(BaseEstimator, TransformerMixin):
                 self.n_jobs, self.verbose)
 
         self.feature_importances_ = scores
-        self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
+        n_select = min(self.n_features_to_select, self.n_features_in_)
+        self.top_features_ = np.argsort(scores)[::-1][:n_select]
         return self
 
     def transform(self, x: np.ndarray) -> np.ndarray:

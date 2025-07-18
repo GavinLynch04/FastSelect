@@ -217,19 +217,28 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
                     n_hits += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
-                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        if is_discrete[f]:
+                            diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            diff = abs(x[i, f] - x[j, f]) * recip_full[f]
                         hit_diffs[k] += diff
                 else:
                     n_miss += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
-                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        if is_discrete[f]:
+                            diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            diff = abs(x[i, f] - x[j, f]) * recip_full[f]
                         miss_diffs[k] += diff
             elif use_star and not is_hit:  # FAR MISS
                 for k in range(n_kept):
                     f = feat_idx[k]
-                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                    miss_diffs[k] -= diff  # Subtract the contribution
+                    if is_discrete[f]:
+                        diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                    else:
+                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                    miss_diffs[k] -= diff
 
         if n_hits > 0:
             hit_diffs /= n_hits
@@ -323,7 +332,6 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self.n_jobs = n_jobs
         self.verbose = verbose
 
-
         if self.n_features_to_select < 1:
             raise ValueError("Number of features to select must be less than zero.")
 
@@ -350,9 +358,6 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             
         x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
-        
-        if self.n_features_to_select > self.n_features_in_:
-            raise ValueError("Number of features to select must be less than the number of input features.")
             
         if self.backend == "auto":
             if cuda.is_available():
@@ -403,8 +408,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             )
 
         self.feature_importances_ = scores
-        self.top_features_ = np.argsort(scores)[::-1][: self.n_features_to_select]
-
+        n_select = min(self.n_features_to_select, self.n_features_in_)
+        self.top_features_ = np.argsort(scores)[::-1][:n_select]
         return self
 
     def transform(self, x: np.ndarray) -> np.ndarray:
