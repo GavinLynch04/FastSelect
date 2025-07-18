@@ -242,6 +242,14 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
+        x, y = self._validate_data(
+            x, y,
+            accept_sparse=False,
+            dtype=np.float32,
+            force_all_finite=True,
+            ensure_2d=True
+        )
+        
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
              
@@ -328,8 +336,13 @@ class ReliefF(BaseEstimator, TransformerMixin):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
-        if np.any(np.isnan(x)):
-            raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
+        x = self._validate_data(
+            x,
+            accept_sparse=False,
+            dtype=np.float32,
+            force_all_finite=True,
+            ensure_2d=False
+        )
         check_is_fitted(self)
         x = check_array(x, dtype=np.float32)
         if x.shape[1] != self.n_features_in_:
