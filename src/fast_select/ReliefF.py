@@ -227,6 +227,10 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        if self.n_neighbors < 1:
+            raise ValueError("Number of neighbors must be greater than zero.")
+        if self.n_features_to_select < 1:
+            raise ValueError("Number of features to select must be less than zero.")
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """
@@ -252,12 +256,9 @@ class ReliefF(BaseEstimator, TransformerMixin):
         
         if self.n_features_to_select > self.n_features_in_:
             raise ValueError("Number of features to select must be less than the number of input features.")
-        if self.n_features_to_select < 1:
-            raise ValueError("Number of features to select must be less than zero.")
         if self.n_neighbors >= self.n_features_in_:
             raise ValueError("Number of neighbors must be less than the number of input features.")
-        if self.n_neighbors < 1:
-            raise ValueError("Number of neighbors must be greater than zero.")
+        
         
 
         # Determine discrete features

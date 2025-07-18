@@ -325,6 +325,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
 
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        if self.n_features_to_select < 1:
+            raise ValueError("Number of features to select must be less than zero.")
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """
@@ -348,10 +350,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
         
-        if self.n_features_to_select >= self.n_features_in_:
+        if self.n_features_to_select > self.n_features_in_:
             raise ValueError("Number of features to select must be less than the number of input features.")
-        if self.n_features_to_select < 1:
-            raise ValueError("Number of features to select must be less than zero.")
             
         if self.backend == "auto":
             if cuda.is_available():

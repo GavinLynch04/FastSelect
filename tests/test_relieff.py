@@ -61,7 +61,7 @@ def test_zero_range_feature_handling(simple_classification_data):
     Explicitly test that a feature with zero variance has zero importance.
     """
     X, y = simple_classification_data
-    transformer = ReliefF(n_neighbors=1)
+    transformer = ReliefF(n_neighbors=1, n_features_to_select=4)
     transformer.fit(X, y)
     
     # Feature 3 was designed to have a range of 0.
@@ -78,7 +78,7 @@ def test_sklearn_api_compliance():
     clonability, and expected behavior on various inputs.
     """
     # check_estimator will instantiate the class, so we pass the class itself.
-    check_estimator(ReliefF())
+    check_estimator(ReliefF(n_features_to_select=1, n_neighbors=1))
 
 def test_fit_transform_output_shape(simple_classification_data):
     """
@@ -86,7 +86,7 @@ def test_fit_transform_output_shape(simple_classification_data):
     """
     X, y = simple_classification_data
     k_select = 2
-    transformer = ReliefF(n_features_to_select=k_select)
+    transformer = ReliefF(n_features_to_select=k_select, n_neighbors=2)
     
     X_transformed = transformer.fit_transform(X, y)
     
@@ -101,7 +101,7 @@ def test_n_neighbors_parameter(simple_classification_data):
     """
     X, y = simple_classification_data
     # Test with k=2. The fixture has 3 samples per class, so this is valid.
-    transformer = ReliefF(n_neighbors=2)
+    transformer = ReliefF(n_neighbors=2, n_features_to_select=2)
     transformer.fit(X, y)
     
     assert hasattr(transformer, 'feature_importances_')
@@ -117,13 +117,13 @@ def test_discrete_limit_parameter():
 
     # With discrete_limit=10, feature 0 should be continuous.
     # The internal `is_discrete` array should be [False, True]
-    rf_cont = ReliefF(discrete_limit=10)
+    rf_cont = ReliefF(discrete_limit=10, n_features_to_select=2)
     rf_cont.fit(X, y)
     assert_array_equal(rf_cont.is_discrete_, [False, True])
 
     # With discrete_limit=12, both features should be discrete.
     # The internal `is_discrete` array should be [True, True]
-    rf_disc = ReliefF(discrete_limit=12)
+    rf_disc = ReliefF(discrete_limit=12, n_features_to_select=2)
     rf_disc.fit(X, y)
     assert_array_equal(rf_disc.is_discrete_, [True, True])
 
