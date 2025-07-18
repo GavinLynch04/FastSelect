@@ -246,8 +246,15 @@ class ReliefF(BaseEstimator, TransformerMixin):
         """
         if np.any(np.isnan(x)) or np.any(np.isnan(y)):
             raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
+             
         x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
+        
+        if self.n_features_to_select >= self.n_features_in_:
+            raise ValueError("Number of features to select must be less than the number of input features.")
+        if self.n_neighbors >= self.n_features_in_:
+            raise ValueError("Number of neighbors must be less than the number of input features.")
+        
 
         # Determine discrete features
         is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
