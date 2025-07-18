@@ -183,7 +183,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         The limit for the number of independent feature values to be considered
         discrete or continuous (affects distance calculation).
 
-    k_neighbors : int, default=10
+    n_neighbors : int, default=10
         The number of nearest neighbors to use for score calculation.
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
@@ -213,14 +213,14 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self,
         n_features_to_select: int = 10,
         discrete_limit: int = 10,
-        k_neighbors: int = 10,
+        n_neighbors: int = 10,
         backend: str = "auto",
         verbose: bool = False,
         n_jobs: int = -1,
     ):
         self.n_features_to_select = n_features_to_select
         self.discrete_limit = discrete_limit
-        self.k_neighbors = k_neighbors
+        self.n_neighbors = n_neighbors
         self.backend = backend
         self.verbose = verbose
         self.n_jobs = n_jobs
@@ -283,13 +283,13 @@ class ReliefF(BaseEstimator, TransformerMixin):
             if self.verbose:
                 print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
-                x_d, y_d, recip_d, is_discrete_d, self.k_neighbors)
+                x_d, y_d, recip_d, is_discrete_d, self.n_neighbors)
         else:
             if self.verbose:
                 print("Running ReliefF on the CPU now...")
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
-                is_discrete, self.k_neighbors, class_probs.astype(np.float32),
+                is_discrete, self.n_neighbors, class_probs.astype(np.float32),
                 self.n_jobs, self.verbose)
 
         self.feature_importances_ = scores
