@@ -243,11 +243,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         x, y = validate_data(
-            x, y,
-            accept_sparse=False,
-            dtype=np.float32,
-            force_all_finite=True,
-            ensure_2d=True
+            self, x, y,
         )
         
         if self.backend not in ["auto", "gpu", "cpu"]:
@@ -337,11 +333,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
             The input samples with only the selected features.
         """
         x = validate_data(
-            x,
-            accept_sparse=False,
-            dtype=np.float32,
-            force_all_finite=True,
-            ensure_2d=False
+            self, x,
         )
         check_is_fitted(self)
         x = check_array(x, dtype=np.float32)

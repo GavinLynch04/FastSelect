@@ -5,7 +5,7 @@ import numpy as np
 from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted,check_X_y
+from sklearn.utils.validation import check_array, check_is_fitted,check_X_y, validate_data
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
 TPB = 64  # Threads Per Block
@@ -349,11 +349,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         x, y = validate_data(
-            x, y,
-            accept_sparse=False,
-            dtype=np.float32,
-            force_all_finite=True,
-            ensure_2d=True
+            self, x, y,
         )
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
@@ -429,11 +425,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             The input samples with only the selected features.
         """
         x = validate_data(
-            x,
-            accept_sparse=False,
-            dtype=np.float32,
-            force_all_finite=True,
-            ensure_2d=False
+            self, x,
         )
         check_is_fitted(self)
 
