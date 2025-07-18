@@ -332,9 +332,6 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self.n_jobs = n_jobs
         self.verbose = verbose
 
-        if self.n_features_to_select < 1:
-            raise ValueError("Number of features to select must be less than zero.")
-
     def fit(self, x: np.ndarray, y: np.ndarray):
         """
         Calculates feature importances using the MultiSURF algorithm on a GPU/CPU.
@@ -353,8 +350,6 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         """
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
-        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
-            raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
             
         x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]

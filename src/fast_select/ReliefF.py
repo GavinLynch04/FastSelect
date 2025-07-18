@@ -225,11 +225,6 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.n_jobs = n_jobs
 
-        
-        if self.n_neighbors < 1:
-            raise ValueError("Number of neighbors must be greater than zero.")
-        if self.n_features_to_select < 1:
-            raise ValueError("Number of features to select must be less than zero.")
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """
@@ -252,13 +247,23 @@ class ReliefF(BaseEstimator, TransformerMixin):
              
         x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
+        n_samples = x.shape[0]
         
-        if self.n_features_to_select > self.n_features_in_:
-            raise ValueError("Number of features to select must be less than the number of input features.")
-        if self.n_neighbors >= self.n_features_in_:
-            raise ValueError("Number of neighbors must be less than the number of input features.")
-        
-        
+        if not (0 < self.n_neighbors < n_samples):
+            raise ValueError(
+                f"n_neighbors ({self.n_neighbors}) must be an integer "
+                f"between 1 and n_samples - 1 ({n_samples - 1})."
+            )
+            
+        _, y_encoded = np.unique(y, return_inverse=True)
+        min_class_size = np.min(np.bincount(y_encoded))
+        if self.n_neighbors >= min_class_size:
+            warnings.warn(
+                f"n_neighbors ({self.n_neighbors}) is greater than or equal to the "
+                f"smallest class size ({min_class_size}). The number of hits found "
+                f"for each sample will be capped by (class_size - 1).",
+                UserWarning
+            )
 
         # Determine discrete features
         is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
