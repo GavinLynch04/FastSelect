@@ -323,8 +323,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self.n_jobs = n_jobs
         self.verbose = verbose
 
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+
         if self.n_features_to_select < 1:
             raise ValueError("Number of features to select must be less than zero.")
 
@@ -344,6 +343,8 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
+        if self.backend not in ["auto", "gpu", "cpu"]:
+            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
         if np.any(np.isnan(x)) or np.any(np.isnan(y)):
             raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
             

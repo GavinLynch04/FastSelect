@@ -78,7 +78,7 @@ def test_sklearn_api_compliance():
     clonability, and expected behavior on various inputs.
     """
     # check_estimator will instantiate the class, so we pass the class itself.
-    check_estimator(ReliefF(n_features_to_select=1, n_neighbors=1, backend='cpu'))
+    check_estimator(ReliefF())
 
 def test_fit_transform_output_shape(simple_classification_data):
     """
@@ -123,7 +123,7 @@ def test_discrete_limit_parameter():
 
     # With discrete_limit=12, both features should be discrete.
     # The internal `is_discrete` array should be [True, True]
-    rf_disc = ReliefF(discrete_limit=12, n_features_to_select=2)
+    rf_disc = ReliefF(discrete_limit=12, n_features_to_select=2, n_neighbors=1)
     rf_disc.fit(X, y)
     assert_array_equal(rf_disc.is_discrete_, [True, True])
 
@@ -192,7 +192,7 @@ def test_single_class_input():
     X = np.random.rand(20, 4)
     y = np.zeros(20) # Only one class
     
-    transformer = ReliefF()
+    transformer = ReliefF(n_neighbors=2, n_features_to_select=4)
     transformer.fit(X, y)
     
     # With no misses, all feature importances should be zero.

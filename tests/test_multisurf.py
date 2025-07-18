@@ -99,7 +99,7 @@ def test_sklearn_api_compliance():
     This is a powerful test that checks for dozens of common API requirements.
     """
     # Note: This will only test the default backend ('auto').
-    check_estimator(FastMultiSURF(n_features_to_select=2))
+    check_estimator(FastMultiSURF())
 
 
 def test_fit_transform_output_shape(simple_classification_data):

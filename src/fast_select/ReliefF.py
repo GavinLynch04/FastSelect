@@ -225,8 +225,7 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.n_jobs = n_jobs
 
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        
         if self.n_neighbors < 1:
             raise ValueError("Number of neighbors must be greater than zero.")
         if self.n_features_to_select < 1:
@@ -248,8 +247,8 @@ class ReliefF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        if np.any(np.isnan(x)) or np.any(np.isnan(y)):
-            raise ValueError("Input data contains NaN values. Please handle missing data before passing it.")
+        if self.backend not in ["auto", "gpu", "cpu"]:
+            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
              
         x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
