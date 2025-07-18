@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
-from fast_select import Chi2 as chi2_numba
+from fast_select import chi2 as chi2_numba
 
 
 @pytest.fixture(scope="module")

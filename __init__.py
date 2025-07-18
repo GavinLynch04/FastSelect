@@ -1,6 +1,6 @@
 from src.fast_select.ReliefF import ReliefF
 from src.fast_select.SURF import SURF
 from src.fast_select.MultiSURF import MultiSURF
-from src.fast_select.Chi2 import Chi2
+from src.fast_select.chi2 import chi2
 
-__all__ = ['ReliefF', 'SURF', 'MultiSURF', 'Chi2']
+__all__ = ['ReliefF', 'SURF', 'MultiSURF', 'chi2']

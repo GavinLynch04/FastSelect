@@ -4,7 +4,7 @@ from numpy.testing import assert_array_equal, assert_allclose
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
 
-from src.fast_select.ReliefF import ReliefF
+from fast_select import ReliefF
 
 
 @pytest.fixture

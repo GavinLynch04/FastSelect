@@ -5,7 +5,7 @@ from numba import cuda
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
 
-from src.fast_select.SURF import SURF as FastSURF
+from fast_select import SURF as FastSURF
 
 
 @pytest.fixture(scope="module")
