@@ -4,6 +4,7 @@ from numpy.testing import assert_array_equal, assert_allclose
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
 from fast_select import chi2 as chi2_numba
+from sklearn.feature_selection import chi2 as sklearn_chi2
 
 
 @pytest.fixture(scope="module")
