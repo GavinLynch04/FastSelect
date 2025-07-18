@@ -195,7 +195,7 @@ def test_single_class_input(simple_classification_data):
     X, _ = simple_classification_data
     y_single_class = np.zeros(X.shape[0])
 
-    model = ReliefF(backend="cpu")
+    model = ReliefF(backend="cpu", n_neighbors=2)
     model.fit(X, y_single_class)
 
     # The test is that it runs and produces finite, non-positive scores.

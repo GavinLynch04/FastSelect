@@ -4,6 +4,7 @@ from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_t
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted, check_X_y, validate_data
 import time
+import warnings
 
 TPB = 64  # Threads‑per‑block for CUDA kernels, potentially expose to user
 
