@@ -78,7 +78,7 @@ def test_sklearn_api_compliance():
     clonability, and expected behavior on various inputs.
     """
     # check_estimator will instantiate the class, so we pass the class itself.
-    check_estimator(ReliefF(n_features_to_select=1, n_neighbors=1))
+    check_estimator(ReliefF(n_features_to_select=1, n_neighbors=1, backend='cpu'))
 
 def test_fit_transform_output_shape(simple_classification_data):
     """
@@ -117,7 +117,7 @@ def test_discrete_limit_parameter():
 
     # With discrete_limit=10, feature 0 should be continuous.
     # The internal `is_discrete` array should be [False, True]
-    rf_cont = ReliefF(discrete_limit=10, n_features_to_select=2)
+    rf_cont = ReliefF(discrete_limit=10, n_features_to_select=2, n_neighbors=1)
     rf_cont.fit(X, y)
     assert_array_equal(rf_cont.is_discrete_, [False, True])
 
@@ -165,7 +165,7 @@ def test_transform_with_wrong_n_features(simple_classification_data):
     features than the data used for fitting.
     """
     X, y = simple_classification_data
-    transformer = ReliefF().fit(X, y)
+    transformer = ReliefF(n_features_to_select=4, n_neighbors=2).fit(X, y)
     
     # Create a new X with one fewer feature column
     X_bad_shape = X[:, :-1]
@@ -176,16 +176,13 @@ def test_transform_with_wrong_n_features(simple_classification_data):
 def test_insufficient_neighbors_in_class(simple_classification_data):
     """
     Tests behavior when k is larger than the number of available samples
-    in a class for hits or misses. The algorithm should still run.
+    in a class for hits or misses. The algorithm should error.
     """
     X, y = simple_classification_data
-    # There are only 3 samples in each class. Requesting 5 neighbors is impossible.
-    # A robust implementation should gracefully use the max available (3).
+
     transformer = ReliefF(n_neighbors=5)
-    
-    # The main test is that this runs without crashing.
-    transformer.fit(X, y)
-    assert transformer.feature_importances_ is not None
+    with pytest.raises(ValueError):
+        transformer.fit(X, y)
 
 def test_single_class_input():
     """

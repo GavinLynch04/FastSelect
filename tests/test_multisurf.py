@@ -99,7 +99,7 @@ def test_sklearn_api_compliance():
     This is a powerful test that checks for dozens of common API requirements.
     """
     # Note: This will only test the default backend ('auto').
-    check_estimator(FastMultiSURF())
+    check_estimator(FastMultiSURF(n_features_to_select=2))
 
 
 def test_fit_transform_output_shape(simple_classification_data):
@@ -120,12 +120,12 @@ def test_discrete_limit_parameter():
 
     # With discrete_limit=10, feature 0 should be continuous, feature 1 discrete.
     # The internal `is_discrete_` attribute should reflect this.
-    model_cont = FastMultiSURF(discrete_limit=10, backend="cpu")
+    model_cont = FastMultiSURF(discrete_limit=10, backend="cpu", n_features_to_select=2)
     model_cont.fit(X, y)
     assert_array_equal(model_cont.is_discrete_, [False, True])
 
     # With discrete_limit=12, both features should be considered discrete.
-    model_disc = FastMultiSURF(discrete_limit=12, backend="cpu")
+    model_disc = FastMultiSURF(discrete_limit=12, backend="cpu", n_features_to_select=2)
     model_disc.fit(X, y)
     assert_array_equal(model_disc.is_discrete_, [True, True])
 
@@ -147,7 +147,7 @@ def test_backend_error_handling(simple_classification_data):
     
     X, y = simple_classification_data
     with pytest.raises(RuntimeError, match="no compatible NVIDIA GPU"):
-        model = FastMultiSURF(backend="gpu")
+        model = FastMultiSURF(backend="gpu", n_features_to_select=2)
         model.fit(X, y)
 
 
@@ -156,7 +156,7 @@ def test_nan_input_raises_error(simple_classification_data):
     X, y = simple_classification_data
     X[0, 0] = np.nan
     
-    model = FastMultiSURF(backend="cpu")
+    model = FastMultiSURF(backend="cpu", n_features_to_select=2)
     with pytest.raises(ValueError, match="Input data contains NaN values"):
         model.fit(X, y)
 
@@ -169,7 +169,7 @@ def test_single_class_input(simple_classification_data):
     X, _ = simple_classification_data
     y_single_class = np.zeros(X.shape[0])
     
-    model = FastMultiSURF(backend="cpu")
+    model = FastMultiSURF(backend="cpu", n_features_to_select=4)
     model.fit(X, y_single_class)
     
     # With no misses, all feature importances should be zero.
