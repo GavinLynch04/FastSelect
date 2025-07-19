@@ -153,11 +153,13 @@ def test_backend_error_handling(simple_classification_data):
 
 def test_nan_input_raises_error(simple_classification_data):
     """Tests that the estimator raises a ValueError for data containing NaNs."""
-    X, y = simple_classification_data
+    X_orig, y = simple_classification_data
+
+    X = X_orig.copy()
     X[0, 0] = np.nan
-    
+
     model = FastMultiSURF(backend="cpu", n_features_to_select=2)
-    with pytest.raises(ValueError, match="Input data contains NaN values"):
+    with pytest.raises(ValueError, match="Input X contains NaN"):
         model.fit(X, y)
 
 

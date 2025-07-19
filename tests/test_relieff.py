@@ -144,7 +144,7 @@ def test_not_fitted_error(simple_classification_data):
         transformer.transform(X)
 
 @pytest.mark.parametrize("bad_k", [-1, 0])
-def test_invalid_n_neighbors_raises_error(bad_k):
+def test_invalid_n_neighbors_raises_error(simple_classification_data, bad_k):
     """
     Tests that an invalid n_neighbors value raises a ValueError.
     """

@@ -169,7 +169,7 @@ def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, 
     return scores / n_samples
 
 
-class ReliefF(BaseEstimator, TransformerMixin):
+class ReliefF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the ReliefF algorithm.
 
     This estimator provides a unified API for running ReliefF on either
@@ -177,14 +177,17 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     Parameters
     ----------
-    n_features_to_select : int, default=10
-        The number of top features to select.
+    n_features_to_select : int | float, default=0.2
+        The number of top features to select. If variable is a float, that percent
+        of features will be selected (0.2 = 20% of features will be returned from transform
+        or fit_transform). If variable is an int, that number of features will be
+        returned.
 
     discrete_limit : int, default=10
         The limit for the number of independent feature values to be considered
         discrete or continuous (affects distance calculation).
 
-    n_neighbors : int, default=10
+    n_neighbors : int, default=3
         The number of nearest neighbors to use for score calculation.
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
@@ -212,9 +215,9 @@ class ReliefF(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        n_features_to_select: int = 10,
+        n_features_to_select: int | float = 0.2,
         discrete_limit: int = 10,
-        n_neighbors: int = 10,
+        n_neighbors: int = 3,
         backend: str = "auto",
         verbose: bool = False,
         n_jobs: int = -1,
@@ -244,15 +247,39 @@ class ReliefF(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         x, y = validate_data(
-            self, x, y,
+            self, x, y ,dtype=np.float64, ensure_2d=True, y_numeric=True,
         )
         
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
              
-        x, y = check_X_y(x, y, dtype=np.float64, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
+
+        if n_samples < 2:
+            raise ValueError(
+                f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}"
+            )
+        if isinstance(self.n_features_to_select, float):
+            if not 0.0 < self.n_features_to_select <= 1.0:
+                raise ValueError(
+                    "If n_features_to_select is a float, it must be in (0, 1]."
+                )
+            # Ensure at least 1 feature is selected
+            n_select = max(1, int(self.n_features_to_select * self.n_features_in_))
+
+        elif isinstance(self.n_features_to_select, int):
+            if not 0 < self.n_features_to_select <= self.n_features_in_:
+                raise ValueError(
+                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
+                    f"it must be > 0 and <= n_features ({self.n_features_in_})."
+                )
+            n_select = self.n_features_to_select
+
+        else:
+            raise TypeError(
+                "n_features_to_select must be an int or a float."
+            )
         
         if not (0 < self.n_neighbors < n_samples):
             raise ValueError(
@@ -263,6 +290,11 @@ class ReliefF(BaseEstimator, TransformerMixin):
             raise ValueError(
                 "n_features_to_select must be a positive integer, "
                 f"but got {self.n_features_to_select}."
+            )
+        if self.n_features_to_select > self.n_features_in_:
+            raise ValueError(
+                f"n_features_to_select ({self.n_features_to_select}) cannot be "
+                f"greater than the number of features ({self.n_features_in_})."
             )
         
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
@@ -331,7 +363,6 @@ class ReliefF(BaseEstimator, TransformerMixin):
                 self.n_jobs, self.verbose)
 
         self.feature_importances_ = scores
-        n_select = min(self.n_features_to_select, self.n_features_in_)
         self.top_features_ = np.argsort(scores)[::-1][:n_select]
         return self
 
@@ -351,9 +382,11 @@ class ReliefF(BaseEstimator, TransformerMixin):
         """
         x = validate_data(
             self, x,
+            reset=False,
         )
         check_is_fitted(self)
-        x = check_array(x, dtype=np.float32)
+        x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
+
         if x.shape[1] != self.n_features_in_:
             raise ValueError(
                 f"x has {x.shape[1]} features, but "

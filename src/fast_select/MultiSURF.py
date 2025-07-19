@@ -268,7 +268,7 @@ def _multisurf_cpu_host_caller(x, y, recip_full, feat_idx, use_star, is_discrete
     return scores / n_samples
 
 
-class MultiSURF(BaseEstimator, TransformerMixin):
+class MultiSURF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the MultiSURF algorithm.
 
     This estimator provides a unified API for running MultiSURF on either
@@ -318,7 +318,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        n_features_to_select: int = 10,
+        n_features_to_select: int | float = 0.2,
         backend: str = "auto",
         use_star: bool = False,
         discrete_limit: int = 10,
@@ -349,14 +349,18 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         x, y = validate_data(
-            self, x, y,
+            self, x, y, y_numeric=True, dtype=np.float64
         )
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
             
-        x, y = check_X_y(x, y, dtype=np.float32, ensure_2d=True)
         self.n_features_in_ = x.shape[1]
-            
+        n_samples = x.shape[0]
+
+        if n_samples < 2:
+            raise ValueError(
+                f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}"
+            )
         if self.backend == "auto":
             if cuda.is_available():
                 self.effective_backend_ = "gpu"
@@ -371,6 +375,26 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             self.effective_backend_ = "gpu"
         else:
             self.effective_backend_ = "cpu"
+        if isinstance(self.n_features_to_select, float):
+            if not 0.0 < self.n_features_to_select <= 1.0:
+                raise ValueError(
+                    "If n_features_to_select is a float, it must be in (0, 1]."
+                )
+            # Ensure at least 1 feature is selected
+            n_select = max(1, int(self.n_features_to_select * self.n_features_in_))
+
+        elif isinstance(self.n_features_to_select, int):
+            if not 0 < self.n_features_to_select <= self.n_features_in_:
+                raise ValueError(
+                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
+                    f"it must be > 0 and <= n_features ({self.n_features_in_})."
+                )
+            n_select = self.n_features_to_select
+
+        else:
+            raise TypeError(
+                "n_features_to_select must be an int or a float."
+            )
 
         feature_ranges = _compute_ranges(x)
 
@@ -406,7 +430,6 @@ class MultiSURF(BaseEstimator, TransformerMixin):
             )
 
         self.feature_importances_ = scores
-        n_select = min(self.n_features_to_select, self.n_features_in_)
         self.top_features_ = np.argsort(scores)[::-1][:n_select]
         return self
 
@@ -430,7 +453,7 @@ class MultiSURF(BaseEstimator, TransformerMixin):
         )
         check_is_fitted(self)
 
-        x = check_array(x, dtype=np.float32)
+        x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
         if x.shape[1] != self.n_features_in_:
             raise ValueError(
                 f"x has {x.shape[1]} features, but {self.__class__.__name__} "
