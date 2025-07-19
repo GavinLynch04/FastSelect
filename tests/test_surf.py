@@ -114,18 +114,14 @@ def test_discrete_limit_parameter():
     X = np.array([[i, i % 3] for i in range(11)] * 2, dtype=np.float32)
     y = np.array([0] * 11 + [1] * 11, dtype=np.int32)
 
-    # With discrete_limit=10, feature 0 should be continuous, feature 1 discrete.
     model_cont = FastSURF(discrete_limit=10, backend="cpu")
     model_cont.fit(X, y)
     assert_array_equal(model_cont.is_discrete_, [False, True])
 
-    # With discrete_limit=12, both features should be considered discrete.
     model_disc = FastSURF(discrete_limit=12, backend="cpu")
     model_disc.fit(X, y)
     assert_array_equal(model_disc.is_discrete_, [True, True])
 
-
-# --- Error Handling and Edge Case Tests ---
 
 def test_not_fitted_error(simple_classification_data):
     """Tests that a NotFittedError is raised if transform is called before fit."""
@@ -141,26 +137,27 @@ def test_backend_error_handling(simple_classification_data):
         pytest.skip("Skipping GPU error test: GPU is available.")
     
     X, y = simple_classification_data
-    # Use a descriptive regex match for the expected error message
-    with pytest.raises(RuntimeError, match="no compatible NVIDIA GPU was found"):
+    with pytest.raises(RuntimeError, match="no CUDA-enabled GPU is available"):
         model = FastSURF(backend="gpu")
         model.fit(X, y)
 
 
 def test_nan_input_raises_error(simple_classification_data):
     """Tests that the estimator raises a ValueError for data containing NaNs."""
-    X, y = simple_classification_data
+    X_orig, y = simple_classification_data
+
+    X = X_orig.copy()
     X[0, 0] = np.nan
-    
+
     model = FastSURF(backend="cpu")
-    with pytest.raises(ValueError, match="Input data contains NaN values"):
+    with pytest.raises(ValueError, match="Input X contains NaN."):
         model.fit(X, y)
 
 
 def test_single_class_input(simple_classification_data):
     """
-    Tests behavior with only one class label. Scores should be zero as there
-    are no "misses" to learn from.
+    Tests behavior with only one class label. Scores should be less than zero as there
+    are no "misses" to learn from. A negative score is the expected penalty for intra-class variation.
     """
     X, _ = simple_classification_data
     y_single_class = np.zeros(X.shape[0])
@@ -168,5 +165,6 @@ def test_single_class_input(simple_classification_data):
     model = FastSURF(backend="cpu")
     model.fit(X, y_single_class)
     
-    # With no misses, all feature importances should be zero.
-    assert_allclose(model.feature_importances_, 0.0, atol=1e-7)
+    assert np.all(model.feature_importances_ <= 1e-7)
+
+

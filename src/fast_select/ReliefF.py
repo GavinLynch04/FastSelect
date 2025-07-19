@@ -95,6 +95,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
     temp = np.zeros((n_samples, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
+        # --- Distance Calculation ---
         dists = np.empty(n_samples, dtype=np.float32)
         for j in range(n_samples):
             if i == j:
@@ -107,12 +108,15 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 else:
                     d += abs(x[i, f] - x[j, f]) * recip_full[f]
             dists[j] = d
+
+        # --- Neighbor Finding ---
         order = np.argsort(dists)
         lbl_i = y_enc[i]
         hits = np.empty(k, dtype=np.int32)
         misses = np.empty((n_classes, k), dtype=np.int32)
         h_found = 0
         m_found = np.zeros(n_classes, dtype=np.int32)
+
         for idx in order:
             lbl = y_enc[idx]
             if lbl == lbl_i:
@@ -123,36 +127,58 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 if m_found[lbl] < k:
                     misses[lbl, m_found[lbl]] = idx
                     m_found[lbl] += 1
-            if h_found == k and (m_found >= k).all(): break
+            if h_found == k and (m_found >= k).all():
+                break
+
+        # --- Score Update Calculation ---
         denom = 1.0 - class_probs[lbl_i]
+        if denom == 0:  # Add guard for single-class case
+            denom = 1.0
+
         for f in range(n_features):
-            h_sum = 0.0
+            # --- Hit Contribution ---
+            hit_sum = 0.0
             for ki in range(h_found):
                 j = hits[ki]
                 if is_discrete[f]:
-                    h_sum += 1.0 if x[i, f] != x[j, f] else 0.0
+                    hit_sum += 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
-                    h_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
-            h_avg = h_sum / k
-            m_total = 0.0
+                    hit_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
+
+            # --- Miss Contribution ---
+            miss_sum = 0.0
             for c in range(n_classes):
-                if c == lbl_i or m_found[c] == 0: continue
+                if c == lbl_i:
+                    continue
+
                 weight = class_probs[c] / denom
-                m_sum = 0.0
+
+                # Sum diffs for this miss class
+                current_miss_sum = 0.0
                 for ki in range(m_found[c]):
                     j = misses[c, ki]
                     if is_discrete[f]:
-                        m_sum += 1.0 if x[i, f] != x[j, f] else 0.0
+                        current_miss_sum += 1.0 if x[i, f] != x[j, f] else 0.0
                     else:
-                        m_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
-                m_avg = m_sum / k
-                m_total += weight * m_avg
-            temp[i, f] = m_total - h_avg
+                        current_miss_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
 
+                # Weight the sum and add to total miss sum
+                miss_sum += weight * current_miss_sum
+
+            # Final update for feature 'f' using number of neighbors found
+            update = 0.0
+            if h_found > 0:
+                update -= hit_sum / h_found
+            if k > 0:  # Denominator for miss term is always k
+                update += miss_sum / k
+
+            temp[i, f] = update
+
+    # Aggregate scores from all instances
     for f in range(n_features):
         scores_out[f] = temp[:, f].sum()
 
-def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs, verbose):
+def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs, discrete_weights):
     n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
     
@@ -229,123 +255,96 @@ class ReliefF(TransformerMixin, BaseEstimator):
         self.verbose = verbose
         self.n_jobs = n_jobs
 
-
-    def fit(self, x: np.ndarray, y: np.ndarray):
-        """
-        Calculates feature importances using the ReliefF algorithm on a GPU/CPU.
-
-        Parameters
-        ----------
-        x : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target values (class labels).
-
-        Returns
-        -------
-        self : object
-            Returns the instance itself.
-        """
-        x, y = validate_data(
-            self, x, y ,dtype=np.float64, ensure_2d=True, y_numeric=True,
-        )
-        
+    def _validate_parameters(self, n_samples, n_features):
+        """Validate all user-provided parameters."""
+        # Backend check
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
-             
-        self.n_features_in_ = x.shape[1]
-        n_samples = x.shape[0]
 
+        # Sample count check
         if n_samples < 2:
             raise ValueError(
                 f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}"
             )
-        if isinstance(self.n_features_to_select, float):
-            if not 0.0 < self.n_features_to_select <= 1.0:
-                raise ValueError(
-                    "If n_features_to_select is a float, it must be in (0, 1]."
-                )
-            # Ensure at least 1 feature is selected
-            n_select = max(1, int(self.n_features_to_select * self.n_features_in_))
 
-        elif isinstance(self.n_features_to_select, int):
-            if not 0 < self.n_features_to_select <= self.n_features_in_:
-                raise ValueError(
-                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
-                    f"it must be > 0 and <= n_features ({self.n_features_in_})."
-                )
-            n_select = self.n_features_to_select
-
-        else:
-            raise TypeError(
-                "n_features_to_select must be an int or a float."
-            )
-        
+        # n_neighbors check
         if not (0 < self.n_neighbors < n_samples):
             raise ValueError(
                 f"n_neighbors ({self.n_neighbors}) must be an integer "
                 f"between 1 and n_samples - 1 ({n_samples - 1})."
             )
-        if self.n_features_to_select <= 0:
-            raise ValueError(
-                "n_features_to_select must be a positive integer, "
-                f"but got {self.n_features_to_select}."
-            )
-        if self.n_features_to_select > self.n_features_in_:
-            raise ValueError(
-                f"n_features_to_select ({self.n_features_to_select}) cannot be "
-                f"greater than the number of features ({self.n_features_in_})."
-            )
-        
+
+        # n_features_to_select check (handles both int and float)
+        if isinstance(self.n_features_to_select, float):
+            if not 0.0 < self.n_features_to_select <= 1.0:
+                raise ValueError(
+                    "If n_features_to_select is a float, it must be in (0, 1]."
+                )
+            n_select = max(1, int(self.n_features_to_select * n_features))
+        elif isinstance(self.n_features_to_select, int):
+            if not 0 < self.n_features_to_select <= n_features:
+                raise ValueError(
+                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
+                    f"it must be > 0 and <= n_features ({n_features})."
+                )
+            n_select = self.n_features_to_select
+        else:
+            raise TypeError("n_features_to_select must be an int or a float.")
+
+        return n_select
+
+
+    def fit(self, x: np.ndarray, y: np.ndarray):
+        """
+        Calculates feature importances using the ReliefF algorithm on a GPU/CPU.
+        ... (docstring remains the same) ...
+        """
+        x, y = validate_data(
+            self, x, y, dtype=np.float64, ensure_2d=True, y_numeric=True,
+        )
+        self.n_features_in_ = x.shape[1]
+        n_samples = x.shape[0]
+
+        n_select = self._validate_parameters(n_samples, self.n_features_in_)
+
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
         if len(self.classes_) < 2:
-            # If only one class is present, no feature is useful.
             self.feature_importances_ = np.zeros(self.n_features_in_, dtype=np.float32)
-            n_select = min(self.n_features_to_select, self.n_features_in_)
-            # Select the first n_select features by default.
             self.top_features_ = np.arange(n_select)
-            # Set effective_backend_ for completeness
             self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
             return self
-            
-        _, y_encoded = np.unique(y, return_inverse=True)
+
         min_class_size = np.min(np.bincount(y_encoded))
         if self.n_neighbors >= min_class_size:
             warnings.warn(
                 f"n_neighbors ({self.n_neighbors}) is greater than or equal to the "
-                f"smallest class size ({min_class_size}). The number of hits found "
-                f"for each sample will be capped by (class_size - 1).",
+                f"smallest class size ({min_class_size}).",
                 UserWarning
             )
 
-        # Determine discrete features
-        is_discrete = np.zeros(self.n_features_in_, dtype=np.bool_)
+        is_discrete = np.array([
+            np.unique(x[:, f]).size <= self.discrete_limit for f in range(self.n_features_in_)
+        ], dtype=bool)
         self.is_discrete_ = is_discrete
-        for f in range(self.n_features_in_):
-            if np.unique(x[:, f]).size <= self.discrete_limit:
-                is_discrete[f] = True
 
-        # Class encoding and probabilities
+        discrete_weights = np.ones(self.n_features_in_, dtype=np.float32)
+
         class_labels, class_counts = np.unique(y, return_counts=True)
         class_probs = class_counts / len(y)
         y_enc = np.searchsorted(class_labels, y)
 
-        # Feature range reciprocals (continuous only)
         feature_ranges = x.max(axis=0) - x.min(axis=0)
         feature_ranges[is_discrete] = 1.0
-        feature_ranges[feature_ranges == 0] = 1.0  # avoid div/0
+        feature_ranges[feature_ranges == 0] = 1.0
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
-        # Select backend
         if self.backend == "auto":
             self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
         else:
-            if self.backend == "gpu" and not cuda.is_available():
-                    raise RuntimeError("CUDA GPU not detected. Install NVIDIA CUDA toolkit or "
-                       "use `backend='cpu'` instead.")
             self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
+            # NOTE: GPU path does not currently use discrete_weights
             x_d = cuda.to_device(x.astype(np.float32))
             y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)
@@ -354,13 +353,14 @@ class ReliefF(TransformerMixin, BaseEstimator):
                 print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
                 x_d, y_d, recip_d, is_discrete_d, self.n_neighbors)
-        else:
+        else: # CPU
             if self.verbose:
                 print("Running ReliefF on the CPU now...")
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
                 is_discrete, self.n_neighbors, class_probs.astype(np.float32),
-                self.n_jobs, self.verbose)
+                self.n_jobs, discrete_weights
+            )
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][:n_select]
