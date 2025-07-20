@@ -40,7 +40,7 @@ def test_feature_importance_ranking(simple_classification_data):
     We don't check exact values, but we check the *ranking* of the importances.
     """
     X, y = simple_classification_data
-    transformer = ReliefF(n_neighbors=1, n_features_to_select=2)
+    transformer = ReliefF(n_neighbors=1, n_features_to_select=2, discrete_limit=4)
     transformer.fit(X, y)
     
     scores = transformer.feature_importances_

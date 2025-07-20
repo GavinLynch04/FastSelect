@@ -9,27 +9,26 @@ from sklearn.utils.estimator_checks import check_estimator
 from fast_select import MultiSURF as FastMultiSURF
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def simple_classification_data():
     """
-    Creates a small, well-defined dataset for testing the core logic.
-    'scope="module"' ensures this expensive setup runs only once per test file.
+    Creates a simple, well-defined dataset for ReliefF testing.
+    Classes are made very distinct to ensure positive scores for relevant features.
 
-    - feature 0 (continuous): Highly relevant. Linearly separates classes.
+    - feature 0 (continuous): Highly relevant. Low for class 0, high for class 1.
     - feature 1 (continuous): Irrelevant noise.
     - feature 2 (discrete): Perfectly relevant. Value 10 for class 0, 20 for class 1.
-    - feature 3 (continuous): Irrelevant, has zero range (all values are the same).
-    - feature 4 (discrete): Irrelevant noise.
+    - feature 3 (continuous): Irrelevant, has zero range (constant).
     """
     X = np.array([
-        # Class 0
-        [0.1, 5.0, 10, 3.0, 1],
-        [0.2, 4.0, 10, 3.0, 2],
-        [0.3, 6.0, 10, 3.0, 3],
-        # Class 1
-        [0.8, 5.0, 20, 3.0, 1],
-        [0.9, 4.0, 20, 3.0, 2],
-        [1.0, 6.0, 20, 3.0, 3],
+        # Class 0 - values are low
+        [0.1, 5.0, 10, 3.0],
+        [0.2, 4.0, 10, 3.0],
+        [0.3, 6.0, 10, 3.0],
+        # Class 1 - values are high and far away
+        [10.8, 5.0, 20, 3.0],
+        [10.9, 4.0, 20, 3.0],
+        [11.0, 6.0, 20, 3.0],
     ], dtype=np.float32)
     y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
     return X, y
@@ -42,7 +41,7 @@ def test_feature_importance_ranking(simple_classification_data):
     by checking the *ranking* of their importance scores, not the exact values.
     """
     X, y = simple_classification_data
-    model = FastMultiSURF(n_features_to_select=2, backend="cpu")
+    model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=4)
     model.fit(X, y)
     scores = model.feature_importances_
 
