@@ -127,10 +127,10 @@ Fast-Select delivers groundbreaking improvements in runtime and memory efficienc
   <img alt="Runtime Benchmark N-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime.png">
 </p>
 
-#### Peak Memory vs. Number of Features (p >> n)
+#### Runtime vs. Number of Features (p >> n)
 
 <p align="center">
-  <img alt="Memory Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_memory.png">
+  <img alt="Memory Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
 </p>
 
 ---
