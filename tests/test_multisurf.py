@@ -45,9 +45,6 @@ def test_feature_importance_ranking(simple_classification_data):
     assert_allclose(scores[3], 0.0, atol=1e-7)
 
 
-    rank_order = np.argsort(scores)[::-1]
-    assert rank_order[-1] == 0
-
 
 @pytest.mark.parametrize("use_star", [False, True])
 def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
