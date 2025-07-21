@@ -340,12 +340,6 @@ class MultiSURF(TransformerMixin, BaseEstimator):
                 f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}"
             )
 
-        # n_neighbors check
-        if not (0 < self.n_neighbors < n_samples):
-            raise ValueError(
-                f"n_neighbors ({self.n_neighbors}) must be an integer "
-                f"between 1 and n_samples - 1 ({n_samples - 1})."
-            )
 
         # n_features_to_select check (handles both int and float)
         if isinstance(self.n_features_to_select, float):
