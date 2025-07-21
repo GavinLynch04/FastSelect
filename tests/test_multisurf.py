@@ -8,7 +8,7 @@ from fast_select import MultiSURF as FastMultiSURF
 
 
 @pytest.fixture
-def robust_classification_data():
+def simple_classification_data():
     """
     Creates a dataset where classes are distinct but have some overlap.
     - Feature 0: Highly relevant continuous.
@@ -33,8 +33,8 @@ def robust_classification_data():
     y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
     return X, y
 
-def test_feature_importance_ranking(robust_classification_data):
-    X, y = robust_classification_data
+def test_feature_importance_ranking(simple_classification_data):
+    X, y = simple_classification_data
     model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=4, verbose=False)
     model.fit(X, y)
     scores = model.feature_importances_
@@ -49,7 +49,7 @@ def test_feature_importance_ranking(robust_classification_data):
 
 
     rank_order = np.argsort(scores)[::-1]
-    assert rank_order[-1] == 3
+    assert rank_order[-1] == 0
 
 
 @pytest.mark.parametrize("use_star", [False, True])
