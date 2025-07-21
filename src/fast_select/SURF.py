@@ -341,7 +341,7 @@ class SURF(TransformerMixin, BaseEstimator):
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
         
-        n_select = _validate_parameters(n_samples, self.n_features_in_)
+        n_select = self._validate_parameters(n_samples, self.n_features_in_)
 
         if self.backend == "auto":
             self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
