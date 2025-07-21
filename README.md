@@ -137,8 +137,6 @@ Currently supported:
   - MultiSURF
   - MultiSURF*
   - TuRF
-- **mRMR**
-- **Chi Squared**
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
@@ -155,25 +153,10 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 ## **How to Cite**
 
-If you use `fast-select` in your research, please cite both the software and any associated publication(s):
+If you use `fast-select` in your research, please cite the software:
 
-### **1. Citing the Publication:**
-(*Exact citation to be provided once paper is published.*)
-
-```bibtex
-@article{yourname_2024_fastselect,
-  author  = {Your Name},
-  title   = {Fast-Select: Accelerated Feature Selection for Modern Datasets},
-  journal = {Journal of Open Source Software},
-  year    = {2024},
-  doi     = {your_paper_doi},
-  url     = {https://your_paper_url}
-}
-```
-
-### **2. Citing the Software (Specific Version):**
+### ** Citing the Software (Specific Version):**
 Use the version-specific DOI provided via Zenodo on the [GitHub Release Page](https://github.com/GavinLynch04/FastSelect/releases).
-
 
 ## **Acknowledgments**
 
