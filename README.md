@@ -8,9 +8,6 @@
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
-_(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compared to existing libraries.)_
-
-
 ## **Key Features**
 
 - **Blazing Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
@@ -122,7 +119,19 @@ gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 
 ## **Benchmarking Highlights**
 
-Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarks) are available in the repository for further testing.
+Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarking) are available in the repository for further testing.
+
+#### Runtime vs. Number of Samples (n >> p)
+
+<p align="center">
+  <img alt="Runtime Benchmark N-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime.png">
+</p>
+
+#### Peak Memory vs. Number of Features (p >> n)
+
+<p align="center">
+  <img alt="Memory Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_memory.png">
+</p>
 
 ---
 
