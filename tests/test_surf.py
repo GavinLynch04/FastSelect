@@ -40,20 +40,15 @@ def test_feature_importance_ranking(simple_classification_data):
     by checking the *ranking* of their importance scores.
     """
     X, y = simple_classification_data
-    # We test with the CPU backend as the reference point
     model = FastSURF(n_features_to_select=2, backend="cpu", discrete_limit=3)
     model.fit(X, y)
     scores = model.feature_importances_
 
-    # Assertions based on the designed data:
-    # Relevant features (0, 2) should have higher scores than the irrelevant one (1).
     assert scores[0] > scores[1]
     assert scores[2] > scores[1]
 
-    # Feature 3 (zero range) provides no information and should have a score of 0.
     assert_allclose(scores[3], 0.0, atol=1e-7)
 
-    # The top 2 selected features must be the relevant ones (0 and 2).
     assert set(model.top_features_) == {0, 2}
 
 
@@ -61,24 +56,21 @@ def test_feature_importance_ranking(simple_classification_data):
 def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     """
     CRITICAL: Tests that the CPU and GPU backends produce identical results
-    for both SURF and SURF*. This is our primary correctness check.
+    for both SURF and SURF*.
     """
     if not cuda.is_available():
         pytest.skip("Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.")
 
     X, y = simple_classification_data
 
-    # Run on CPU
     cpu_model = FastSURF(backend="cpu", use_star=use_star)
     cpu_model.fit(X, y)
     scores_cpu = cpu_model.feature_importances_
 
-    # Run on GPU
     gpu_model = FastSURF(backend="gpu", use_star=use_star)
     gpu_model.fit(X, y)
     scores_gpu = gpu_model.feature_importances_
 
-    # The scores should be extremely close (allowing for minor float precision diffs)
     assert_allclose(
         scores_cpu,
         scores_gpu,
@@ -88,14 +80,11 @@ def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     )
 
 
-# --- Scikit-learn API Compliance and Parameter Tests ---
 
 def test_sklearn_api_compliance():
     """
     Uses scikit-learn's built-in checker to validate the estimator's compliance.
     """
-    # This single function runs dozens of tests to ensure the estimator
-    # behaves correctly within the scikit-learn ecosystem.
     check_estimator(FastSURF())
 
 
