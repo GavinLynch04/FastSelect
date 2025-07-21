@@ -408,7 +408,6 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         for f in range(self.n_features_in_):
             if np.unique(x[:, f]).size <= self.discrete_limit:  # Define discrete_limit
                 is_discrete[f] = True
-        print(is_discrete)
 
         if self.effective_backend_ == "gpu":
             x_d = cuda.to_device(x)
