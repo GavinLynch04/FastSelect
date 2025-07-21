@@ -177,18 +177,18 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
 
-> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.1.3 (0.1.3). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
+> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.1.5 (0.1.5). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
 
 You can use the following BibTeX entry:
 
 ```bibtex
 @software{gavin_lynch_2025,
   author       = {Gavin Lynch},
-  title        = {{GavinLynch04/FastSelect: v0.1.3}},
+  title        = {{GavinLynch04/FastSelect: v0.1.5}},
   month        = jul,
   year         = 2025,
   publisher    = {Zenodo},
-  version      = {0.1.3},
+  version      = {0.1.5},
   doi          = {10.5281/zenodo.16285073},
   url          = {https://doi.org/10.5281/zenodo.16285073}
 }
