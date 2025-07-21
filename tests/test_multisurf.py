@@ -1,11 +1,9 @@
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
-
 from numba import cuda
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
-
 from fast_select import MultiSURF as FastMultiSURF
 
 
@@ -53,6 +51,7 @@ def test_feature_importance_ranking(simple_classification_data):
     
     # Feature 3 (irrelevant constant) should have a score of 0.
     assert_allclose(scores[3], 0.0, atol=1e-7)
+    print(scores)
 
     assert set(model.top_features_) == {0, 2}
 
