@@ -260,7 +260,7 @@ class ReliefF(TransformerMixin, BaseEstimator):
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
         The compute backend to use.
         
-    verbose : bool, default=True
+    verbose : bool, default=False
         Controls whether progress updates are printed during the fit. Only avaliable if backend='cpu'.
         
     n_jobs : int, default=-1
