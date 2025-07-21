@@ -13,15 +13,15 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 
 ## **Key Features**
 
-- **Blazing Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
+- **Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
   
 - **ML Pipeline Integration:** Fully compatible with **Scikit-Learn**, making it easy to fit into any machine learning pipeline with a familiar `.fit()`, `.transform()`, `.fit_transform()` interface.
   
 - **Flexible Backends:** Offers dual execution modes for both CPU (`Joblib`) and GPU (`CUDA`). Automatically detects hardware with an easy-to-use `backend` parameter.
   
-- **Feature-Rich Implementation:** Provides lightning-fast implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF—with plans to support additional feature selection algorithms in future releases.
+- **Feature-Rich Implementation:** Provides highly optimized implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF, with plans to support additional feature selection algorithms in future releases.
   
-- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering state-of-the-art acceleration for feature selection workflows.
+- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering significant speedups for feature selection workflows.
   
 <!-- end-include -->
 
@@ -69,11 +69,11 @@ pip install -e .[dev]
 Using `fast-select` is simple and seamless for anyone familiar with Scikit-Learn.
 
 ```python
-from fast_select.estimators import MultiSURF
+from fast_select import MultiSURF
 from sklearn.datasets import make_classification
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression  # Example classifier
+from sklearn.linear_model import LogisticRegression
 
 # 1. Generate a synthetic dataset
 X, y = make_classification(
@@ -98,7 +98,7 @@ pipeline = Pipeline([
     ('classifier', LogisticRegression())
 ])
 
-# Fit the pipeline (now featuring fast feature selection!)
+# Fit the pipeline
 # pipeline.fit(X, y)
 ```
 <!-- end-quickstart-section -->
