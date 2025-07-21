@@ -163,7 +163,7 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 ## Citing `fast-select`
 
-If you use `fast-select` in your research or work, please cite it using the following DOI. This helps us to track the impact of our work and ensures its continued development.
+If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
 
 > Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.1.3 (0.1.3). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
 
