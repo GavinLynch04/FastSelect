@@ -90,16 +90,12 @@ testpaths = ["tests"]
 
 
 [tool.black]
-line-length = 88
+line-length = 120
 
 
 [tool.ruff]
-line-length = 88
-# E/W: pycodestyle errors/warnings
-# F: pyflakes errors
-# I: isort import sorting
-# N: pep8-naming
-# UP: pyupgrade
+line-length = 120
+ignore = ["N811", "N803", "N806", "E731"]
 select = ["E", "F", "W", "I", "N", "UP"]
 
 [tool.ruff.isort]
