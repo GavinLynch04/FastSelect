@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
+[![DOI](https://zenodo.org/badge/1018195486.svg)](https://doi.org/10.5281/zenodo.16285073)
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
@@ -165,7 +165,7 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 If you use `fast-select` in your research, please cite the software:
 
-### ** Citing the Software (Specific Version):**
+### **Citing the Software:**
 Use the version-specific DOI provided via Zenodo on the [GitHub Release Page](https://github.com/GavinLynch04/FastSelect/releases).
 
 ## **Acknowledgments**
