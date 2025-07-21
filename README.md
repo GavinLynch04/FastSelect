@@ -1,9 +1,10 @@
 # **Fast-Select: Accelerated Feature Selection for Modern Datasets**
 [![PyPI version](https://img.shields.io/pypi/v/fast-select.svg)](https://pypi.org/project/fast-select/)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/ci.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
-[![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastRelief/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
