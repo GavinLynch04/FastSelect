@@ -9,6 +9,8 @@
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
+---
+
 ## **Key Features**
 
 - **Blazing Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
@@ -23,6 +25,8 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
   
 <!-- end-include -->
 
+---
+
 ## **Table of Contents**
 
 1. [Installation](#installation)
@@ -35,6 +39,8 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 8. [License](#license)
 9. [How to Cite](#how-to-cite)
 10. [Acknowledgments](#acknowledgments)
+
+---
 
 ## **Installation**
 <!-- start-installation-section -->
@@ -55,6 +61,7 @@ pip install -e .[dev]
 
 <!-- end-installation-section -->
 
+---
 
 ## **Quickstart**
 <!-- start-quickstart-section -->
@@ -95,6 +102,8 @@ pipeline = Pipeline([
 # pipeline.fit(X, y)
 ```
 <!-- end-quickstart-section -->
+
+---
 
 ## **Backend Selection (CPU vs. GPU)**
 
@@ -150,16 +159,19 @@ Currently supported:
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
+---
 
 ## **Contributing**
 
 Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable. Please ensure your submissions include relevant test cases and documentation updates.
 
+---
 
 ## **License**
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for full details.
 
+---
 
 ## Citing `fast-select`
 
@@ -181,6 +193,8 @@ You can use the following BibTeX entry:
   url          = {https://doi.org/10.5281/zenodo.16285073}
 }
 ```
+
+---
 
 ## **Acknowledgments**
 
