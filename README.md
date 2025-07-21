@@ -1,5 +1,5 @@
 # **Fast-Select: Accelerated Feature Selection for Modern Datasets**
-[![PyPI version](https://img.shields.io/pypi/v/fast-select.svg)](https://pypi.org/project/fast-select/)
+[![PyPI version](https://img.shields.io/pypi/v/fast-select?color=blue)](https://pypi.org/project/fast-select/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
 [![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
