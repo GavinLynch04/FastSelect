@@ -77,8 +77,8 @@ class TuRF(TransformerMixin, BaseEstimator):
         self : object
             Returns the instance itself.
         """
-        x, y = validate_data(
-            self, x, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
+        X, y = validate_data(
+            self, X, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
         )
         self.n_features_in_ = X.shape[1]
 
@@ -124,8 +124,8 @@ class TuRF(TransformerMixin, BaseEstimator):
     def transform(self, X: np.ndarray) -> np.ndarray:
         """Reduces X to the selected features."""
         check_is_fitted(self)
-        x = validate_data(
-            self, x,
+        X = validate_data(
+            self, X,
             reset=False,
             ensure_2d=True,
             dtype=[np.float64, np.float32]
