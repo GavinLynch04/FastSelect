@@ -27,10 +27,10 @@ def robust_classification_data():
     [8.8, 5.0, 20, 3.0],
     [8.9, 4.0, 20, 3.0],
     [9.5, 6.0, 20, 3.0],
-    [1.5, 4.5, 20, 3.0],
+    [10.5, 4.5, 20, 3.0],
     [10.5, 4.5, 10, 3.0],
     ], dtype=np.float32)
-    y = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int32)
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
     return X, y
 
 def test_feature_importance_ranking(robust_classification_data):
