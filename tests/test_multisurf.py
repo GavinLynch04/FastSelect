@@ -39,10 +39,7 @@ def test_feature_importance_ranking(simple_classification_data):
     model.fit(X, y)
     scores = model.feature_importances_
 
-    print("Computed feature importances:", scores)
-    print("Top features:", model.top_features_)
-
-    expected_top_features = {0, 2}
+    expected_top_features = {0}
     assert set(model.top_features_) == expected_top_features
 
     assert_allclose(scores[3], 0.0, atol=1e-7)

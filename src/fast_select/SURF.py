@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads
+from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads, get_thread_id
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
@@ -135,25 +135,41 @@ def _surf_gpu_host_caller(x_d, y_d, recip_full_d, use_star, is_discrete_d):
 
 
 @njit(parallel=True, fastmath=True)
-def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out):
-    """Optimized SURF/SURF* scoring for CPU."""
+def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores):
+    """
+    Corrected and optimized SURF/SURF* scoring for CPU.
+    
+    This version fixes the race condition and avoids redundant calculations.
+    """
     n_samples, n_features = x.shape
+    n_threads = private_scores.shape[0]
 
     for i in prange(n_samples):
-        sum_d = 0.0
+        tid = get_thread_id()
+        
+        dists_from_i = np.empty(n_samples, dtype=np.float32)
+        
+        diffs_from_i = np.empty((n_samples, n_features), dtype=np.float32)
+
         for j in range(n_samples):
             if i == j:
+                dists_from_i[j] = 0.0
                 continue
-            dist = 0.0
+                
+            dist_ij = 0.0
             for f in range(n_features):
                 if is_discrete[f]:
-                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                    feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
-                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                dist += diff
-            sum_d += dist
+                    feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                
+                diffs_from_i[j, f] = feat_diff
+                dist_ij += feat_diff
+            dists_from_i[j] = dist_ij
+        
+        sum_d = np.sum(dists_from_i)
         avg_dist = sum_d / (n_samples - 1)
-
+        
         near_hit_sum = np.zeros(n_features, dtype=np.float32)
         near_miss_sum = np.zeros(n_features, dtype=np.float32)
         far_hit_sum = np.zeros(n_features, dtype=np.float32)
@@ -163,56 +179,51 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out):
             if i == j:
                 continue
 
-            dist = 0.0
-            for f in range(n_features):
-                if is_discrete[f]:
-                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
-                else:
-                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                dist += diff
-
+            dist_ij = dists_from_i[j]
             is_hit = (y[i] == y[j])
-            is_near = (dist < avg_dist)
+            is_near = (dist_ij < avg_dist)
 
-            for f in range(n_features):
-                if is_discrete[f]:
-                    feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+            feat_diff_array = diffs_from_i[j]
+
+            if is_near:
+                if is_hit:
+                    near_hit_sum += feat_diff_array
                 else:
-                    feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-
-                if is_near:
-                    if is_hit:
-                        near_hit_sum[f] += feat_diff
-                    else:
-                        near_miss_sum[f] += feat_diff
-                elif use_star:
-                    if is_hit:
-                        far_hit_sum[f] += feat_diff
-                    else:
-                        far_miss_sum[f] += feat_diff
-
+                    near_miss_sum += feat_diff_array
+            elif use_star:
+                if is_hit:
+                    far_hit_sum += feat_diff_array
+                else:
+                    far_miss_sum += feat_diff_array
+        
         score_update = (near_miss_sum - near_hit_sum)
         if use_star:
             score_update += (far_hit_sum - far_miss_sum)
-        scores_out += score_update
+        
+        private_scores[tid] += score_update
 
 
 def _surf_cpu_host_caller(x, y, recip_full, use_star, is_discrete, n_jobs):
-    """Host caller for the optimized CPU kernel."""
-    n_features = x.shape[1]
-    scores = np.zeros(n_features, dtype=np.float32)
-
+    """
+    Host caller for the fixed and optimized CPU kernel.
+    Manages thread setup and final reduction of scores.
+    """
+    n_samples, n_features = x.shape
+    
     num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
-    original_num_threads = get_num_threads()
 
+    private_scores = np.zeros((num_threads_to_set, n_features), dtype=np.float32)
+    
+    original_num_threads = get_num_threads()
     try:
         set_num_threads(num_threads_to_set)
-        _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, scores)
+        _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores)
     finally:
         set_num_threads(original_num_threads)
-
-    return scores / x.shape[0]
-
+        
+    final_scores = private_scores.sum(axis=0)
+    
+    return final_scores / n_samples
 
 class SURF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the SURF algorithm.

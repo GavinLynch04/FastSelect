@@ -6,38 +6,48 @@ from sklearn.utils.validation import check_array, check_is_fitted, check_X_y, va
 import time
 import warnings
 
-TPB = 64  # Threads‑per‑block for CUDA kernels, potentially expose to user
+TPB = 64  # Threads-per-block
 
 @cuda.jit
 def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
-    """ReliefF scoring on the GPU (k ≤ 10).
-    Multiclass weighting is still delegated to CPU path for simplicity.
+    """
+    Corrected ReliefF scoring on the GPU.
+    Uses shared memory for threads in a block to cooperate correctly.
     """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x     # one sample per block
     tid = cuda.threadIdx.x
 
-    # local neighbour buffers (k ≤ 10)
+    # --- Step 1: Each thread finds its own k-best candidates in private local memory ---
+    # This part is similar to the original, but it's just the first step.
     local_hit_d = cuda.local.array(10, float32)
     local_hit_i = cuda.local.array(10, int32)
     local_mis_d = cuda.local.array(10, float32)
     local_mis_i = cuda.local.array(10, int32)
 
     for k in range(k_neighbors):
-        local_hit_d[k] = 3.4e38
+        local_hit_d[k] = 3.4e38  # Initialize to max float32
         local_mis_d[k] = 3.4e38
-
+        # No need to initialize indices, they are only used if distance is not max
+        local_hit_i[k] = -1 
+        local_mis_i[k] = -1
+        
+    # Grid-stride loop for each thread to find its local candidates
     for j in range(tid, n_samples, TPB):
         if i == j:
             continue
         dist = 0.0
+        # This distance calculation could be further optimized by having each thread
+        # compute a chunk of the features and then doing a block-level reduction.
+        # For simplicity, we keep the original redundant calculation here.
         for f in range(n_features):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
                 diff = abs(x[i, f] - x[j, f]) * recip_full[f]
             dist += diff
-
+        
+        # Insertion sort into the thread's private list of candidates
         if y[i] == y[j]:  # hit
             for k in range(k_neighbors - 1, -1, -1):
                 if dist < local_hit_d[k]:
@@ -58,22 +68,75 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                     local_mis_i[k] = j
                 else:
                     break
-    cuda.syncthreads()
+    
+    # --- Step 2: Merge all private candidates using shared memory ---
+    
+    # Shared memory buffers to hold candidates from all threads in the block
+    # Size is k_neighbors * ThreadsPerBlock
+    SHARED_MEM_SIZE = 640 # 10 * 64, made explicit
+    shared_hit_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
+    shared_hit_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
+    shared_mis_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
+    shared_mis_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
 
+    # Each thread copies its private candidates into the shared buffer
+    for k in range(k_neighbors):
+        idx = tid * k_neighbors + k
+        shared_hit_d[idx] = local_hit_d[k]
+        shared_hit_i[idx] = local_hit_i[k]
+        shared_mis_d[idx] = local_mis_d[k]
+        shared_mis_i[idx] = local_mis_i[k]
+
+    cuda.syncthreads() # Wait for all threads to finish copying
+
+    # --- Step 3: A single thread performs the final reduction and score update ---
     if tid == 0:
+        # Sort the shared candidates to find the true k-nearest neighbors
+        # A simple insertion sort is sufficient for small k * TPB
+        for k in range(1, k_neighbors * TPB):
+            # Sort hits
+            d_h, i_h = shared_hit_d[k], shared_hit_i[k]
+            j = k - 1
+            while j >= 0 and shared_hit_d[j] > d_h:
+                shared_hit_d[j + 1] = shared_hit_d[j]
+                shared_hit_i[j + 1] = shared_hit_i[j]
+                j -= 1
+            shared_hit_d[j + 1] = d_h
+            shared_hit_i[j + 1] = i_h
+            # Sort misses
+            d_m, i_m = shared_mis_d[k], shared_mis_i[k]
+            j = k - 1
+            while j >= 0 and shared_mis_d[j] > d_m:
+                shared_mis_d[j + 1] = shared_mis_d[j]
+                shared_mis_i[j + 1] = shared_mis_i[j]
+                j -= 1
+            shared_mis_d[j + 1] = d_m
+            shared_mis_i[j + 1] = i_m
+
+        # Now the first `k_neighbors` elements in shared memory are the true nearest neighbors
+        
+        # Recalculate feature diffs and update scores atomically
         for f in range(n_features):
             hit_sum = 0.0
             miss_sum = 0.0
+            
             for k in range(k_neighbors):
-                h = local_hit_i[k]
-                m = local_mis_i[k]
-                if is_discrete[f]:
-                    hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
-                    miss_sum += 1.0 if x[i, f] != x[m, f] else 0.0
-                else:
-                    hit_sum += abs(x[i, f] - x[h, f]) * recip_full[f]
-                    miss_sum += abs(x[i, f] - x[m, f]) * recip_full[f]
+                h = shared_hit_i[k]
+                m = shared_mis_i[k]
+                
+                # Check for valid neighbor index before proceeding
+                if h != -1:
+                    if is_discrete[f]:
+                        hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
+                    else:
+                        hit_sum += abs(x[i, f] - x[h, f]) * recip_full[f]
 
+                if m != -1:
+                    if is_discrete[f]:
+                        miss_sum += 1.0 if x[i, f] != x[m, f] else 0.0
+                    else:
+                        miss_sum += abs(x[i, f] - x[m, f]) * recip_full[f]
+            
             update = (miss_sum - hit_sum) / k_neighbors
             cuda.atomic.add(scores_out, f, update)
 
