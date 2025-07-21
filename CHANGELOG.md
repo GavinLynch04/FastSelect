@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-07-21
+
+### Fixed
+
+-   **Package API**: Fixed a bug with TuRF transform function.
+
+## [0.1.2] - 2025-07-21
+
+### Fixed
+
+-   **Package API**: Fixed a bug with TuRF relating to variable names.
+
+## [0.1.1] - 2025-07-21
+
+### Fixed
+
+-   **Package API**: Corrected the package's `__init__.py` to expose estimator classes (`ReliefF`, `TuRF`, etc.) at the top level. This fixes `TypeError: 'module' object is not callable` when using standard imports like `from fast_select import TuRF`.
+
 ## [0.1.0] - 2025-07-21
 
 ### Added

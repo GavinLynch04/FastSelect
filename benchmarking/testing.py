@@ -1,7 +1,9 @@
 import timeit
+
 import numpy as np
 from sklearn.datasets import make_classification
 from sklearn.feature_selection import chi2 as chi2_sklearn
+
 from src.others.chi2 import chi2_numba
 
 # Set up the test parameters
@@ -23,7 +25,7 @@ X, y = make_classification(
     n_redundant=0,
     n_classes=N_CLASSES,
     n_clusters_per_class=1,
-    random_state=RANDOM_STATE
+    random_state=RANDOM_STATE,
 )
 # The Chi-squared test requires non-negative features (e.g., counts)
 X = np.abs(X * 100).astype(np.int64)
@@ -37,12 +39,12 @@ print("Compilation complete.\n")
 # Time the Numba implementation
 print("⏱️  Timing Numba implementation...")
 numba_time = timeit.timeit(lambda: chi2_numba(X, y), number=10)
-print(f"Done.")
+print("Done.")
 
 # 3. Run the scikit-learn implementation
 print("\n⏱️  Timing scikit-learn implementation...")
 sklearn_time = timeit.timeit(lambda: chi2_sklearn(X, y), number=10)
-print(f"Done.")
+print("Done.")
 
 # 4. Verify that the results are the same
 chi2_n, p_n = chi2_numba(X, y)

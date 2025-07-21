@@ -1,15 +1,13 @@
 # **Fast-Select: Accelerated Feature Selection for Modern Datasets**
-[![PyPI version](https://img.shields.io/pypi/v/fast-select.svg)](https://pypi.org/project/fast-select/)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/ci.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
+[![PyPI version](https://img.shields.io/pypi/v/fast-select?color=blue)](https://pypi.org/project/fast-select/)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
-[![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastRelief/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![DOI](https://zenodo.org/badge/DOI/your-zenodo-doi.svg)](https://doi.org/your-zenodo-doi)
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
-
-_(This figure highlights_ **_50-100x speed-ups_** _on modern datasets when compared to existing libraries.)_
-
 
 ## **Key Features**
 
@@ -122,7 +120,19 @@ gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 
 ## **Benchmarking Highlights**
 
-Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarks) are available in the repository for further testing.
+Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarking) are available in the repository for further testing.
+
+#### Runtime vs. Number of Samples (n >> p)
+
+<p align="center">
+  <img alt="Runtime Benchmark N-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime.png">
+</p>
+
+#### Runtime vs. Number of Features (p >> n)
+
+<p align="center">
+  <img alt="Memory Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
+</p>
 
 ---
 
@@ -137,8 +147,6 @@ Currently supported:
   - MultiSURF
   - MultiSURF*
   - TuRF
-- **mRMR**
-- **Chi Squared**
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
@@ -155,25 +163,10 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 ## **How to Cite**
 
-If you use `fast-select` in your research, please cite both the software and any associated publication(s):
+If you use `fast-select` in your research, please cite the software:
 
-### **1. Citing the Publication:**
-(*Exact citation to be provided once paper is published.*)
-
-```bibtex
-@article{yourname_2024_fastselect,
-  author  = {Your Name},
-  title   = {Fast-Select: Accelerated Feature Selection for Modern Datasets},
-  journal = {Journal of Open Source Software},
-  year    = {2024},
-  doi     = {your_paper_doi},
-  url     = {https://your_paper_url}
-}
-```
-
-### **2. Citing the Software (Specific Version):**
+### ** Citing the Software (Specific Version):**
 Use the version-specific DOI provided via Zenodo on the [GitHub Release Page](https://github.com/GavinLynch04/FastSelect/releases).
-
 
 ## **Acknowledgments**
 

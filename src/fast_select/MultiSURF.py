@@ -291,7 +291,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         a given feature is discrete or continuous. (Effects distance
         calculation)
     
-    verbose : bool, default=True
+    verbose : bool, default=False
         Controls whether progress updates are printed during the fit.
         Limited benefit currently, will be expanded in future versions.
         

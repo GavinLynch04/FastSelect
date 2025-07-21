@@ -1,10 +1,10 @@
 from __future__ import annotations
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin, clone
-from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
+from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
 
-class TuRF(BaseEstimator, TransformerMixin):
+class TuRF(TransformerMixin, BaseEstimator):
     """
     A meta-estimator that implements the Iterative Relief (TuRF) algorithm.
 
@@ -29,6 +29,9 @@ class TuRF(BaseEstimator, TransformerMixin):
     n_iterations : int or None, default=None
         The number of iterations to run. If None, the process continues until
         the number of features is less than or equal to `n_features_to_select`.
+    verbose : bool, default=False
+        Controls whether progress updates are printed during the fit.
+        Limited benefit currently, will be expanded in future versions.
 
     Attributes
     ----------
@@ -47,11 +50,13 @@ class TuRF(BaseEstimator, TransformerMixin):
         n_features_to_select: int = 10,
         pct_remove: float = 0.1,
         n_iterations: int | None = None,
+        verbose: bool = False,
     ):
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
         self.pct_remove = pct_remove
         self.n_iterations = n_iterations
+        self.verbose = verbose
 
         if not 0 < self.pct_remove < 1:
             raise ValueError("pct_remove must be between 0 and 1.")
@@ -72,72 +77,60 @@ class TuRF(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        X, y = check_X_y(X, y, dtype=np.float32)
+        X, y = validate_data(
+            self, X, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
+        )
         self.n_features_in_ = X.shape[1]
-                
-        # Start with all features
+
         active_feature_indices = np.arange(self.n_features_in_)
-        
-        # The base estimator is cloned to avoid modifying the original object
         base_estimator = clone(self.estimator)
 
-        # Run the first iteration on all features to get the initial scores
         base_estimator.fit(X, y)
-        # The final scores are defined by the first run on the full feature set
         self.feature_importances_ = base_estimator.feature_importances_.copy()
-        
+
+        current_scores = self.feature_importances_.copy()
+
         iteration = 0
         while True:
             if len(active_feature_indices) <= self.n_features_to_select:
-                print("Stopping: Target number of features reached.")
                 break
             if self.n_iterations is not None and iteration >= self.n_iterations:
-                print(f"Stopping: Pre-defined number of iterations ({self.n_iterations}) reached.")
                 break
 
-            print(f"Iteration {iteration}: {len(active_feature_indices)} features remaining.")
-
-            # Get the scores for the currently active features
-            current_scores = self.feature_importances_[active_feature_indices]
-
-            # Determine how many features to remove
             n_to_remove = int(len(active_feature_indices) * self.pct_remove)
             n_to_remove = max(1, n_to_remove)
-
-            # If removing them would go below the target, adjust
             if len(active_feature_indices) - n_to_remove < self.n_features_to_select:
                 n_to_remove = len(active_feature_indices) - self.n_features_to_select
 
-            # Find the indices of the worst features *within the current subset*
             indices_of_worst_in_subset = np.argsort(current_scores)[:n_to_remove]
-            
-            # Remove these features from our list of active indices
+
             active_feature_indices = np.delete(active_feature_indices, indices_of_worst_in_subset)
             
-            # --- Re-fit the estimator on the reduced feature set ---
+            if self.verbose:
+                print(f"Iteration {iteration}: {len(active_feature_indices)} features remaining.")
             X_subset = X[:, active_feature_indices]
             base_estimator.fit(X_subset, y)
 
-            self.feature_importances_[active_feature_indices] = base_estimator.feature_importances_
-            
+            current_scores = base_estimator.feature_importances_
+
             iteration += 1
 
-        # --- Final Selection ---
-        # After the loop, `active_feature_indices` holds the final feature set.
-        # We sort these final features by their last calculated importance scores.
-        final_scores = self.feature_importances_[active_feature_indices]
-        sorted_indices_in_subset = np.argsort(final_scores)[::-1]
-        
-        # Select the top N features from the final active set
+        sorted_indices_in_subset = np.argsort(current_scores)[::-1]
+
         self.top_features_ = active_feature_indices[sorted_indices_in_subset][:self.n_features_to_select]
         self.top_features_ = np.sort(self.top_features_)
-
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
         """Reduces X to the selected features."""
         check_is_fitted(self)
-        X = check_array(X, dtype=np.float32)
+        X = validate_data(
+            self, X,
+            reset=False,
+            ensure_2d=True,
+            dtype=[np.float64, np.float32]
+        )
+
         if X.shape[1] != self.n_features_in_:
             raise ValueError(
                 f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}."
