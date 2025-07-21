@@ -8,47 +8,46 @@ from fast_select import MultiSURF as FastMultiSURF
 
 
 @pytest.fixture
-def final_robust_classification_data():
+def robust_classification_data():
     """
-    This dataset ensures that near-misses exist and that relevant features
-    (both continuous and discrete) show a difference for these misses.
+    Creates a dataset where classes are distinct but have some overlap.
+    - Feature 0: Highly relevant continuous.
+    - Feature 1: Irrelevant noise.
+    - Feature 2: Highly relevant but discrete.
+    - Feature 3: Irrelevant constant.
     """
     X = np.array([
-        # Class 0
-        [1.1, 5.0, 10, 3.0],
-        [1.2, 4.0, 10, 3.0],
-        [1.3, 6.0, 10, 3.0],
-        # A sample from Class 0 that is "close" to Class 1 samples
-        [7.0, 5.5, 10, 3.0], 
-        
-        # Class 1
-        [8.8, 5.0, 20, 3.0],
-        [8.9, 4.0, 20, 3.0],
-        [9.5, 6.0, 20, 3.0],
-        # A sample from Class 1 that is "close" to Class 0 samples
-        [3.0, 4.5, 20, 3.0], 
+    # Class 0
+    [1.1, 5.0, 10, 3.0],
+    [1.2, 4.0, 10, 3.0],
+    [2.3, 6.0, 10, 3.0],
+    [2.5, 5.5, 20, 3.0],
+    # Class 1
+    [8.8, 5.0, 20, 3.0],
+    [8.9, 4.0, 20, 3.0],
+    [9.5, 6.0, 20, 3.0],
+    [1.5, 4.5, 10, 3.0],
     ], dtype=np.float32)
     y = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int32)
     return X, y
 
-def test_feature_importance_ranking_final(final_robust_classification_data):
-    X, y = final_robust_classification_data
-    # Set discrete_limit=2 so Feature 2 is discrete and Feature 1 is not
-    model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=2)
+def test_feature_importance_ranking(robust_classification_data):
+    X, y = robust_classification_data
+    model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=4, verbose=False)
     model.fit(X, y)
     scores = model.feature_importances_
-    
-    print(f"Final scores: {scores}")
-    
-    # ASSERTION 1: Relevant features (0, 2) must have higher scores than irrelevant noise (1).
-    assert scores[0] > scores[1]
-    assert scores[2] > scores[1]
-    
-    # ASSERTION 2: Constant feature (3) must have a score of 0.
+
+    print("Computed feature importances:", scores)
+    print("Top features:", model.top_features_)
+
+    expected_top_features = {0, 2}
+    assert set(model.top_features_) == expected_top_features
+
     assert_allclose(scores[3], 0.0, atol=1e-7)
-    
-    # ASSERTION 3: The top two features selected must be the relevant ones.
-    assert set(model.top_features_) == {0, 2}
+
+
+    rank_order = np.argsort(scores)[::-1]
+    assert rank_order[-1] == 3
 
 
 @pytest.mark.parametrize("use_star", [False, True])
