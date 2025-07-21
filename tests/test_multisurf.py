@@ -88,14 +88,12 @@ def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     )
 
 
-# --- Scikit-learn API Compliance and Parameter Tests ---
 
 def test_sklearn_api_compliance():
     """
     Uses scikit-learn's built-in checker to validate the estimator's compliance.
     This is a powerful test that checks for dozens of common API requirements.
     """
-    # Note: This will only test the default backend ('auto').
     check_estimator(FastMultiSURF())
 
 
@@ -116,7 +114,6 @@ def test_discrete_limit_parameter():
     y = np.array([0] * 11 + [1] * 11, dtype=np.int32)
 
     # With discrete_limit=10, feature 0 should be continuous, feature 1 discrete.
-    # The internal `is_discrete_` attribute should reflect this.
     model_cont = FastMultiSURF(discrete_limit=10, backend="cpu", n_features_to_select=2)
     model_cont.fit(X, y)
     assert_array_equal(model_cont.is_discrete_, [False, True])
@@ -127,7 +124,6 @@ def test_discrete_limit_parameter():
     assert_array_equal(model_disc.is_discrete_, [True, True])
 
 
-# --- Error Handling and Edge Case Tests ---
 
 def test_not_fitted_error(simple_classification_data):
     """Tests that a NotFittedError is raised if transform is called before fit."""
