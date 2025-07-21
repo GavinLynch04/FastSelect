@@ -1,0 +1,19 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.0] - 2025-07-21
+
+### Added
+
+-   **Initial Release of `fast-select`**: A high-performance, Numba-accelerated library for various feature selection.
+-   **Core Algorithms**: Implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF.
+-   **Dual Execution Backends**:
+    -   Thread-safe, parallelized CPU kernels for high-speed execution on multi-core processors.
+    -   Correct and performant CUDA kernels for massive parallelism on NVIDIA GPUs.
+-   **Benchmarking Suite**: A comprehensive suite to measure and compare the runtime and memory performance of `fast-select` algorithms against other libraries.
+-   **Project Renaming**: The project identity was established as `fast-select` to better reflect its purpose.
+

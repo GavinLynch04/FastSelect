@@ -1,5 +1,3 @@
-# run_benchmarks.py
-
 import time
 import warnings
 import pandas as pd
