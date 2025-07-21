@@ -1,6 +1,6 @@
 numpy
 numba
-scikit-learn
+scikit-learn==1.6.0
 scipy
 
 # Dependencies for testing
