@@ -349,7 +349,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             Returns the instance itself.
         """
         x, y = validate_data(
-            self, x, y, y_numeric=True, dtype=np.float64
+            self, x, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
         )
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
@@ -414,7 +414,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             x_d = cuda.to_device(x)
             y_d = cuda.to_device(y.astype(np.int32))
             recip_full_d = cuda.to_device(recip_full)
-            if self.verbose and self.use_start:
+            if self.verbose and self.use_star:
                 print("Running MultiSURF* on the GPU now...")
             elif self.verbose:
                 print("Running MultiSURF on the GPU now...")
@@ -422,7 +422,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
                 x_d, y_d, recip_full_d, all_feature_indices, self.use_star, is_discrete
             )
         else:
-            if self.verbose and self.use_start:
+            if self.verbose and self.use_star:
                 print("Running MultiSURF* on the CPU now...")
             elif self.verbose:
                 print("Running MultiSURF on the CPU now...")
@@ -448,13 +448,14 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
+        check_is_fitted(self)
         x = validate_data(
             self, x,
             reset=False,
+            ensure_2d=True,
+            dtype=[np.float64, np.float32]
         )
-        check_is_fitted(self)
 
-        x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
         if x.shape[1] != self.n_features_in_:
             raise ValueError(
                 f"x has {x.shape[1]} features, but {self.__class__.__name__} "

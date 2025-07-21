@@ -8,51 +8,43 @@ from fast_select import MultiSURF as FastMultiSURF
 
 
 @pytest.fixture
-def simple_classification_data():
+def robust_classification_data():
     """
-    Creates a simple, well-defined dataset for ReliefF testing.
-    Classes are made very distinct to ensure positive scores for relevant features.
-
-    - feature 0 (continuous): Highly relevant. Low for class 0, high for class 1.
-    - feature 1 (continuous): Irrelevant noise.
-    - feature 2 (discrete): Perfectly relevant. Value 10 for class 0, 20 for class 1.
-    - feature 3 (continuous): Irrelevant, has zero range (constant).
+    Creates a dataset where classes are distinct but have some overlap,
+    ensuring that "near misses" are possible for the algorithm.
+    - feature 0: Highly relevant.
+    - feature 1: Irrelevant noise.
+    - feature 2: Highly relevant but discrete.
+    - feature 3: Irrelevant constant.
     """
     X = np.array([
-        # Class 0 - values are low
-        [0.1, 5.0, 10, 3.0],
-        [0.2, 4.0, 10, 3.0],
-        [0.3, 6.0, 10, 3.0],
-        # Class 1 - values are high and far away
-        [10.8, 5.0, 20, 3.0],
-        [10.9, 4.0, 20, 3.0],
-        [11.0, 6.0, 20, 3.0],
+        # Class 0
+        [1.1, 5.0, 10, 3.0],
+        [1.2, 4.0, 10, 3.0],
+        [2.3, 6.0, 10, 3.0],
+        [2.5, 5.5, 20, 3.0],
+        # Class 1
+        [8.8, 5.0, 20, 3.0],
+        [8.9, 4.0, 20, 3.0],
+        [9.5, 6.0, 20, 3.0],
+        [1.5, 4.5, 10, 3.0],
     ], dtype=np.float32)
-    y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+    y = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int32)
     return X, y
 
-
-
-def test_feature_importance_ranking(simple_classification_data):
-    """
-    Tests if the algorithm correctly identifies relevant vs. irrelevant features
-    by checking the *ranking* of their importance scores.
-    """
-    X, y = simple_classification_data
+def test_feature_importance_ranking(robust_classification_data):
+    X, y = robust_classification_data
     model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=4)
     model.fit(X, y)
     scores = model.feature_importances_
-
-    # Feature 0 (relevant continuous) should have a higher score than feature 1 (irrelevant noise).
-    assert scores[0] > scores[1]
     
-    # Feature 2 (relevant discrete) should also have a higher score than feature 1 (irrelevant noise).
+    print(f"Robust scores: {scores}")
+    
+    assert scores[0] > scores[1]
     assert scores[2] > scores[1]
     
-    # Feature 3 (irrelevant constant) should have a score of 0.
     assert_allclose(scores[3], 0.0, atol=1e-7)
-    print(scores)
-
+    
     assert set(model.top_features_) == {0, 2}
 
 
