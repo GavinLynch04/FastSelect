@@ -160,10 +160,6 @@ def _multisurf_gpu_host_caller(
 def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out):
     """
     Optimized MultiSURF scoring for CPU.
-
-    This version avoids large intermediate allocations inside the parallel loop
-    by recalculating distances in a second pass, which is faster due to
-    Numba's compilation and reduced memory pressure.
     """
     n_samples = x.shape[0]
 
@@ -331,6 +327,44 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         self.discrete_limit = discrete_limit
         self.n_jobs = n_jobs
         self.verbose = verbose
+        
+    def _validate_parameters(self, n_samples, n_features):
+        """Validate all user-provided parameters."""
+        # Backend check
+        if self.backend not in ["auto", "gpu", "cpu"]:
+            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+
+        # Sample count check
+        if n_samples < 2:
+            raise ValueError(
+                f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}"
+            )
+
+        # n_neighbors check
+        if not (0 < self.n_neighbors < n_samples):
+            raise ValueError(
+                f"n_neighbors ({self.n_neighbors}) must be an integer "
+                f"between 1 and n_samples - 1 ({n_samples - 1})."
+            )
+
+        # n_features_to_select check (handles both int and float)
+        if isinstance(self.n_features_to_select, float):
+            if not 0.0 < self.n_features_to_select <= 1.0:
+                raise ValueError(
+                    "If n_features_to_select is a float, it must be in (0, 1]."
+                )
+            n_select = max(1, int(self.n_features_to_select * n_features))
+        elif isinstance(self.n_features_to_select, int):
+            if not 0 < self.n_features_to_select <= n_features:
+                raise ValueError(
+                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
+                    f"it must be > 0 and <= n_features ({n_features})."
+                )
+            n_select = self.n_features_to_select
+        else:
+            raise TypeError("n_features_to_select must be an int or a float.")
+
+        return n_select
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         """
@@ -351,16 +385,12 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         x, y = validate_data(
             self, x, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
         )
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
             
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
+        
+        n_select = _validate_parameters(n_samples, self.n_features_in_)
 
-        if n_samples < 2:
-            raise ValueError(
-                f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}"
-            )
         if self.backend == "auto":
             if cuda.is_available():
                 self.effective_backend_ = "gpu"
@@ -375,26 +405,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             self.effective_backend_ = "gpu"
         else:
             self.effective_backend_ = "cpu"
-        if isinstance(self.n_features_to_select, float):
-            if not 0.0 < self.n_features_to_select <= 1.0:
-                raise ValueError(
-                    "If n_features_to_select is a float, it must be in (0, 1]."
-                )
-            # Ensure at least 1 feature is selected
-            n_select = max(1, int(self.n_features_to_select * self.n_features_in_))
-
-        elif isinstance(self.n_features_to_select, int):
-            if not 0 < self.n_features_to_select <= self.n_features_in_:
-                raise ValueError(
-                    f"If n_features_to_select is an int ({self.n_features_to_select}), "
-                    f"it must be > 0 and <= n_features ({self.n_features_in_})."
-                )
-            n_select = self.n_features_to_select
-
-        else:
-            raise TypeError(
-                "n_features_to_select must be an int or a float."
-            )
+        
 
         feature_ranges = _compute_ranges(x)
 

@@ -11,35 +11,29 @@ TPB = 64  # Threads-per-block
 @cuda.jit
 def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
     """
-    Corrected ReliefF scoring on the GPU.
+    ReliefF scoring on the GPU.
     Uses shared memory for threads in a block to cooperate correctly.
     """
     n_samples, n_features = x.shape
-    i = cuda.blockIdx.x     # one sample per block
+    i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
-    # --- Step 1: Each thread finds its own k-best candidates in private local memory ---
-    # This part is similar to the original, but it's just the first step.
+
     local_hit_d = cuda.local.array(10, float32)
     local_hit_i = cuda.local.array(10, int32)
     local_mis_d = cuda.local.array(10, float32)
     local_mis_i = cuda.local.array(10, int32)
 
     for k in range(k_neighbors):
-        local_hit_d[k] = 3.4e38  # Initialize to max float32
+        local_hit_d[k] = 3.4e38
         local_mis_d[k] = 3.4e38
-        # No need to initialize indices, they are only used if distance is not max
         local_hit_i[k] = -1 
         local_mis_i[k] = -1
         
-    # Grid-stride loop for each thread to find its local candidates
     for j in range(tid, n_samples, TPB):
         if i == j:
             continue
         dist = 0.0
-        # This distance calculation could be further optimized by having each thread
-        # compute a chunk of the features and then doing a block-level reduction.
-        # For simplicity, we keep the original redundant calculation here.
         for f in range(n_features):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
@@ -47,7 +41,6 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                 diff = abs(x[i, f] - x[j, f]) * recip_full[f]
             dist += diff
         
-        # Insertion sort into the thread's private list of candidates
         if y[i] == y[j]:  # hit
             for k in range(k_neighbors - 1, -1, -1):
                 if dist < local_hit_d[k]:
@@ -69,17 +62,12 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                 else:
                     break
     
-    # --- Step 2: Merge all private candidates using shared memory ---
-    
-    # Shared memory buffers to hold candidates from all threads in the block
-    # Size is k_neighbors * ThreadsPerBlock
-    SHARED_MEM_SIZE = 640 # 10 * 64, made explicit
+
+    SHARED_MEM_SIZE = 640
     shared_hit_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
     shared_hit_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
     shared_mis_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
     shared_mis_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
-
-    # Each thread copies its private candidates into the shared buffer
     for k in range(k_neighbors):
         idx = tid * k_neighbors + k
         shared_hit_d[idx] = local_hit_d[k]
@@ -87,12 +75,9 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
         shared_mis_d[idx] = local_mis_d[k]
         shared_mis_i[idx] = local_mis_i[k]
 
-    cuda.syncthreads() # Wait for all threads to finish copying
+    cuda.syncthreads()
 
-    # --- Step 3: A single thread performs the final reduction and score update ---
     if tid == 0:
-        # Sort the shared candidates to find the true k-nearest neighbors
-        # A simple insertion sort is sufficient for small k * TPB
         for k in range(1, k_neighbors * TPB):
             # Sort hits
             d_h, i_h = shared_hit_d[k], shared_hit_i[k]
@@ -113,7 +98,6 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
             shared_mis_d[j + 1] = d_m
             shared_mis_i[j + 1] = i_m
 
-        # Now the first `k_neighbors` elements in shared memory are the true nearest neighbors
         
         # Recalculate feature diffs and update scores atomically
         for f in range(n_features):
@@ -124,7 +108,6 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                 h = shared_hit_i[k]
                 m = shared_mis_i[k]
                 
-                # Check for valid neighbor index before proceeding
                 if h != -1:
                     if is_discrete[f]:
                         hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
@@ -158,7 +141,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
     temp = np.zeros((n_samples, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
-        # --- Distance Calculation ---
         dists = np.empty(n_samples, dtype=np.float32)
         for j in range(n_samples):
             if i == j:
@@ -172,7 +154,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                     d += abs(x[i, f] - x[j, f]) * recip_full[f]
             dists[j] = d
 
-        # --- Neighbor Finding ---
         order = np.argsort(dists)
         lbl_i = y_enc[i]
         hits = np.empty(k, dtype=np.int32)
@@ -193,13 +174,11 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
             if h_found == k and (m_found >= k).all():
                 break
 
-        # --- Score Update Calculation ---
         denom = 1.0 - class_probs[lbl_i]
         if denom == 0:  # Add guard for single-class case
             denom = 1.0
 
         for f in range(n_features):
-            # --- Hit Contribution ---
             hit_sum = 0.0
             for ki in range(h_found):
                 j = hits[ki]
@@ -208,7 +187,6 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 else:
                     hit_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
 
-            # --- Miss Contribution ---
             miss_sum = 0.0
             for c in range(n_classes):
                 if c == lbl_i:
@@ -407,7 +385,6 @@ class ReliefF(TransformerMixin, BaseEstimator):
             self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
-            # NOTE: GPU path does not currently use discrete_weights
             x_d = cuda.to_device(x.astype(np.float32))
             y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)

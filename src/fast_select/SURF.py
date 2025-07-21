@@ -9,13 +9,7 @@ TPB = 64  # Threads Per Block
 @cuda.jit
 def _surf_gpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out):
     """
-    Corrected SURF/SURF* scoring on the GPU for all features.
-
-    This kernel fixes several bugs from the original version:
-    1. Corrects a syntax error in array indexing.
-    2. Removes unused calculations for standard deviation.
-    3. Properly broadcasts the calculated `avg_dist` to all threads in a block.
-    4. Cleans up shared memory declarations to match their usage.
+    SURF/SURF* scoring on the GPU for all features.
     """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
@@ -137,9 +131,7 @@ def _surf_gpu_host_caller(x_d, y_d, recip_full_d, use_star, is_discrete_d):
 @njit(parallel=True, fastmath=True)
 def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores):
     """
-    Corrected and optimized SURF/SURF* scoring for CPU.
-    
-    This version fixes the race condition and avoids redundant calculations.
+    SURF/SURF* scoring for CPU.
     """
     n_samples, n_features = x.shape
     n_threads = private_scores.shape[0]
@@ -205,7 +197,7 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores):
 
 def _surf_cpu_host_caller(x, y, recip_full, use_star, is_discrete, n_jobs):
     """
-    Host caller for the fixed and optimized CPU kernel.
+    Host caller for the CPU kernel.
     Manages thread setup and final reduction of scores.
     """
     n_samples, n_features = x.shape
@@ -287,6 +279,44 @@ class SURF(TransformerMixin, BaseEstimator):
         self.discrete_limit = discrete_limit
         self.n_jobs = n_jobs
         self.verbose = verbose
+        
+        def _validate_parameters(self, n_samples, n_features):
+            """Validate all user-provided parameters."""
+            # Backend check
+            if self.backend not in ["auto", "gpu", "cpu"]:
+                raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+
+            # Sample count check
+            if n_samples < 2:
+                raise ValueError(
+                    f"SURF requires at least 2 samples, but got n_samples = {n_samples}"
+                )
+
+            # n_neighbors check
+            if not (0 < self.n_neighbors < n_samples):
+                raise ValueError(
+                    f"n_neighbors ({self.n_neighbors}) must be an integer "
+                    f"between 1 and n_samples - 1 ({n_samples - 1})."
+                )
+
+            # n_features_to_select check (handles both int and float)
+            if isinstance(self.n_features_to_select, float):
+                if not 0.0 < self.n_features_to_select <= 1.0:
+                    raise ValueError(
+                        "If n_features_to_select is a float, it must be in (0, 1]."
+                    )
+                n_select = max(1, int(self.n_features_to_select * n_features))
+            elif isinstance(self.n_features_to_select, int):
+                if not 0 < self.n_features_to_select <= n_features:
+                    raise ValueError(
+                        f"If n_features_to_select is an int ({self.n_features_to_select}), "
+                        f"it must be > 0 and <= n_features ({n_features})."
+                    )
+                n_select = self.n_features_to_select
+            else:
+                raise TypeError("n_features_to_select must be an int or a float.")
+
+            return n_select
 
     def fit(self, X: np.ndarray, y: np.ndarray):
         """
@@ -304,15 +334,14 @@ class SURF(TransformerMixin, BaseEstimator):
         self : object
             Returns the instance itself.
         """
-        X, y = validate_data(self, X, y, y_numeric=True, dtype=np.float64)
-        self.n_features_in_ = X.shape[1]
-        n_samples = X.shape[0]
-
-        if n_samples < 2:
-            raise ValueError(f"SURF requires at least 2 samples, but got n_samples={n_samples}")
-
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        x, y = validate_data(
+            self, x, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
+        )
+            
+        self.n_features_in_ = x.shape[1]
+        n_samples = x.shape[0]
+        
+        n_select = _validate_parameters(n_samples, self.n_features_in_)
 
         if self.backend == "auto":
             self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
@@ -321,19 +350,6 @@ class SURF(TransformerMixin, BaseEstimator):
         else:
             self.effective_backend_ = self.backend
 
-        if isinstance(self.n_features_to_select, float):
-            if not 0.0 < self.n_features_to_select <= 1.0:
-                raise ValueError("If n_features_to_select is a float, it must be in (0, 1].")
-            n_select = max(1, int(self.n_features_to_select * self.n_features_in_))
-        elif isinstance(self.n_features_to_select, int):
-            if not 0 < self.n_features_to_select <= self.n_features_in_:
-                raise ValueError(
-                    f"If n_features_to_select is an int, it must be > 0 and <= n_features "
-                    f"({self.n_features_in_})."
-                )
-            n_select = self.n_features_to_select
-        else:
-            raise TypeError("n_features_to_select must be an int or a float.")
 
         self.is_discrete_ = np.array([
             np.unique(X[:, f]).size <= self.discrete_limit
@@ -384,11 +400,13 @@ class SURF(TransformerMixin, BaseEstimator):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
+        check_is_fitted(self)
         x = validate_data(
             self, x,
             reset=False,
+            ensure_2d=True,
+            dtype=[np.float64, np.float32]
         )
-        check_is_fitted(self)
 
         x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
         if x.shape[1] != self.n_features_in_:

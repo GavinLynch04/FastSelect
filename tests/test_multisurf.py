@@ -35,7 +35,7 @@ def simple_classification_data():
 
 def test_feature_importance_ranking(simple_classification_data):
     X, y = simple_classification_data
-    model = FastMultiSURF(n_features_to_select=2, backend="cpu", discrete_limit=4, verbose=False)
+    model = FastMultiSURF(n_features_to_select=1, backend="cpu", discrete_limit=4, verbose=False)
     model.fit(X, y)
     scores = model.feature_importances_
 
