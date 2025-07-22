@@ -1,64 +1,55 @@
+from __future__ import annotations
 import numpy as np
 from math import log
-import numpy as np
 from numba import njit, prange, float32, int32, int64
 from numba.types import Tuple
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_X_y, check_is_fitted, check_array
 
-MI_SIGNATURE = float32(float32[:], int32, float32[:], int32, int64)
 
-@njit(MI_SIGNATURE, cache=True, nogil=True)
+@njit(cache=True, nogil=True)
 def _calculate_mi_optimized(x1, n_states1, x2, n_states2, n_samples):
-    """
-    Calculates Mutual Information between two discrete vectors.
-    Uses float32 for better performance and memory usage.
-    """
+    """Calculates Mutual Information between two discrete vectors."""
     contingency_table = np.zeros((n_states1, n_states2), dtype=np.float32)
-
     for i in range(n_samples):
+        # Ensure indices are integers
         contingency_table[int(x1[i]), int(x2[i])] += 1
-
+    
     contingency_table /= n_samples
-
+    
     p1 = np.sum(contingency_table, axis=1)
     p2 = np.sum(contingency_table, axis=0)
+    
     mi = 0.0
-
     for i in range(n_states1):
         for j in range(n_states2):
             p_xy = contingency_table[i, j]
             p_x = p1[i]
             p_y = p2[j]
+            # Use a small epsilon to avoid log(0)
             if p_xy > 1e-12 and p_x > 1e-12 and p_y > 1e-12:
+                # Corrected syntax here
                 mi += p_xy * log(p_xy / (p_x * p_y))
-
     return mi
 
-PRECOMPUTE_SIGNATURE = Tuple((float32[:], float32[:, ::1]))(float32[:, ::1], int32[:])
-
-@njit(PRECOMPUTE_SIGNATURE, parallel=True, cache=True)
+@njit(parallel=True, cache=True)
 def _precompute_mi_matrices(X, y):
-    """
-    Precomputes relevance (MI with target) and redundancy (MI between features)
-    matrices with optimized data types and function calls.
-    """
+    """Precomputes relevance and redundancy matrices."""
     n_samples, n_features = X.shape
-
-    # --- Setup ---
+    
     n_states_X = np.zeros(n_features, dtype=np.int32)
     for i in prange(n_features):
         n_states_X[i] = int(np.max(X[:, i])) + 1
-    
+        
     n_states_y = int(np.max(y)) + 1
     y_f32 = y.astype(np.float32)
-
-    # --- Stage 1: Relevance Calculation ---
+    
     relevance_scores = np.zeros(n_features, dtype=np.float32)
     for i in prange(n_features):
         relevance_scores[i] = _calculate_mi_optimized(
             X[:, i], n_states_X[i], y_f32, n_states_y, n_samples
         )
-
-    # --- Stage 2: Redundancy Calculation ---
+        
     redundancy_matrix = np.zeros((n_features, n_features), dtype=np.float32)
     for i in prange(n_features):
         for j in range(i + 1, n_features):
@@ -67,77 +58,126 @@ def _precompute_mi_matrices(X, y):
             )
             redundancy_matrix[i, j] = mi
             redundancy_matrix[j, i] = mi
-
+            
     return relevance_scores, redundancy_matrix
 
-def mRMR(X, y, k):
+class mRMR(BaseEstimator, TransformerMixin):
     """
-    Selects top k features using mRMR, now generalized for ANY discrete data.
-    This function handles non-contiguous, negative, or large integer categories
-    by mapping them to zero-based integers before computation.
+    A scikit-learn compatible feature selector based on the mRMR algorithm.
     
-    Args:
-        X (np.ndarray): Feature data (n_samples, n_features). Can contain any discrete values.
-        y (np.ndarray): Target labels. Can contain any discrete values.
-        k (int): The number of top features to select.
+    This implementation is designed for discrete data and uses Numba for
+    high-performance computation of mutual information matrices.
+    
+    Parameters
+    ----------
+    n_features_to_select : int
+        The number of top features to select.
         
-    Returns:
-        np.ndarray: A sorted array of the top k feature indices.
+    method : {'MID', 'MIQ'}, default='MID'
+        The mRMR selection criterion to use.
+        - 'MID' (Mutual Information Difference): f_score = I(f; y) - mean(I(f; S))
+        - 'MIQ' (Mutual Information Quotient): f_score = I(f; y) / mean(I(f; S))
+        
     """
-    n_samples, n_features = X.shape
-    if not (0 < k <= n_features):
-        raise ValueError("k must be a positive integer less than or equal to the number of features.")
+    def __init__(self, n_features_to_select: int, method: str = 'MID'):
+        self.n_features_to_select = n_features_to_select
+        self.method = method
+        if self.method not in ['MID', 'MIQ']:
+            raise ValueError("Method must be either 'MID' or 'MIQ'.")
 
-    unique_values = np.unique(np.concatenate([X.flatten(), y]))
-    value_to_int = {value: i for i, value in enumerate(unique_values)}
-
-    mapper = np.vectorize(value_to_int.get)
-    X_encoded = mapper(X)
-    y_encoded = mapper(y)
-    
-    # Optimize data types later, numba does not like when you can pass in many different types
-    X_for_numba = X_encoded.astype(np.float32)
-    y_for_numba = y_encoded.astype(np.int32)
-    
-    relevance, redundancy = _precompute_mi_matrices(X_for_numba, y_for_numba)
-    selected_features = []
-
-    remaining_mask = np.ones(n_features, dtype=bool)
-
-    # Select the first feature: the one with the highest relevance.
-    first_feature_idx = np.argmax(relevance)
-    selected_features.append(first_feature_idx)
-    remaining_mask[first_feature_idx] = False
-
-    for _ in range(k - 1):
-        best_score = -np.inf
-        best_feature = -1
+    def fit(self, X: np.ndarray, y: np.ndarray):
+        """
+        Fits the mRMR model to select the best features.
         
-        # Get the indices of features that are still available.
-        remaining_indices = np.where(remaining_mask)[0]
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples. Assumed to be discrete.
+        y : array-like of shape (n_samples,)
+            The target values. Assumed to be discrete.
+        
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
+        X, y = validate_data(self, X, y, dtype=None, y_numeric=True, ensure_2d=True,)
+        self.n_features_in_ = X.shape[1]
 
-        for candidate_idx in remaining_indices:
-            # Relevance term: I(candidate; y)
-            relevance_score = relevance[candidate_idx]
+        if not (0 < self.n_features_to_select <= self.n_features_in_):
+            raise ValueError(
+                "n_features_to_select must be a positive integer less "
+                "than or equal to the number of features."
+            )
+        
+        unique_values = np.unique(np.concatenate([X.flatten(), y]))
+        self.value_to_int_ = {value: i for i, value in enumerate(unique_values)}
+        mapper = np.vectorize(self.value_to_int_.get)
+        
+        X_encoded = mapper(X)
+        y_encoded = mapper(y)
+
+        relevance, redundancy = _precompute_mi_matrices(X_for_numba, y_for_numba)
+        
+        self.relevance_scores_ = relevance
+        self.redundancy_matrix_ = redundancy
+
+        selected_indices = []
+        remaining_mask = np.ones(self.n_features_in_, dtype=bool)
+
+        first_feature_idx = np.argmax(relevance)
+        selected_indices.append(first_feature_idx)
+        remaining_mask[first_feature_idx] = False
+
+        for _ in range(self.n_features_to_select - 1):
+            best_score = -np.inf
+            best_feature = -1
             
-            # Redundancy term: Σ I(candidate; selected) / |S|
-            # Look up pre-computed MI values. This is extremely fast.
-            redundancy_score = np.sum(redundancy[candidate_idx, selected_features])
-            avg_redundancy = redundancy_score / len(selected_features)
+            remaining_indices = np.where(remaining_mask)[0]
             
-            # mRMR score (MID formulation: Relevance - Redundancy)
-            mrmr_score = relevance_score - avg_redundancy
+            m = len(selected_indices)
 
-            if mrmr_score > best_score:
-                best_score = mrmr_score
-                best_feature = candidate_idx
+            for candidate_idx in remaining_indices:
+                relevance_score = self.relevance_scores_[candidate_idx]
+                redundancy_score = np.sum(self.redundancy_matrix_[candidate_idx, selected_indices])
+                
+                if self.method == 'MID':
+                    score = relevance_score - (redundancy_score / m)
+                else: # 'MIQ'
+                    score = relevance_score / (redundancy_score / m + 1e-9)
+                
+                if score > best_score:
+                    best_score = score
+                    best_feature = candidate_idx
+            
+            if best_feature != -1:
+                selected_indices.append(best_feature)
+                remaining_mask[best_feature] = False
+        
+        self.top_features_ = np.array(selected_indices)
+        self.feature_importances_ = self.relevance_scores_
 
-        # Add the best feature found and update the mask
-        if best_feature != -1:
-            selected_features.append(best_feature)
-            remaining_mask[best_feature] = False
-    print("done")
-    return np.sort(np.array(selected_features))
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Reduces X to the selected features."""
+        check_is_fitted(self)
+        X = validate_data(
+            self, X,
+            reset=False,
+            ensure_2d=True,
+            dtype=None
+        )
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}."
+            )
+        return X[:, self.top_features_]
+
+    def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """Fit to data, then transform it."""
+        self.fit(X, y)
+        return self.transform(X)
 
 
 import numpy as np
