@@ -12,7 +12,7 @@ def _entropy(x, n_states):
     if n_samples == 0:
         return 0.0
 
-    counts = np.zeros(n_states, dtype=np.float64)
+    counts = np.zeros(n_states, dtype=np.float32)
     for i in range(n_samples):
         counts[x[i]] += 1.0
 
@@ -30,7 +30,7 @@ def _mutual_information(x, y, n_states_x, n_states_y):
         return 0.0
 
     # Create contingency table
-    contingency_table = np.zeros((n_states_x, n_states_y), dtype=np.float64)
+    contingency_table = np.zeros((n_states_x, n_states_y), dtype=np.float32)
     for i in range(n_samples):
         contingency_table[x[i], y[i]] += 1.0
 
@@ -52,17 +52,12 @@ def _symmetrical_uncertainty(x, y, n_states_x, n_states_y):
     h_x = _entropy(x, n_states_x)
     h_y = _entropy(y, n_states_y)
     
-    # Handle case of zero entropy (constant features)
     if h_x + h_y == 0:
         return 0.0
         
     i_xy = _mutual_information(x, y, n_states_x, n_states_y)
-    # Corrected typo: removed space after comma
     return 2.0 * i_xy / (h_x + h_y)
 
-# =============================================================================
-# PARALLEL COMPUTATION (OPTIMIZED)
-# =============================================================================
 
 @numba.njit(parallel=True, cache=True)
 def _precompute_correlations_parallel(X_encoded, y_encoded, n_states_features, n_states_y):
@@ -72,14 +67,14 @@ def _precompute_correlations_parallel(X_encoded, y_encoded, n_states_features, n
     n_features = X_encoded.shape[1]
     
     # Feature-class correlations (r_cf)
-    r_cf_all = np.zeros(n_features, dtype=np.float64)
+    r_cf_all = np.zeros(n_features, dtype=np.float32)
     for i in numba.prange(n_features):
         r_cf_all[i] = _symmetrical_uncertainty(
             X_encoded[:, i], y_encoded, n_states_features[i], n_states_y
         )
 
     # Feature-feature correlations (r_ff)
-    r_ff_matrix = np.zeros((n_features, n_features), dtype=np.float64)
+    r_ff_matrix = np.zeros((n_features, n_features), dtype=np.float32)
     for i in numba.prange(n_features):
         for j in range(i + 1, n_features):
             corr = _symmetrical_uncertainty(
@@ -96,62 +91,49 @@ def _best_first_search_optimized(n_features, r_cf_all, r_ff_matrix):
     """
     remaining_indices = list(range(n_features))
     
-    # Start with the best single feature
     first_feature_idx = np.argmax(r_cf_all)
     selected_indices = numba.typed.List([first_feature_idx])
     remaining_indices.pop(first_feature_idx)
 
-    # Initialize sums for the first feature
     current_sum_r_cf = r_cf_all[first_feature_idx]
     current_sum_r_ff = 0.0
     k = 1
     
-    # Merit is calculated once per feature, so no need to store it
     current_best_merit = current_sum_r_cf / np.sqrt(k + 2.0 * current_sum_r_ff)
     
     while len(remaining_indices) > 0:
-        merits = np.full(len(remaining_indices), -1.0, dtype=np.float64)
+        merits = np.full(len(remaining_indices), -1.0, dtype=np.float32)
         
-        # Parallel loop to evaluate adding each remaining feature
         for i in numba.prange(len(remaining_indices)):
             candidate_idx = remaining_indices[i]
             
-            # --- INCREMENTAL UPDATE LOGIC ---
-            # 1. New sum of feature-class correlations
             next_sum_r_cf = current_sum_r_cf + r_cf_all[candidate_idx]
             
-            # 2. Add correlations between the candidate and ALL currently selected features
             sum_corr_with_selected = 0.0
             for sel_idx in selected_indices:
                 sum_corr_with_selected += r_ff_matrix[candidate_idx, sel_idx]
                 
             next_sum_r_ff = current_sum_r_ff + sum_corr_with_selected
             
-            # 3. Calculate merit for this candidate
             k_next = k + 1
             denominator = np.sqrt(k_next + 2.0 * next_sum_r_ff)
             if denominator > 1e-12:
                 merits[i] = next_sum_r_cf / denominator
 
-        # Find the best candidate from the parallel computation
-        if np.max(merits) <= -0.5: # Handles case where all merits are invalid
+        if np.max(merits) <= -0.5:
              break
 
         best_candidate_local_idx = np.argmax(merits)
         merit_for_best_candidate = merits[best_candidate_local_idx]
 
-        # Stopping condition
         if merit_for_best_candidate > current_best_merit:
             current_best_merit = merit_for_best_candidate
             
-            # Get the original feature index and update state
             best_candidate_global_idx = remaining_indices.pop(best_candidate_local_idx)
             selected_indices.append(best_candidate_global_idx)
             
-            # Update the sums for the next iteration
             current_sum_r_cf += r_cf_all[best_candidate_global_idx]
             sum_corr_with_selected = 0.0
-            # Recalculate this small part to avoid passing complex structures to numba
             for sel_idx in selected_indices:
                 if sel_idx != best_candidate_global_idx:
                     sum_corr_with_selected += r_ff_matrix[best_candidate_global_idx, sel_idx]
@@ -162,9 +144,6 @@ def _best_first_search_optimized(n_features, r_cf_all, r_ff_matrix):
             
     return selected_indices
 
-# =============================================================================
-# SCIKIT-LEARN ESTIMATOR CLASS (UPDATED)
-# =============================================================================
 
 class CFS(BaseEstimator, SelectorMixin):
     """
@@ -201,27 +180,23 @@ class CFS(BaseEstimator, SelectorMixin):
         self.n_jobs = n_jobs
 
     def fit(self, X, y):
-        X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2, force_all_finite='allow-nan')
+        X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2, ensure_all_finite='allow-nan')
         n_samples, n_features = X.shape
         self.n_features_in_ = n_features
         if hasattr(X, 'columns'):
             self.feature_names_in_ = np.asarray(X.columns)
             
-        # --- STEP 1: Discretize & Encode Data ---
-        # Identify continuous features (e.g., float types)
         is_continuous = [np.issubdtype(X[:, i].dtype, np.floating) for i in range(n_features)]
         continuous_indices = [i for i, is_cont in enumerate(is_continuous) if is_cont]
         
-        X_encoded = np.zeros_like(X, dtype=np.int32)
-        n_states_features = np.zeros(n_features, dtype=np.int32)
+        X_encoded = np.zeros_like(X, dtype=np.int16)
+        n_states_features = np.zeros(n_features, dtype=np.int16)
 
-        # Discretize continuous features
         if len(continuous_indices) > 0:
             discretizer = KBinsDiscretizer(n_bins=self.n_bins, encode='ordinal', strategy=self.strategy)
             X_encoded[:, continuous_indices] = discretizer.fit_transform(X[:, continuous_indices])
             n_states_features[continuous_indices] = self.n_bins
 
-        # Encode discrete/categorical features
         discrete_indices = [i for i, is_cont in enumerate(is_continuous) if not is_cont]
         if len(discrete_indices) > 0:
             for i in discrete_indices:
@@ -229,39 +204,32 @@ class CFS(BaseEstimator, SelectorMixin):
                 X_encoded[:, i] = encoded_col
                 n_states_features[i] = len(unique_vals)
         
-        # Encode target variable y
         unique_y, y_encoded = np.unique(y, return_inverse=True)
         n_states_y = len(unique_y)
 
-        # --- STEP 2: Run Numba-accelerated computations ---
         original_n_threads = numba.get_num_threads()
         n_threads = self.n_jobs if self.n_jobs != -1 else numba.config.NUMBA_DEFAULT_NUM_THREADS
         try:
             numba.set_num_threads(n_threads)
             
-            # Pre-compute all feature-feature and feature-class correlations
             r_cf_all, r_ff_matrix = _precompute_correlations_parallel(
                 X_encoded, y_encoded, n_states_features, n_states_y
             )
             
-            # If no feature has any correlation with the target, return empty set
             if np.all(r_cf_all < 1e-12):
                 selected_indices_list = []
             else:
-                # Run the optimized best-first search
                 selected_indices_list = _best_first_search_optimized(
                     n_features, r_cf_all, r_ff_matrix
                 )
         finally:
             numba.set_num_threads(original_n_threads)
 
-        # --- STEP 3: Store results ---
         self.selected_indices_ = np.sort(np.array(list(selected_indices_list), dtype=int))
         self.support_mask_ = np.zeros(n_features, dtype=bool)
         if len(self.selected_indices_) > 0:
             self.support_mask_[self.selected_indices_] = True
 
-        # Calculate final merit of the selected subset
         k = len(self.selected_indices_)
         if k == 0:
             self.merit_ = 0.0
