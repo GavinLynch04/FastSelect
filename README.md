@@ -2,26 +2,30 @@
 [![PyPI version](https://img.shields.io/pypi/v/fast-select?color=blue)](https://pypi.org/project/fast-select/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
-[![License](https://img.shields.io/pypi/l/fast-select.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![DOI](https://zenodo.org/badge/1018195486.svg)](https://doi.org/10.5281/zenodo.16285073)
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
+---
+
 ## **Key Features**
 
-- **Blazing Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
+- **Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
   
 - **ML Pipeline Integration:** Fully compatible with **Scikit-Learn**, making it easy to fit into any machine learning pipeline with a familiar `.fit()`, `.transform()`, `.fit_transform()` interface.
   
 - **Flexible Backends:** Offers dual execution modes for both CPU (`Joblib`) and GPU (`CUDA`). Automatically detects hardware with an easy-to-use `backend` parameter.
   
-- **Feature-Rich Implementation:** Provides lightning-fast implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF—with plans to support additional feature selection algorithms in future releases.
+- **Feature-Rich Implementation:** Provides highly optimized implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF, with plans to support additional feature selection algorithms in future releases.
   
-- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering state-of-the-art acceleration for feature selection workflows.
+- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering significant speedups for feature selection workflows.
   
 <!-- end-include -->
+
+---
 
 ## **Table of Contents**
 
@@ -35,6 +39,8 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 8. [License](#license)
 9. [How to Cite](#how-to-cite)
 10. [Acknowledgments](#acknowledgments)
+
+---
 
 ## **Installation**
 <!-- start-installation-section -->
@@ -55,6 +61,7 @@ pip install -e .[dev]
 
 <!-- end-installation-section -->
 
+---
 
 ## **Quickstart**
 <!-- start-quickstart-section -->
@@ -62,11 +69,11 @@ pip install -e .[dev]
 Using `fast-select` is simple and seamless for anyone familiar with Scikit-Learn.
 
 ```python
-from fast_select.estimators import MultiSURF
+from fast_select import MultiSURF
 from sklearn.datasets import make_classification
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression  # Example classifier
+from sklearn.linear_model import LogisticRegression
 
 # 1. Generate a synthetic dataset
 X, y = make_classification(
@@ -91,10 +98,12 @@ pipeline = Pipeline([
     ('classifier', LogisticRegression())
 ])
 
-# Fit the pipeline (now featuring fast feature selection!)
+# Fit the pipeline
 # pipeline.fit(X, y)
 ```
 <!-- end-quickstart-section -->
+
+---
 
 ## **Backend Selection (CPU vs. GPU)**
 
@@ -150,23 +159,42 @@ Currently supported:
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
+---
 
 ## **Contributing**
 
 Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable. Please ensure your submissions include relevant test cases and documentation updates.
 
+---
 
 ## **License**
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for full details.
 
+---
 
-## **How to Cite**
+## Citing `fast-select`
 
-If you use `fast-select` in your research, please cite the software:
+If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
 
-### **Citing the Software:**
-Use the version-specific DOI provided via Zenodo on the [GitHub Release Page](https://github.com/GavinLynch04/FastSelect/releases).
+> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.1.5 (0.1.5). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
+
+You can use the following BibTeX entry:
+
+```bibtex
+@software{gavin_lynch_2025,
+  author       = {Gavin Lynch},
+  title        = {{GavinLynch04/FastSelect: v0.1.5}},
+  month        = jul,
+  year         = 2025,
+  publisher    = {Zenodo},
+  version      = {0.1.5},
+  doi          = {10.5281/zenodo.16285073},
+  url          = {https://doi.org/10.5281/zenodo.16285073}
+}
+```
+
+---
 
 ## **Acknowledgments**
 

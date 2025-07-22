@@ -50,7 +50,7 @@ def test_feature_importance_ranking(simple_classification_data):
 def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     """
     CRITICAL: Tests that the CPU and GPU backends produce identical results
-    for both MultiSURF and MultiSURF*. This is our primary correctness check.
+    for both MultiSURF and MultiSURF*.
     """
     if not cuda.is_available():
         pytest.skip("Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.")
