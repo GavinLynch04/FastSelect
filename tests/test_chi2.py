@@ -38,10 +38,8 @@ def test_correctness_against_sklearn(random_data_factory, n_samples, n_features,
     across a variety of data shapes. This is the most critical test.
     """
     X, y = random_data_factory(n_samples, n_features, n_classes)
-    print(f"\n[DEBUG] correctness_test: X.shape={X.shape}, y.shape={y.shape}")
     
     sk_chi2, sk_p_values = sklearn_chi2(X, y)
-    print(f"\n[DEBUG] correctness_test: X.shape={X.shape}, y.shape={y.shape}")
 
     numba_chi2, numba_p_values = chi2_numba(X, y)
     print(numba_chi2, numba_p_values)
