@@ -85,7 +85,7 @@ find = { where = ["src"] }
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q --cov=fast_relief --cov-report=term-missing"
+addopts = "-ra -q --cov=fast_select --cov-report=term-missing"
 testpaths = ["tests"]
 
 

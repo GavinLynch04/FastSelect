@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 from scipy.stats import chi2 as chi2_dist
-from sklearn.utils.validation import validate_data
+from sklearn.utils.validation import check_array, check_X_y
 
 @njit(fastmath=True)
 def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes):
@@ -65,7 +65,9 @@ def chi2(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             - chi2_stats: The Chi-squared statistics for each feature.
             - p_values: The p-values for each feature.
     """
-    X, y = validate_data(X, y, ensure_2d=True, dtype=[np.float64, np.float32])
+    X = check_array(X, dtype=[np.float64, np.float32], ensure_2d=True)
+
+    X, y = check_X_y(X, y, y_numeric=True)
     
     if np.any(X < 0):
         raise ValueError("Input matrix X must contain non-negative values.")

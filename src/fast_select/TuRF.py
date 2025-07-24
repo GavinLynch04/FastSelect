@@ -116,8 +116,7 @@ class TuRF(TransformerMixin, BaseEstimator):
             iteration += 1
 
         sorted_indices_in_subset = np.argsort(current_scores)[::-1]
-
-        self.top_features_ = active_feature_indices[sorted_indices_in_subset][:self.n_features_to_select]
+        self.top_features_ = active_feature_indices[sorted_indices_in_subset]
         self.top_features_ = np.sort(self.top_features_)
         return self
 
