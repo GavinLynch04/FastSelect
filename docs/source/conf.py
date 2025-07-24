@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('../../')) # Points to project root
 project = 'Fast-Select'
 copyright = '2025, Gavin Lynch'
 author = 'Gavin Lynch'
-release = '0.1.0'
+release = '0.1.5'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
