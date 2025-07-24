@@ -121,14 +121,15 @@ def test_verbose_output(test_data, capsys):
     assert "features remaining" in captured.out
 
 
-def test_initialization_errors():
-    """Test that __init__ raises errors on invalid parameters."""
+def test_fit_errors(test_data):
+    """Test that fit raises errors on invalid parameters."""
+    X, y = test_data
     with pytest.raises(ValueError, match="pct_remove must be between 0 and 1"):
-        TuRF(estimator=MockReliefEstimator(), pct_remove=0)
+        TuRF(estimator=MockReliefEstimator(), pct_remove=0).fit(X, y)
     with pytest.raises(ValueError, match="pct_remove must be between 0 and 1"):
-        TuRF(estimator=MockReliefEstimator(), pct_remove=1)
+        TuRF(estimator=MockReliefEstimator(), pct_remove=1).fit(X, y)
     with pytest.raises(ValueError, match="pct_remove must be between 0 and 1"):
-        TuRF(estimator=MockReliefEstimator(), pct_remove=1.1)
+        TuRF(estimator=MockReliefEstimator(), pct_remove=1.1).fit(X, y)
 
 
 def test_transform_before_fit(test_data):

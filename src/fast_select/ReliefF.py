@@ -9,7 +9,7 @@ import warnings
 TPB = 64  # Threads-per-block
 
 @cuda.jit
-def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
+def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out): # pragma: no cover
     """
     ReliefF scoring on the GPU.
     Uses shared memory for threads in a block to cooperate correctly.
@@ -135,7 +135,7 @@ def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, is_discrete_d, k):
 
 
 @njit(parallel=True, fastmath=True)
-def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores_out):
+def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores_out): # pragma: no cover
     n_samples, n_features = x.shape
     n_classes = class_probs.shape[0]
     temp = np.zeros((n_samples, n_features), dtype=np.float32)
@@ -420,18 +420,14 @@ class ReliefF(TransformerMixin, BaseEstimator):
         x_new : ndarray of shape (n_samples, n_features_to_select)
             The input samples with only the selected features.
         """
+        check_is_fitted(self)
+        
         x = validate_data(
             self, x,
             reset=False,
+            dtype=[np.float64, np.float32]
         )
-        check_is_fitted(self)
-        x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
 
-        if x.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"x has {x.shape[1]} features, but "
-                + "was trained with {self.n_features_in_}."
-            )
         return x[:, self.top_features_]
 
     def fit_transform(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:

@@ -1,6 +1,7 @@
 # **Fast-Select: Accelerated Feature Selection for Modern Datasets**
 [![PyPI version](https://img.shields.io/pypi/v/fast-select?color=blue)](https://pypi.org/project/fast-select/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
+[![codecov](https://codecov.io/gh/GavinLynch04/FastSelect/branch/main/graph/badge.svg?token=3LKYFCFSB4)](https://codecov.io/gh/GavinLynch04/FastSelect)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)

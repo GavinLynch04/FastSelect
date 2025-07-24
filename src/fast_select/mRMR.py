@@ -8,7 +8,7 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 import time
 
 @njit(parallel=True, cache=True)
-def _encode_data_numba(X, y, unique_vals):
+def _encode_data_numba(X, y, unique_vals): # pragma: no cover
     """
     Encodes X and y using a precomputed sorted array of unique values.
     This is dramatically faster than np.vectorize.
@@ -29,7 +29,7 @@ def _encode_data_numba(X, y, unique_vals):
 
 
 @njit(cache=True, nogil=True)
-def _calculate_mi(x1, n_states1, x2, n_states2, n_samples):
+def _calculate_mi(x1, n_states1, x2, n_states2, n_samples): # pragma: no cover
     """Calculates Mutual Information between two discrete vectors."""
     contingency_table = np.zeros((n_states1, n_states2), dtype=np.float32)
     for i in range(n_samples):
@@ -53,7 +53,7 @@ def _calculate_mi(x1, n_states1, x2, n_states2, n_samples):
     return mi
 
 @njit(parallel=True, cache=True)
-def _precompute_mi_matrices(X, y):
+def _precompute_mi_matrices(X, y): # pragma: no cover
     """Precomputes relevance and redundancy matrices."""
     n_samples, n_features = X.shape
     
@@ -85,7 +85,7 @@ MAX_SHARED_STATES = 32
 THREADS_PER_BLOCK = (16, 16)
 
 @cuda.jit
-def _relevance_kernel_gpu(X_gpu, y_gpu, relevance_out, n_samples, n_states):
+def _relevance_kernel_gpu(X_gpu, y_gpu, relevance_out, n_samples, n_states): # pragma: no cover
     """
     Specialized CUDA kernel for calculating relevance scores I(f; y).
     Each CUDA block calculates the MI for one feature.
@@ -135,7 +135,7 @@ def _relevance_kernel_gpu(X_gpu, y_gpu, relevance_out, n_samples, n_states):
         relevance_out[feature_idx] = mi
 
 @cuda.jit
-def _redundancy_kernel_gpu(X_gpu, redundancy_out, n_features, n_samples, n_states):
+def _redundancy_kernel_gpu(X_gpu, redundancy_out, n_features, n_samples, n_states): # pragma: no cover
     """
     Specialized CUDA kernel for calculating redundancy matrix I(f_i; f_j).
     Each CUDA block calculates the MI for one pair of features (f_i, f_j).

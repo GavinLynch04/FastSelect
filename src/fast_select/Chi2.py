@@ -6,7 +6,7 @@ from scipy.stats import chi2 as chi2_dist
 from sklearn.utils.validation import check_array, check_X_y
 
 @njit(fastmath=True)
-def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes):
+def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes): # pragma: no cover
     """
     Efficiently computes the observed frequency matrix and feature counts
     in a single pass over the data.
@@ -23,7 +23,7 @@ def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes):
     return observed, feature_counts
 
 @njit(parallel=True, fastmath=True)
-def _chi2_core(observed, class_freqs, feature_counts, n_samples):
+def _chi2_core(observed, class_freqs, feature_counts, n_samples): # pragma: no cover
     """
     Calculates chi2 stats from the pre-computed observed matrix.
     The loop over features is parallelized.

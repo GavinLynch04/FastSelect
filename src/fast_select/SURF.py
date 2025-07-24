@@ -7,7 +7,7 @@ from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 TPB = 64  # Threads Per Block
 
 @cuda.jit
-def _surf_gpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out):
+def _surf_gpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out): # pragma: no cover
     """
     SURF/SURF* scoring on the GPU for all features.
     """
@@ -129,7 +129,7 @@ def _surf_gpu_host_caller(x_d, y_d, recip_full_d, use_star, is_discrete_d):
 
 
 @njit(parallel=True, fastmath=True)
-def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores):
+def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): # pragma: no cover
     """
     SURF/SURF* scoring for CPU.
     """
@@ -397,16 +397,9 @@ class SURF(TransformerMixin, BaseEstimator):
         x = validate_data(
             self, x,
             reset=False,
-            ensure_2d=True,
             dtype=[np.float64, np.float32]
         )
 
-        x = check_array(x, ensure_2d=True, dtype=[np.float64, np.float32])
-        if x.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"X has {x.shape[1]} features, but {self.__class__.__name__} "
-                f"was trained with {self.n_features_in_} features."
-            )
         return x[:, self.top_features_]
 
     def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:

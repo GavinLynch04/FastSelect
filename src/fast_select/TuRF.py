@@ -58,9 +58,6 @@ class TuRF(TransformerMixin, BaseEstimator):
         self.n_iterations = n_iterations
         self.verbose = verbose
 
-        if not 0 < self.pct_remove < 1:
-            raise ValueError("pct_remove must be between 0 and 1.")
-
     def fit(self, X: np.ndarray, y: np.ndarray):
         """
         Fits the TuRF model.
@@ -81,6 +78,8 @@ class TuRF(TransformerMixin, BaseEstimator):
             self, X, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
         )
         self.n_features_in_ = X.shape[1]
+        if not 0 < self.pct_remove < 1:
+            raise ValueError("pct_remove must be between 0 and 1.")
 
         active_feature_indices = np.arange(self.n_features_in_)
         base_estimator = clone(self.estimator)
@@ -126,14 +125,9 @@ class TuRF(TransformerMixin, BaseEstimator):
         X = validate_data(
             self, X,
             reset=False,
-            ensure_2d=True,
             dtype=[np.float64, np.float32]
         )
 
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}."
-            )
         return X[:, self.top_features_]
     
     def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:

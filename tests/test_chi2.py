@@ -5,6 +5,7 @@ from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
 from fast_select import chi2 as chi2_numba
 from sklearn.feature_selection import chi2 as sklearn_chi2
+from fast_select.Chi2 import _compute_observed_and_feature_counts, _chi2_core
 
 
 @pytest.fixture(scope="module")
@@ -157,3 +158,81 @@ def test_large_data_smoke_test(random_data_factory):
     
     assert np.all(chi2_stats >= 0), "Chi-squared statistics must be non-negative"
     assert np.all((p_values >= 0) & (p_values <= 1)), "P-values must be between 0 and 1"
+    
+def test_compute_observed_and_feature_counts():
+    """
+    Unit test for the internal _compute_observed_and_feature_counts function.
+    Verifies that it correctly calculates the observed frequency matrix and
+    the per-feature totals from a simple, known dataset.
+    """
+    X = np.array([
+        [1, 2, 0],   # Class 0
+        [3, 0, 5],   # Class 1
+        [0, 4, 1],   # Class 0
+        [2, 2, 3],   # Class 1
+    ], dtype=np.float64)
+
+    y_mapped = np.array([0, 1, 0, 1], dtype=np.int64)
+    n_features = 3
+    n_classes = 2
+
+    observed, feature_counts = _compute_observed_and_feature_counts(
+        X, y_mapped, n_features, n_classes
+    )
+
+    expected_observed = np.array([
+        [1., 6., 1.],
+        [5., 2., 8.]
+    ], dtype=np.float64)
+
+    expected_feature_counts = np.array([6., 8., 9.], dtype=np.float64)
+
+    np.testing.assert_array_equal(observed, expected_observed)
+    np.testing.assert_array_equal(feature_counts, expected_feature_counts)
+    
+def test_chi2_core_calculation():
+    """
+    Unit test for the internal, parallelized _chi2_core function.
+    Verifies the correctness of the chi-squared statistic calculation using
+    a pre-computed contingency table. Also checks the handling of zero-count features.
+    """
+    n_samples = 100
+    n_classes = 2
+    n_features = 3
+
+    observed = np.array([
+        [30., 10., 20.],
+        [10., 30., 0.]
+    ], dtype=np.float64)
+
+    feature_counts = observed.sum(axis=0)
+    class_freqs = observed.sum(axis=1)
+
+    chi2_stats = _chi2_core(observed, class_freqs, feature_counts, n_samples)
+
+    expected_chi2 = np.zeros(n_features)
+
+    expected_chi2[0] = 3.75
+
+    expected_chi2[1] = 20.416666666
+
+    expected_chi2[2] = 13.333333333
+
+    np.testing.assert_allclose(chi2_stats, expected_chi2)
+
+
+def test_chi2_core_with_zero_feature_count():
+    """
+    Ensures that the _chi2_core function correctly handles a feature that has
+    a total count of zero, which should result in a chi2 statistic of 0 for that feature.
+    """
+    observed = np.array([[10., 0., 20.], [15., 0., 5.]])
+    feature_counts = observed.sum(axis=0)  # [25., 0., 25.]
+    class_freqs = observed.sum(axis=1)     # [30., 20.]
+    n_samples = 50
+
+    chi2_stats = _chi2_core(observed, class_freqs, feature_counts, n_samples)
+
+    assert chi2_stats[1] == 0.0
+    assert chi2_stats[0] > 0.0
+    assert chi2_stats[2] > 0.0

@@ -7,7 +7,7 @@ from sklearn.preprocessing import KBinsDiscretizer
 
 
 @numba.njit(cache=True)
-def _entropy(x, n_states):
+def _entropy(x, n_states): # pragma: no cover
     n_samples = x.shape[0]
     if n_samples == 0:
         return 0.0
@@ -24,7 +24,7 @@ def _entropy(x, n_states):
     return entropy
 
 @numba.njit(cache=True)
-def _mutual_information(x, y, n_states_x, n_states_y):
+def _mutual_information(x, y, n_states_x, n_states_y): # pragma: no cover
     n_samples = x.shape[0]
     if n_samples == 0:
         return 0.0
@@ -48,7 +48,7 @@ def _mutual_information(x, y, n_states_x, n_states_y):
     return mi
 
 @numba.njit(cache=True)
-def _symmetrical_uncertainty(x, y, n_states_x, n_states_y):
+def _symmetrical_uncertainty(x, y, n_states_x, n_states_y): # pragma: no cover
     h_x = _entropy(x, n_states_x)
     h_y = _entropy(y, n_states_y)
     
@@ -60,7 +60,7 @@ def _symmetrical_uncertainty(x, y, n_states_x, n_states_y):
 
 
 @numba.njit(parallel=True, cache=True)
-def _precompute_correlations_parallel(X_encoded, y_encoded, n_states_features, n_states_y):
+def _precompute_correlations_parallel(X_encoded, y_encoded, n_states_features, n_states_y): # pragma: no cover
     """
     Calculates all correlations on pre-encoded integer data.
     """
@@ -85,7 +85,7 @@ def _precompute_correlations_parallel(X_encoded, y_encoded, n_states_features, n
     return r_cf_all, r_ff_matrix
 
 @numba.njit(parallel=True, cache=True)
-def _best_first_search_optimized(n_features, r_cf_all, r_ff_matrix):
+def _best_first_search_optimized(n_features, r_cf_all, r_ff_matrix): # pragma: no cover
     """
     Performs an optimized best-first search using incremental updates.
     """
