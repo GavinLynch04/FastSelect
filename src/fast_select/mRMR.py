@@ -7,6 +7,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
 import time
 
+from . import mutual_information as mi
+
 @njit(parallel=True, cache=True)
 def _encode_data_numba(X, y, unique_vals): # pragma: no cover
     """
@@ -27,196 +29,6 @@ def _encode_data_numba(X, y, unique_vals): # pragma: no cover
 
     return X_encoded, y_encoded
 
-
-@njit(cache=True, nogil=True)
-def _calculate_mi(x1, n_states1, x2, n_states2, n_samples): # pragma: no cover
-    """Calculates Mutual Information between two discrete vectors."""
-    contingency_table = np.zeros((n_states1, n_states2), dtype=np.float32)
-    for i in range(n_samples):
-        # Ensure indices are integers
-        contingency_table[int(x1[i]), int(x2[i])] += 1
-    
-    contingency_table /= n_samples
-    
-    p1 = np.sum(contingency_table, axis=1)
-    p2 = np.sum(contingency_table, axis=0)
-    
-    mi = 0.0
-    for i in range(n_states1):
-        for j in range(n_states2):
-            p_xy = contingency_table[i, j]
-            p_x = p1[i]
-            p_y = p2[j]
-            # Use a small epsilon to avoid log(0)
-            if p_xy > 1e-12 and p_x > 1e-12 and p_y > 1e-12:
-                mi += p_xy * log(p_xy / (p_x * p_y))
-    return mi
-
-@njit(parallel=True, cache=True)
-def _precompute_mi_matrices(X, y): # pragma: no cover
-    """Precomputes relevance and redundancy matrices."""
-    n_samples, n_features = X.shape
-    
-    n_states_X = np.zeros(n_features, dtype=np.int32)
-    for i in prange(n_features):
-        n_states_X[i] = int(np.max(X[:, i])) + 1
-        
-    n_states_y = int(np.max(y)) + 1
-    
-    relevance_scores = np.zeros(n_features, dtype=np.float32)
-    for i in prange(n_features):
-        relevance_scores[i] = _calculate_mi(
-            X[:, i], n_states_X[i], y, n_states_y, n_samples
-        )
-        
-    redundancy_matrix = np.zeros((n_features, n_features), dtype=np.float32)
-    for i in prange(n_features):
-        for j in range(i + 1, n_features):
-            mi = _calculate_mi(
-                X[:, i], n_states_X[i], X[:, j], n_states_X[j], n_samples
-            )
-            redundancy_matrix[i, j] = mi
-            redundancy_matrix[j, i] = mi
-            
-    return relevance_scores, redundancy_matrix
-
-MAX_SHARED_STATES = 32
-# Define a standard, efficient thread block size.
-THREADS_PER_BLOCK = (16, 16)
-
-@cuda.jit
-def _relevance_kernel_gpu(X_gpu, y_gpu, relevance_out, n_samples, n_states): # pragma: no cover
-    """
-    Specialized CUDA kernel for calculating relevance scores I(f; y).
-    Each CUDA block calculates the MI for one feature.
-    """
-    shared_contingency = cuda.shared.array(shape=(MAX_SHARED_STATES, MAX_SHARED_STATES), dtype=float32)
-
-    feature_idx = cuda.blockIdx.x
-
-    tx = cuda.threadIdx.x
-    ty = cuda.threadIdx.y
-
-    if tx < n_states and ty < n_states:
-        shared_contingency[tx, ty] = 0.0
-    cuda.syncthreads()
-
-    for sample_idx in range(n_samples):
-        val1 = int(X_gpu[sample_idx, feature_idx])
-        val2 = int(y_gpu[sample_idx])
-        cuda.atomic.add(shared_contingency, (val1, val2), 1.0)
-    cuda.syncthreads()
-
-    if tx == 0 and ty == 0:
-        for r in range(n_states):
-            for c in range(n_states):
-                shared_contingency[r,c] /= n_samples
-
-        p_x = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        p_y = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        for i in range(n_states):
-            p_x[i] = 0.0
-            p_y[i] = 0.0
-
-        for r in range(n_states):
-            for c in range(n_states):
-                p_x[r] += shared_contingency[r, c]
-                p_y[c] += shared_contingency[r, c]
-
-        mi = 0.0
-        for r in range(n_states):
-            for c in range(n_states):
-                p_xy_val = shared_contingency[r, c]
-                p_x_r = p_x[r]
-                p_y_c = p_y[c]
-                if p_xy_val > 1e-12:
-                    mi += p_xy_val * log(p_xy_val / (p_x_r * p_y_c))
-        
-        relevance_out[feature_idx] = mi
-
-@cuda.jit
-def _redundancy_kernel_gpu(X_gpu, redundancy_out, n_features, n_samples, n_states): # pragma: no cover
-    """
-    Specialized CUDA kernel for calculating redundancy matrix I(f_i; f_j).
-    Each CUDA block calculates the MI for one pair of features (f_i, f_j).
-    """
-    shared_contingency = cuda.shared.array(shape=(MAX_SHARED_STATES, MAX_SHARED_STATES), dtype=float32)
-    
-    f1_idx = cuda.blockIdx.x
-    f2_idx = cuda.blockIdx.y
-
-    if f2_idx <= f1_idx:
-        return
-
-    tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
-
-    if tx < n_states and ty < n_states:
-        shared_contingency[tx, ty] = 0.0
-    cuda.syncthreads()
-
-    for sample_idx in range(n_samples):
-        val1 = int(X_gpu[sample_idx, f1_idx])
-        val2 = int(X_gpu[sample_idx, f2_idx])
-        cuda.atomic.add(shared_contingency, (val1, val2), 1.0)
-    cuda.syncthreads()
-
-    if tx == 0 and ty == 0:
-        for r in range(n_states):
-            for c in range(n_states):
-                shared_contingency[r,c] /= n_samples
-
-        p_x = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        p_y = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        for i in range(n_states):
-            p_x[i] = 0.0
-            p_y[i] = 0.0
-
-        for r in range(n_states):
-            for c in range(n_states):
-                p_x[r] += shared_contingency[r, c]
-                p_y[c] += shared_contingency[r, c]
-
-        mi = 0.0
-        for r in range(n_states):
-            for c in range(n_states):
-                p_xy_val = shared_contingency[r, c]
-                p_x_r = p_x[r]
-                p_y_c = p_y[c]
-                if p_xy_val > 1e-12:
-                    mi += p_xy_val * log(p_xy_val / (p_x_r * p_y_c))
-
-        redundancy_out[f1_idx, f2_idx] = mi
-        redundancy_out[f2_idx, f1_idx] = mi
-
-def _precompute_mi_matrices_gpu(X, y, n_states):
-    """Orchestrator for the GPU backend."""
-    n_samples, n_features = X.shape
-
-    if n_states > MAX_SHARED_STATES:
-        raise ValueError(
-            f"GPU backend supports a maximum of {MAX_SHARED_STATES} unique discrete states, "
-            f"but data has {n_states}."
-        )
-
-    X_gpu = cuda.to_device(np.ascontiguousarray(X))
-    y_gpu = cuda.to_device(np.ascontiguousarray(y))
-
-    relevance_gpu = cuda.device_array(n_features, dtype=np.float32)
-    redundancy_gpu = cuda.device_array((n_features, n_features), dtype=np.float32)
-
-    blocks_per_grid_rel = (n_features,)
-    _relevance_kernel_gpu[blocks_per_grid_rel, THREADS_PER_BLOCK](
-        X_gpu, y_gpu, relevance_gpu, n_samples, n_states
-    )
-
-    blocks_per_grid_red = (n_features, n_features)
-    _redundancy_kernel_gpu[blocks_per_grid_red, THREADS_PER_BLOCK](
-        X_gpu, redundancy_gpu, n_features, n_samples, n_states
-    )
-
-    cuda.synchronize()
-
-    return relevance_gpu.copy_to_host(), redundancy_gpu.copy_to_host()
 
 class mRMR(BaseEstimator, TransformerMixin):
     """
@@ -278,29 +90,19 @@ class mRMR(BaseEstimator, TransformerMixin):
                 "n_features_to_select must be a positive integer less "
                 "than or equal to the number of features."
             )
-        start = time.time()
         unique_vals = np.unique(np.concatenate([np.unique(X), np.unique(y)]))
         self.unique_vals_ = unique_vals
         n_states = len(unique_vals)
-        end = time.time()
-        print(end-start)
-        start = time.time()
         X_encoded, y_encoded = _encode_data_numba(X, y, unique_vals)
-        end = time.time()
-        print(end-start)
         
-        start = time.time()
-        if self.backend == 'cpu':
-            relevance, redundancy = _precompute_mi_matrices_cpu(X_encoded, y_encoded)
-        elif self.backend == 'gpu':
-            relevance, redundancy = _precompute_mi_matrices_gpu(X_encoded, y_encoded, n_states)
-        end = time.time()
-        print(end-start)
+        relevance, redundancy = mi.calculate_mi_matrices(
+            X_encoded, y_encoded, n_states, self.backend
+        )
+            
         self.relevance_scores_ = relevance
         self.redundancy_matrix_ = redundancy
 
         
-        start = time.time()
         selected_indices = np.zeros(self.n_features_to_select, dtype=np.int32)
         remaining_mask = np.ones(self.n_features_in_, dtype=bool)
 
@@ -328,8 +130,6 @@ class mRMR(BaseEstimator, TransformerMixin):
 
         self.top_features_ = selected_indices
         self.feature_importances_ = self.relevance_scores_
-        end = time.time()
-        print(end-start)
 
         return self
 
@@ -339,13 +139,9 @@ class mRMR(BaseEstimator, TransformerMixin):
         X = validate_data(
             self, X,
             reset=False,
-            ensure_2d=True,
             dtype=None
         )
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"X has {X.shape[1]} features, but was trained with {self.n_features_in_}."
-            )
+        
         return X[:, self.top_features_]
 
     def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
