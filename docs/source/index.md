@@ -14,4 +14,5 @@
 installation
 quickstart
 api
+user_guide
 ```
