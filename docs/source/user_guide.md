@@ -162,10 +162,10 @@ The algorithm exhaustively tests up to k=6 interactions of features to find the 
 ---
 ### Summary and Comparison
 
-| Algorithm Family | Core Idea | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Relief** | Instance-based distance | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type data. |
-| **mRMR** | Information-theoretic balance | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete data. |
-| **CFS** | Subset correlation merit | ❌ No | ✅ **Yes** | High | Finding a synergistically predictive subset (theory-driven). |
-| **Chi-Squared** | Univariate statistical test | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete data. |
-| **MDR** | Feature construction & interaction testing | ✅ **Yes (Primary Goal)** | ❌ No | **Very High** | Detecting epistasis and complex non-linear interactions. |
+| Algorithm Family | `X` Data Type | `y` Data Type | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **ReliefF / SURF / MultiSURF** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |
+| **mRMR** | Discrete | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete classification data. |
+| **CFS** | Discrete & Continuous | Classification | ❌ No | ✅ **Yes** | High | Finding a synergistically predictive subset (theory-driven). |
+| **Chi-Squared** | Discrete (Non-Negative) | Classification | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete classification data. |
+| **MDR** | Discrete | Classification | ✅ **Yes (Primary Goal)** | ❌ No | **Very High** | Detecting epistasis and complex non-linear interactions in case-control studies. |
