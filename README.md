@@ -35,11 +35,10 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 3. [Backend Selection](#backend-selection-cpu-vs-gpu)
 4. [Benchmarking Highlights](#benchmarking-highlights)
 5. [Algorithm Implementations](#algorithm-implementations)
-6. [Future Directions](#future-directions)
-7. [Contributing](#contributing)
-8. [License](#license)
-9. [How to Cite](#how-to-cite)
-10. [Acknowledgments](#acknowledgments)
+6. [Contributing](#contributing)
+7. [License](#license)
+8. [How to Cite](#how-to-cite)
+9. [Acknowledgments](#acknowledgments)
 
 ---
 
