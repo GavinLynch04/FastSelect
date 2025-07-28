@@ -95,60 +95,50 @@ def _best_first_search(n_features, r_cf_all, r_ff_matrix):  # pragma: no cover
     Performs a greedy best-first search to find the optimal feature subset.
     This function is computationally cheap and runs on the CPU.
     """
-    if np.all(r_cf_all < 1e-12):
+    first_feature_idx = np.argmax(r_cf_all)
+    if r_cf_all[first_feature_idx] < 1e-12:
         return numba.typed.List.empty_list(numba.types.int64)
 
-    remaining_indices = list(range(n_features))
-
-    first_feature_idx = np.argmax(r_cf_all)
     selected_indices = numba.typed.List([first_feature_idx])
-    remaining_indices.pop(first_feature_idx)
+    current_best_merit = r_cf_all[first_feature_idx]
 
-    current_sum_r_cf = r_cf_all[first_feature_idx]
-    current_sum_r_ff = 0.0
-    k = 1
+    while True:
+        merits = np.full(n_features, -1.0, dtype=np.float32)
 
-    current_best_merit = current_sum_r_cf
+        for i in range(n_features):
+            if i in selected_indices:
+                continue
 
-    while len(remaining_indices) > 0:
-        merits = np.full(len(remaining_indices), -1.0, dtype=np.float32)
+            # --- ✅ FIX: Create a copy and append, instead of using '+' ---
+            candidate_subset = selected_indices.copy()
+            candidate_subset.append(i)
 
-        for i in range(len(remaining_indices)):
-            candidate_idx = remaining_indices[i]
+            k = len(candidate_subset)
+            sum_r_cf = 0.0
+            for idx in candidate_subset:
+                sum_r_cf += r_cf_all[idx]
 
-            next_sum_r_cf = current_sum_r_cf + r_cf_all[candidate_idx]
+            sum_r_ff = 0.0
+            for feat1_idx in range(k):
+                for feat2_idx in range(feat1_idx + 1, k):
+                    idx1 = candidate_subset[feat1_idx]
+                    idx2 = candidate_subset[feat2_idx]
+                    sum_r_ff += r_ff_matrix[idx1, idx2]
 
-            sum_corr_with_selected = 0.0
-            for sel_idx in selected_indices:
-                sum_corr_with_selected += r_ff_matrix[candidate_idx, sel_idx]
-
-            next_sum_r_ff = current_sum_r_ff + sum_corr_with_selected
-
-            k_next = k + 1
-            denominator = math.sqrt(k_next + 2.0 * next_sum_r_ff)
+            denominator = math.sqrt(k + 2.0 * sum_r_ff)
             if denominator > 1e-12:
-                merits[i] = next_sum_r_cf / denominator
+                merits[i] = sum_r_cf / denominator
 
-        if np.max(merits) <= -0.5:
-            break
+        best_candidate_idx = -1
+        max_merit = -1.0
+        for i in range(n_features):
+            if i not in selected_indices and merits[i] > max_merit:
+                max_merit = merits[i]
+                best_candidate_idx = i
 
-        best_candidate_local_idx = np.argmax(merits)
-        merit_for_best_candidate = merits[best_candidate_local_idx]
-
-        if merit_for_best_candidate > current_best_merit:
-            current_best_merit = merit_for_best_candidate
-
-            best_candidate_global_idx = remaining_indices.pop(best_candidate_local_idx)
-            selected_indices.append(best_candidate_global_idx)
-
-            current_sum_r_cf += r_cf_all[best_candidate_global_idx]
-
-            sum_corr_with_selected = 0.0
-            for sel_idx in selected_indices:
-                if sel_idx != best_candidate_global_idx:
-                    sum_corr_with_selected += r_ff_matrix[best_candidate_global_idx, sel_idx]
-            current_sum_r_ff += sum_corr_with_selected
-            k += 1
+        if best_candidate_idx != -1 and max_merit > current_best_merit:
+            current_best_merit = max_merit
+            selected_indices.append(best_candidate_idx)
         else:
             break
 
@@ -288,7 +278,8 @@ class CFS(BaseEstimator, SelectorMixin):
 
     def fit(self, X, y):
         """
-        Fits the CFS model to find the best feature subset.
+        Fits the CFS model to find the best feature subset by evaluating feature
+        correlation with the target and inter-feature correlation.
 
         Parameters
         ----------
@@ -303,30 +294,26 @@ class CFS(BaseEstimator, SelectorMixin):
             Returns the instance itself.
         """
         X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2)
-
         self.n_features_in_ = X.shape[1]
         if hasattr(X, 'columns'):
             self.feature_names_in_ = np.asarray(X.columns)
 
-        # --- 1. Data Discretization ---
+        # --- 1. Data Discretization and Encoding ---
         is_continuous = np.array([np.issubdtype(X[:, i].dtype, np.floating) for i in range(self.n_features_in_)])
         continuous_indices = np.where(is_continuous)[0]
-
         X_encoded = np.zeros_like(X, dtype=np.int32)
         n_states_features = np.zeros(self.n_features_in_, dtype=np.int32)
-
         if len(continuous_indices) > 0:
-            discretizer = KBinsDiscretizer(n_bins=self.n_bins, encode='ordinal', strategy=self.strategy, subsample=None)
+            discretizer = KBinsDiscretizer(n_bins=self.n_bins, encode='ordinal', strategy=self.strategy,
+                                           subsample=None)
             X_encoded[:, continuous_indices] = discretizer.fit_transform(X[:, continuous_indices]).astype(np.int32)
             n_states_features[continuous_indices] = self.n_bins
-
         discrete_indices = np.where(~is_continuous)[0]
         if len(discrete_indices) > 0:
             for i in discrete_indices:
                 unique_vals, encoded_col = np.unique(X[:, i], return_inverse=True)
                 X_encoded[:, i] = encoded_col
                 n_states_features[i] = len(unique_vals)
-
         unique_y, y_encoded = np.unique(y, return_inverse=True)
         n_states_y = len(unique_y)
         y_encoded = y_encoded.astype(np.int32)
@@ -340,33 +327,24 @@ class CFS(BaseEstimator, SelectorMixin):
         if effective_backend == 'gpu':
             if not cuda.is_available():
                 raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
-
             max_states = np.max(n_states_features)
             if n_states_y > 32 or max_states > 32:
-                raise ValueError(
-                    "GPU backend currently only supports features and target "
-                    "with up to 32 unique states/bins. Please run on the CPU instead."
-                )
-
+                raise ValueError("GPU backend supports up to 32 unique states/bins.")
             X_d = cuda.to_device(X_encoded)
             y_d = cuda.to_device(y_encoded)
             n_states_features_d = cuda.to_device(n_states_features)
-
             r_cf_d = cuda.device_array(self.n_features_in_, dtype=np.float32)
             r_ff_d = cuda.device_array((self.n_features_in_, self.n_features_in_), dtype=np.float32)
-
-            threads_per_block = 256
-            blocks_per_grid = (self.n_features_in_ + (threads_per_block - 1)) // threads_per_block
-
+            blocks_per_grid = self.n_features_in_
+            threads_per_block = 1  # Each thread block handles one feature
             _precompute_correlations_gpu_kernel[blocks_per_grid, threads_per_block](
                 X_d, y_d, n_states_features_d, n_states_y, r_cf_d, r_ff_d
             )
             cuda.synchronize()
-
             r_cf_all = r_cf_d.copy_to_host()
             r_ff_matrix = r_ff_d.copy_to_host()
 
-        else:  # CPU backend
+        else:  # --- CPU Backend Logic ---
             original_n_threads = numba.get_num_threads()
             n_threads = self.n_jobs if self.n_jobs != -1 else numba.config.NUMBA_DEFAULT_NUM_THREADS
             try:
@@ -391,10 +369,7 @@ class CFS(BaseEstimator, SelectorMixin):
             self.merit_ = 0.0
         else:
             sum_r_cf = np.sum(r_cf_all[self.selected_indices_])
-            sum_r_ff = 0.0
-            for i in range(k):
-                for j in range(i + 1, k):
-                    sum_r_ff += r_ff_matrix[self.selected_indices_[i], self.selected_indices_[j]]
+            sum_r_ff = np.sum(np.triu(r_ff_matrix[np.ix_(self.selected_indices_, self.selected_indices_)], k=1))
             denominator = math.sqrt(k + 2.0 * sum_r_ff)
             self.merit_ = sum_r_cf / denominator if denominator > 1e-12 else 0.0
 

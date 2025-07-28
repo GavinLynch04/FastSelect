@@ -169,7 +169,7 @@ def test_input_validation_errors(discrete_classification_data):
     # 3. Calling transform with X of a different shape should raise ValueError
     model.fit(X, y)
     X_wrong_shape = np.delete(X, 0, axis=1) # Remove one feature
-    with pytest.raises(ValueError, match="X has 19 features, but was trained with 20"):
+    with pytest.raises(ValueError, match="X has 19 features, but mRMR is expecting 20 features as input."):
         model.transform(X_wrong_shape)
 
 

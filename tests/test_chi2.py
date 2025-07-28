@@ -43,8 +43,6 @@ def test_correctness_against_sklearn(random_data_factory, n_samples, n_features,
     sk_chi2, sk_p_values = sklearn_chi2(X, y)
 
     numba_chi2, numba_p_values = chi2_numba(X, y)
-    print(numba_chi2, numba_p_values)
-
     np.testing.assert_allclose(numba_chi2, sk_chi2, rtol=1e-6, atol=1e-6,
                                err_msg="Chi-squared statistics do not match scikit-learn")
     np.testing.assert_allclose(numba_p_values, sk_p_values, rtol=1e-6, atol=1e-6,

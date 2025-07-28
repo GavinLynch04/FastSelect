@@ -87,7 +87,6 @@ def test_fit_transform_cpu_and_auto(sample_data, backend):
     This is the primary "happy path" test.
     """
     X, y = sample_data["X_numpy"], sample_data["y"]
-    # Exclude the high-cardinality feature for this standard test
     X_subset = X[:, :5]
 
     cfs = CFS(backend=backend, n_bins=10)
