@@ -1,11 +1,26 @@
 import numpy as np
 import numba
+import pandas as pd
 from numba import cuda
 from sklearn.base import BaseEstimator
 from sklearn.feature_selection import SelectorMixin
 from sklearn.utils.validation import check_X_y, check_is_fitted, validate_data
 from sklearn.preprocessing import KBinsDiscretizer
 import math
+
+@numba.njit(cache=True)
+def _cfs_merit(sum_r_cf, k, sum_r_ff):
+    """
+    k              : number of features in the subset
+    sum_r_cf       : sum of feature-class SUs in the subset
+    sum_r_ff       : sum of all pairwise feature-feature SUs in the subset
+    """
+    if k == 0:
+        return 0.0
+    r_cf_avg = sum_r_cf / k
+    r_ff_avg = (2.0 * sum_r_ff) / (k * (k - 1)) if k > 1 else 0.0
+    denom = math.sqrt(k + k * (k - 1) * r_ff_avg)
+    return (k * r_cf_avg / denom) if denom > 1e-12 else 0.0
 
 @numba.njit(cache=True)
 def _entropy(x, n_states):  # pragma: no cover
@@ -88,61 +103,65 @@ def _precompute_correlations_cpu(X_encoded, y_encoded, n_states_features, n_stat
 
     return r_cf_all, r_ff_matrix
 
+def _prune_redundant(selected, r_cf, r_ff):
+    # keep features in descending r_cf order
+    kept = []
+    for idx in sorted(selected, key=lambda i: -r_cf[i]):
+        if not any(r_ff[idx, j] >= r_cf[idx] for j in kept):
+            kept.append(idx)
+    return kept
 
 @numba.njit(cache=True)
-def _best_first_search(n_features, r_cf_all, r_ff_matrix):  # pragma: no cover
-    """
-    Performs a greedy best-first search to find the optimal feature subset.
-    This function is computationally cheap and runs on the CPU.
-    """
-    first_feature_idx = np.argmax(r_cf_all)
-    if r_cf_all[first_feature_idx] < 1e-12:
+def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1):
+    first = np.argmax(r_cf_all)
+    if r_cf_all[first] < min_r_cf:
         return numba.typed.List.empty_list(numba.types.int64)
 
-    selected_indices = numba.typed.List([first_feature_idx])
-    current_best_merit = r_cf_all[first_feature_idx]
+    selected = numba.typed.List([first])
+    current_best = r_cf_all[first]  # merit for k=1 is just its r_cf
 
     while True:
-        merits = np.full(n_features, -1.0, dtype=np.float32)
+        best_i = -1
+        best_merit = current_best
 
         for i in range(n_features):
-            if i in selected_indices:
+            if i in selected or r_cf_all[i] < min_r_cf:
                 continue
 
-            # --- ✅ FIX: Create a copy and append, instead of using '+' ---
-            candidate_subset = selected_indices.copy()
-            candidate_subset.append(i)
-
-            k = len(candidate_subset)
+            # build candidate subset
+            k = len(selected) + 1
             sum_r_cf = 0.0
-            for idx in candidate_subset:
-                sum_r_cf += r_cf_all[idx]
-
             sum_r_ff = 0.0
-            for feat1_idx in range(k):
-                for feat2_idx in range(feat1_idx + 1, k):
-                    idx1 = candidate_subset[feat1_idx]
-                    idx2 = candidate_subset[feat2_idx]
-                    sum_r_ff += r_ff_matrix[idx1, idx2]
 
-            denominator = math.sqrt(k + 2.0 * sum_r_ff)
-            if denominator > 1e-12:
-                merits[i] = sum_r_cf / denominator
+            # accumulate r_cf and r_ff for candidate = selected + [i]
+            for idx in selected:
+                sum_r_cf += r_cf_all[idx]
+            sum_r_cf += r_cf_all[i]
 
-        best_candidate_idx = -1
-        max_merit = -1.0
-        for i in range(n_features):
-            if i not in selected_indices and merits[i] > max_merit:
-                max_merit = merits[i]
-                best_candidate_idx = i
+            for a in selected:
+                for b in selected:
+                    if a < b:
+                        sum_r_ff += r_ff_matrix[a, b]
 
-        if best_candidate_idx != -1 and max_merit > current_best_merit:
-            current_best_merit = max_merit
-            selected_indices.append(best_candidate_idx)
+            # add pairwise terms involving the new feature i
+            for sel in selected:
+                sum_r_ff += r_ff_matrix[i, sel]
+
+            merit = _cfs_merit(sum_r_cf, k, sum_r_ff)
+
+            if merit > best_merit:
+                best_merit = merit
+                best_i = i
+
+        if best_i != -1:
+            selected.append(best_i)
+            current_best = best_merit
         else:
             break
 
-    return selected_indices
+    return selected
+
+
 
 
 @cuda.jit(device=True)
@@ -293,10 +312,11 @@ class CFS(BaseEstimator, SelectorMixin):
         self : object
             Returns the instance itself.
         """
+        feature_names = np.asarray(X.columns) if hasattr(X, "columns") else None
         X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2)
         self.n_features_in_ = X.shape[1]
-        if hasattr(X, 'columns'):
-            self.feature_names_in_ = np.asarray(X.columns)
+        if feature_names is not None:
+            self.feature_names_in_ = feature_names
 
         # --- 1. Data Discretization and Encoding ---
         is_continuous = np.array([np.issubdtype(X[:, i].dtype, np.floating) for i in range(self.n_features_in_)])
@@ -359,6 +379,12 @@ class CFS(BaseEstimator, SelectorMixin):
         selected_indices_list = _best_first_search(self.n_features_in_, r_cf_all, r_ff_matrix)
 
         self.selected_indices_ = np.sort(np.array(list(selected_indices_list), dtype=int))
+        self.selected_indices_ = np.sort(
+            np.array(_prune_redundant(self.selected_indices_,
+                                      r_cf_all,
+                                      r_ff_matrix),
+                     dtype=int)
+        )
         self.support_mask_ = np.zeros(self.n_features_in_, dtype=bool)
         if len(self.selected_indices_) > 0:
             self.support_mask_[self.selected_indices_] = True
@@ -369,9 +395,10 @@ class CFS(BaseEstimator, SelectorMixin):
             self.merit_ = 0.0
         else:
             sum_r_cf = np.sum(r_cf_all[self.selected_indices_])
-            sum_r_ff = np.sum(np.triu(r_ff_matrix[np.ix_(self.selected_indices_, self.selected_indices_)], k=1))
-            denominator = math.sqrt(k + 2.0 * sum_r_ff)
-            self.merit_ = sum_r_cf / denominator if denominator > 1e-12 else 0.0
+            sum_r_ff = np.sum(np.triu(
+                r_ff_matrix[np.ix_(self.selected_indices_, self.selected_indices_)], k=1)
+            )
+            self.merit_ = _cfs_merit(sum_r_cf, k, sum_r_ff)
 
         return self
 
@@ -399,4 +426,6 @@ class CFS(BaseEstimator, SelectorMixin):
         """
 
         check_is_fitted(self)
+        if isinstance(X, pd.DataFrame):
+            return X.iloc[:, self.support_mask_]
         return X[:, self.support_mask_]

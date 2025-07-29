@@ -219,7 +219,6 @@ def test_gpu_state_limit_handling(sample_data):
 
     cfs = CFS(backend='gpu', n_bins=10)
     # This should raise a ValueError due to the check for n_states > 32
-    # If the check is removed, this would likely cause a CUDA kernel error.
     with pytest.raises(ValueError,
                        match="GPU backend currently only supports features and target with up to 32 unique states/bins."):
         cfs.fit(X_high_cardinality, y)
@@ -233,10 +232,7 @@ def test_transform_bug_fix(sample_data):
     X, y = sample_data["X_numpy"][:, :5], sample_data["y"]
     cfs = CFS().fit(X, y)
 
-    # This call should return a sliced array, not recurse.
     transformed_X = cfs.transform(X)
 
-    # A simple check to ensure it didn't recurse and returned a valid result.
     assert isinstance(transformed_X, np.ndarray)
     assert transformed_X.shape[1] == len(cfs.selected_indices_)
-

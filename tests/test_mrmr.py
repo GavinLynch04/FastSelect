@@ -104,35 +104,48 @@ def test_fit_transform_gpu(discrete_classification_data, method):
 
 
 
-def test_selects_correct_features(backend='cpu'):
+@pytest.mark.parametrize("backend", ["cpu"])
+def test_selects_correct_features(backend):
     """
-    Tests if mRMR selects the correct features on a synthetic dataset where
-    the most relevant features are known and redundancy is controlled.
+    Verify that mRMR (MID) prefers a relevant-but-less-redundant feature
+    over an exact duplicate of an already-selected one.
+
+    Ground-truth:
+      * Feature 0  – noisy copy of y (10 % flips)  → highly relevant
+      * Feature 1  – exact duplicate of feature 0 → totally redundant
+      * Feature 9  – cleaner copy of y (5 % flips)→ relevant, less redundant
+    Expected selection order: 0 then 9.
     """
+    rng = np.random.default_rng(42)   # reproducible across runs
+
     n_samples = 200
     n_features = 10
-    
-    # Create a target variable
-    y = np.random.randint(0, 2, n_samples)
-    
-    X = np.random.randint(0, 3, size=(n_samples, n_features))
-    
-    X[:, 0] = y 
-    
-    X[:, 9] = (y + np.random.randint(0, 2, n_samples)) % 2 
-    
+
+    y = rng.integers(0, 2, n_samples)
+
+    X = rng.integers(0, 3, size=(n_samples, n_features))
+
+    # feature 0:  noisy (10 % flips) copy of y
+    flip0 = (rng.random(n_samples) < 0.10).astype(int)
+    X[:, 0] = (y + flip0) % 2
+
+    # feature 1: exact duplicate of feature 0
     X[:, 1] = X[:, 0]
-    
-    model = mRMR(n_features_to_select=2, method='MID', backend=backend)
+
+    # feature 9: cleaner (5 % flips) copy of y still relevant, less redundant
+    flip9 = (rng.random(n_samples) < 0.05).astype(int)
+    X[:, 9] = (y + flip9) % 2
+
+    model = mRMR(n_features_to_select=2, method="MID", backend=backend)
     model.fit(X, y)
-    
+
     selected = set(model.top_features_)
     expected = {0, 9}
-    
-    assert selected == expected, f"Expected features {expected}, but got {selected}"
 
+    assert (
+        selected == expected
+    ), f"Expected features {expected}, but got {selected}"
 
-# --- Tests for Scikit-learn Compatibility and Edge Cases ---
 
 def test_sklearn_pipeline_compatibility(discrete_classification_data):
     """Ensures that mRMR works as a step within a scikit-learn Pipeline."""
@@ -173,7 +186,6 @@ def test_input_validation_errors(discrete_classification_data):
         model.transform(X_wrong_shape)
 
 
-# --- Test for the helper function ---
 def test_encode_data_numba(discrete_classification_data):
     """Test the standalone JIT-compiled data encoder."""
     X, y = discrete_classification_data

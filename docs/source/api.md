@@ -57,3 +57,21 @@ This page provides a detailed API reference for the main classes and functions i
    :undoc-members:
    :show-inheritance:
 ```
+
+### CFS
+
+```{eval-rst}
+.. autoclass:: fast_select.CFS.CFS
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+### MDR
+
+```{eval-rst}
+.. autoclass:: fast_select.MDR.MDR
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

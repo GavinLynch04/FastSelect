@@ -2,7 +2,6 @@ from __future__ import annotations
 import numpy as np
 from math import log, ceil
 from numba import njit, prange, float32, int32, int64, cuda
-from numba.types import Tuple
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
 import time
@@ -119,9 +118,15 @@ class mRMR(BaseEstimator, TransformerMixin):
                 scores = self.relevance_scores_[remaining_indices_arr] - (redundancy_sum[remaining_indices_arr] / i)
             else: # 'MIQ'
                 scores = self.relevance_scores_[remaining_indices_arr] / ((redundancy_sum[remaining_indices_arr] / i) + 1e-9)
+            max_score = np.max(scores)
 
-            best_remaining_local_idx = np.argmax(scores)
-            best_feature_idx = remaining_indices_arr[best_remaining_local_idx]
+            top_mask = np.isclose(scores, max_score, atol=1e-12)
+            top_candidates = remaining_indices_arr[top_mask]
+            if top_candidates.size > 1:
+                avg_redundancy = redundancy_sum[top_candidates] / i
+                best_feature_idx = top_candidates[np.argmin(avg_redundancy)]
+            else:
+                best_feature_idx = top_candidates[0]
 
             selected_indices[i] = best_feature_idx
             remaining_mask[best_feature_idx] = False
@@ -148,75 +153,3 @@ class mRMR(BaseEstimator, TransformerMixin):
         """Fit to data, then transform it."""
         self.fit(X, y)
         return self.transform(X)
-
-
-import numpy as np
-from numba import jit, prange
-from math import log
-from sklearn.feature_selection import chi2
-
-
-@jit(nopython=True, parallel=True, cache=True)
-def _precompute_redundancy_matrix(X):
-    """JIT kernel to pre-compute only the feature-feature MI matrix."""
-    n_samples, n_features = X.shape
-    redundancy_matrix = np.zeros((n_features, n_features), dtype=np.float32)
-    for i in prange(n_features):
-        for j in range(i + 1, n_features):
-            # Assumes _calculate_mi is defined as before
-            mi = _calculate_mi(X[:, i], X[:, j], n_samples)
-            redundancy_matrix[i, j] = mi
-            redundancy_matrix[j, i] = mi
-    return redundancy_matrix
-
-def fs_chi2_rmr(X, y, k):
-    """
-    Selects top k features using a hybrid Chi2-RMR algorithm.
-
-    This custom method uses the chi2 statistic for relevance (feature-target)
-    and Mutual Information for redundancy (feature-feature), combining the
-    strengths of both approaches.
-    """
-
-    n_samples, n_features = X.shape
-
-    if k > n_features:
-        raise ValueError("k cannot be greater than the number of features.")
-
-    relevance_scores, _ = chi2(X, y)
-    
-    redundancy_matrix = _precompute_redundancy_matrix(X)
-
-    selected_features = []
-    remaining_features = set(range(n_features))
-    
-    first_feature_idx = np.argmax(relevance_scores)
-    selected_features.append(first_feature_idx)
-    remaining_features.remove(first_feature_idx)
-    
-    for _ in range(k - 1):
-        best_score = -np.inf
-        best_feature = -1
-        
-        candidates = list(remaining_features)
-        
-        for candidate_idx in candidates:
-            relevance_score = relevance_scores[candidate_idx]
-            
-            redundancy_score = 0.0
-            for selected_idx in selected_features:
-                redundancy_score += redundancy_matrix[candidate_idx, selected_idx]
-            
-            avg_redundancy = redundancy_score / len(selected_features)
-            
-            mrmr_score = relevance_score - avg_redundancy
-            
-            if mrmr_score > best_score:
-                best_score = mrmr_score
-                best_feature = candidate_idx
-                
-        if best_feature != -1:
-            selected_features.append(best_feature)
-            remaining_features.remove(best_feature)
-
-    return np.sort(np.array(selected_features))
