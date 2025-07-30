@@ -9,7 +9,7 @@ from sklearn.preprocessing import KBinsDiscretizer
 import math
 
 @numba.njit(cache=True)
-def _cfs_merit(sum_r_cf, k, sum_r_ff):
+def _cfs_merit(sum_r_cf, k, sum_r_ff): # pragma: no cover
     """
     k              : number of features in the subset
     sum_r_cf       : sum of feature-class SUs in the subset
@@ -112,7 +112,7 @@ def _prune_redundant(selected, r_cf, r_ff):
     return kept
 
 @numba.njit(cache=True)
-def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1):
+def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1): # pragma: no cover
     first = np.argmax(r_cf_all)
     if r_cf_all[first] < min_r_cf:
         return numba.typed.List.empty_list(numba.types.int64)
@@ -165,7 +165,7 @@ def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1):
 
 
 @cuda.jit(device=True)
-def _cu_entropy(counts, n_samples):
+def _cu_entropy(counts, n_samples): # pragma: no cover
     """(GPU DEVICE) Calculates entropy from a counts array."""
     if n_samples == 0:
         return 0.0
@@ -178,7 +178,7 @@ def _cu_entropy(counts, n_samples):
 
 
 @cuda.jit(device=True)
-def _cu_symmetrical_uncertainty(x, y, n_states_x, n_states_y):
+def _cu_symmetrical_uncertainty(x, y, n_states_x, n_states_y): # pragma: no cover
     """(GPU DEVICE) Calculates Symmetrical Uncertainty."""
     n_samples = x.shape[0]
 

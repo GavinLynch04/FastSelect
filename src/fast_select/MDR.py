@@ -18,7 +18,7 @@ MAX_CELLS = 3 ** MAX_K_FOR_KERNEL
 
 
 @cuda.jit
-def mdr_kernel(X_d, y_d, k, combinations_d, results_d):
+def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
     """CUDA kernel computing balanced accuracy for every k-locus model."""
     thread_idx = cuda.grid(1)
     n_combinations = combinations_d.shape[0]
@@ -80,7 +80,7 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d):
 
 
 @njit(nopython=True, parallel=True, fastmath=True)
-def _batch_balanced_accuracy_cpu(X, y, combos, k):
+def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
     """
     Compute balanced accuracy for *all* combinations in `combos`
     (shape = (n_combos, k)).  Returns float32 array of length n_combos.
@@ -130,7 +130,7 @@ def _batch_balanced_accuracy_cpu(X, y, combos, k):
 
 
 @njit(nopython=True, fastmath=True)
-def _predict_lut(X, interaction_indices, lookup_table):
+def _predict_lut(X, interaction_indices, lookup_table): # pragma: no cover
     """Fast MDR prediction using a lookup table (Numba‐compiled)."""
     n_samples = X.shape[0]
     k = interaction_indices.shape[0]
