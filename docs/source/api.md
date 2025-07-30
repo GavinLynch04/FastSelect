@@ -43,7 +43,7 @@ This page provides a detailed API reference for the main classes and functions i
 ### Chi2
 
 ```{eval-rst}
-.. autoclass:: fast_select.chi2.chi2
+.. autoclass:: fast_select.Chi2.chi2
    :members:
    :undoc-members:
    :show-inheritance:
