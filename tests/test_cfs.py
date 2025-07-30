@@ -220,7 +220,7 @@ def test_gpu_state_limit_handling(sample_data):
     cfs = CFS(backend='gpu', n_bins=10)
     # This should raise a ValueError due to the check for n_states > 32
     with pytest.raises(ValueError,
-                       match="GPU backend currently only supports features and target with up to 32 unique states/bins."):
+                       match="GPU backend supports up to 32 unique states/bins."):
         cfs.fit(X_high_cardinality, y)
 
 
