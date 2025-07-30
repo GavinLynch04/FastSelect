@@ -305,7 +305,7 @@ class CFS(BaseEstimator, SelectorMixin):
         X : array-like of shape (n_samples, n_features)
             Training data. Can be continuous, discrete, or mixed.
         y : array-like of shape (n_samples,)
-            Target values.
+            Target values. Must be discrete (Classification).
 
         Returns
         -------

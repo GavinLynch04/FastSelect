@@ -1,10 +1,8 @@
 from __future__ import annotations
 import numpy as np
-from math import log, ceil
 from numba import njit, prange, float32, int32, int64, cuda
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
-import time
 
 from . import mutual_information as mi
 
@@ -93,9 +91,9 @@ class mRMR(BaseEstimator, TransformerMixin):
         self.unique_vals_ = unique_vals
         n_states = len(unique_vals)
         X_encoded, y_encoded = _encode_data_numba(X, y, unique_vals)
-        
+
         relevance, redundancy = mi.calculate_mi_matrices(
-            X_encoded, y_encoded, n_states, self.backend
+            X_encoded, y_encoded, backend=self.backend, unit="bit"
         )
             
         self.relevance_scores_ = relevance

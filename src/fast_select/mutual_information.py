@@ -1,266 +1,196 @@
 from __future__ import annotations
-from math import log
+import math
+from typing import Literal, Tuple
 import numpy as np
-from numba import njit, prange, float32, int32, cuda
+import numba
+from numba import njit, prange
+try:
+    from numba import cuda
+    _CUDA_AVAILABLE = cuda.is_available()
+except Exception:  # pragma: no cover
+    _CUDA_AVAILABLE = False
 
-MAX_SHARED_STATES = 32
-THREADS_PER_BLOCK = (16, 16)
+def _validate_discrete(arr: np.ndarray, name: str) -> np.ndarray:
+    """Ensure *arr* is 1‑D or 2‑D integer array with non‑negative entries."""
+    if not np.issubdtype(arr.dtype, np.integer):
+        raise ValueError(
+            f"{name} must be an integer‑coded array (got {arr.dtype}). "
+            "Discretise continuous data before calling this function."
+        )
+    if arr.min() < 0:
+        raise ValueError(f"{name} contains negative values; expected 0..K‑1 codes.")
+    return arr.astype(np.int32, copy=False)
 
 
-@njit(cache=True, fastmath=True, nogil=True)
-def _calculate_mi_cpu_kernel(x1: np.ndarray, n_states1: int, x2: np.ndarray, n_states2: int) -> float:
-    """
-    Numba JIT-compiled kernel to calculate Mutual Information between two discrete vectors.
-    This is the core CPU implementation.
-    """
-    n_samples = x1.shape[0]
-    contingency_table = np.zeros((n_states1, n_states2), dtype=np.float32)
+@njit(cache=True, nogil=True, fastmath=True)
+def _mi_pair_cpu(x1: np.ndarray, x2: np.ndarray, log_base: float) -> float: # pragma: no cover
+    n = x1.shape[0]
+    k1 = int(x1.max()) + 1
+    k2 = int(x2.max()) + 1
 
-    # Populate contingency table
-    for i in range(n_samples):
-        val1 = int(x1[i])
-        val2 = int(x2[i])
-        contingency_table[val1, val2] += 1
+    table = np.zeros((k1, k2), dtype=np.float64)
+    for i in range(n):
+        table[x1[i], x2[i]] += 1.0
 
-    contingency_table /= n_samples
+    table /= n  # joint probabilities
+    p1 = table.sum(axis=1)
+    p2 = table.sum(axis=0)
 
-    # Calculate marginal probabilities
-    p1 = np.sum(contingency_table, axis=1)
-    p2 = np.sum(contingency_table, axis=0)
-
-    # Calculate mutual information
     mi = 0.0
-    for i in range(n_states1):
-        for j in range(n_states2):
-            p_xy = contingency_table[i, j]
-            p_x = p1[i]
-            p_y = p2[j]
-            if p_xy > 1e-12:  # Use epsilon to avoid log(0)
-                mi += p_xy * log(p_xy / (p_x * p_y))
-
-    return mi
+    eps = 1e-12
+    for i in range(k1):
+        for j in range(k2):
+            pxy = table[i, j]
+            if pxy > eps:
+                mi += pxy * math.log(pxy / (p1[i] * p2[j] + eps))
+    return mi / log_base
 
 
-def calculate_mi_single_pair(x1: np.ndarray, x2: np.ndarray, n_states: int, backend: str = 'cpu') -> float:
-    """
-    Calculates the Mutual Information between two discrete vectors.
-    This function is a dispatcher for CPU or GPU backends. It is best used for
-    calculating single MI values iteratively. For bulk calculations (e.g., full
-    redundancy matrix), use `calculate_mi_matrices`.
+@njit(parallel=True, cache=True, fastmath=True)
+def _batch_mi_cpu(X: np.ndarray, y: np.ndarray, log_base: float) -> Tuple[np.ndarray, np.ndarray]: # pragma: no cover
+    n_samples, n_features = X.shape
+    relevance = np.empty(n_features, dtype=np.float64)
+    redundancy = np.zeros((n_features, n_features), dtype=np.float64)
 
-    Parameters
-    ----------
-    x1 : np.ndarray
-        The first discrete data vector.
-    x2 : np.ndarray
-        The second discrete data vector.
-    n_states : int
-        The total number of unique discrete states in the dataset.
-    backend : {'cpu', 'gpu'}, default='cpu'
-        The computational backend to use.
+    for f in prange(n_features):
+        relevance[f] = _mi_pair_cpu(X[:, f], y, log_base)
 
-    Returns
-    -------
-    float
-        The calculated Mutual Information I(x1; x2).
-    """
-    if x1.ndim != 1 or x2.ndim != 1:
-        raise ValueError("Input arrays x1 and x2 must be 1-dimensional.")
-    if x1.shape != x2.shape:
-        raise ValueError("Input arrays x1 and x2 must have the same shape.")
+    for i in prange(n_features):
+        for j in range(i + 1, n_features):
+            mi = _mi_pair_cpu(X[:, i], X[:, j], log_base)
+            redundancy[i, j] = mi
+            redundancy[j, i] = mi
+    return relevance, redundancy
 
-    if backend == 'cpu':
-        n_states1 = int(np.max(x1)) + 1
-        n_states2 = int(np.max(x2)) + 1
-        return _calculate_mi_cpu_kernel(x1, n_states1, x2, n_states2)
 
-    elif backend == 'gpu':
-        raise NotImplementedError("Single-pair GPU MI is not recommended due to kernel launch overhead. "
-                                  "Use the bulk `calculate_mi_matrices` for GPU efficiency.")
-    else:
-        raise ValueError(f"Unsupported backend: '{backend}'. Choose 'cpu' or 'gpu'.")
+_MAX_STATES_GPU = 32
+_THREADS_PER_BLOCK = (16, 16)
 
 
 @cuda.jit
-def _relevance_kernel_gpu(X_gpu, y_gpu, relevance_out, n_samples, n_states): # pragma: no cover
-    """CUDA kernel to calculate all relevance scores I(f; y) in parallel."""
-    shared_contingency = cuda.shared.array(shape=(MAX_SHARED_STATES, MAX_SHARED_STATES), dtype=float32)
+def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
     feature_idx = cuda.blockIdx.x
     tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
 
-    # Zero out shared memory
-    if tx < n_states and ty < n_states:
-        shared_contingency[tx, ty] = 0.0
+    cont = cuda.shared.array((_MAX_STATES_GPU, _MAX_STATES_GPU), dtype=numba.float32)
+
+    # zero shared memory cooperatively
+    for r in range(tx, n_states, cuda.blockDim.x):
+        for c in range(ty, n_states, cuda.blockDim.y):
+            cont[r, c] = 0.0
     cuda.syncthreads()
 
-    # Populate contingency table from global memory using atomic operations
-    for sample_idx in range(n_samples):
-        val1 = int(X_gpu[sample_idx, feature_idx])
-        val2 = int(y_gpu[sample_idx])
-        cuda.atomic.add(shared_contingency, (val1, val2), 1.0)
+    n = X.shape[0]
+    stride = cuda.blockDim.x * cuda.gridDim.x
+    idx = tx + cuda.blockIdx.x
+    while idx < n:
+        r = int(X[idx, feature_idx])
+        c = int(y[idx])
+        cuda.atomic.add(cont, (r, c), 1.0)
+        idx += stride
     cuda.syncthreads()
 
-    # Single thread per block calculates the final MI score
-    if tx == 0 and ty == 0:
-        # Normalize to get joint probability p(x,y)
-        for r in range(n_states):
-            for c in range(n_states):
-                shared_contingency[r,c] /= n_samples
-
-        # Calculate marginal probabilities p(x) and p(y)
-        p_x = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        p_y = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        for i in range(n_states):
-            p_x[i] = 0.0
-            p_y[i] = 0.0
-        for r in range(n_states):
-            for c in range(n_states):
-                p_x[r] += shared_contingency[r, c]
-                p_y[c] += shared_contingency[r, c]
-
-        # Calculate MI
-        mi = 0.0
-        for r in range(n_states):
-            for c in range(n_states):
-                p_xy_val = shared_contingency[r, c]
-                if p_xy_val > 1e-12:
-                    p_x_r = p_x[r]
-                    p_y_c = p_y[c]
-                    mi += p_xy_val * log(p_xy_val / (p_x_r * p_y_c))
-        relevance_out[feature_idx] = mi
-
-
-@cuda.jit
-def _redundancy_kernel_gpu(X_gpu, redundancy_out, n_features, n_samples, n_states): # pragma: no cover
-    """CUDA kernel to calculate the full redundancy matrix I(f_i; f_j) in parallel."""
-    shared_contingency = cuda.shared.array(shape=(MAX_SHARED_STATES, MAX_SHARED_STATES), dtype=float32)
-    f1_idx, f2_idx = cuda.blockIdx.x, cuda.blockIdx.y
-
-    # Each block handles one pair (f1, f2). Exploit symmetry.
-    if f2_idx <= f1_idx:
-        return
-
-    tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
-    if tx < n_states and ty < n_states:
-        shared_contingency[tx, ty] = 0.0
-    cuda.syncthreads()
-
-    for sample_idx in range(n_samples):
-        val1 = int(X_gpu[sample_idx, f1_idx])
-        val2 = int(X_gpu[sample_idx, f2_idx])
-        cuda.atomic.add(shared_contingency, (val1, val2), 1.0)
-    cuda.syncthreads()
-
-    # The rest of the logic is identical to the relevance kernel
     if tx == 0 and ty == 0:
         for r in range(n_states):
             for c in range(n_states):
-                shared_contingency[r, c] /= n_samples
-        p_x = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
-        p_y = cuda.local.array(MAX_SHARED_STATES, dtype=float32)
+                cont[r, c] /= n
+
+        px = cuda.local.array(_MAX_STATES_GPU, dtype=numba.float32)
+        py = cuda.local.array(_MAX_STATES_GPU, dtype=numba.float32)
         for i in range(n_states):
-            p_x[i] = 0.0
-            p_y[i] = 0.0
+            px[i] = 0.0
+            py[i] = 0.0
         for r in range(n_states):
             for c in range(n_states):
-                p_x[r] += shared_contingency[r, c]
-                p_y[c] += shared_contingency[r, c]
+                px[r] += cont[r, c]
+                py[c] += cont[r, c]
+
         mi = 0.0
+        eps = 1e-12
         for r in range(n_states):
             for c in range(n_states):
-                p_xy_val = shared_contingency[r, c]
-                if p_xy_val > 1e-12:
-                    p_x_r = p_x[r]
-                    p_y_c = p_y[c]
-                    mi += p_xy_val * log(p_xy_val / (p_x_r * p_y_c))
+                pxy = cont[r, c]
+                if pxy > eps:
+                    mi += pxy * math.log(pxy / (px[r] * py[c] + eps))
+        out[feature_idx] = mi / math.log(2.0)
 
-        # Store result symmetrically in the output matrix
-        redundancy_out[f1_idx, f2_idx] = mi
-        redundancy_out[f2_idx, f1_idx] = mi
+def calculate_mi_single_pair(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    *,
+    backend: Literal["auto", "cpu", "gpu"] = "auto",
+    unit: Literal["bit", "nat"] = "bit",
+) -> float: # pragma: no cover
+    """Mutual information I(x1; x2) for *discrete* 1‑D arrays.
 
+    Raises ``ValueError`` if inputs are not integer‑coded.
+    """
+    if x1.ndim != 1 or x2.ndim != 1 or x1.shape != x2.shape:
+        raise ValueError("x1 and x2 must be 1‑D arrays of equal length")
 
-@njit(parallel=True, cache=True)
-def _calculate_mi_matrices_cpu(X, y): # pragma: no cover
-    """Numba JIT host function to compute relevance and redundancy on the CPU."""
-    n_samples, n_features = X.shape
-    n_states_X = np.zeros(n_features, dtype=np.int32)
-    for i in prange(n_features):
-        n_states_X[i] = int(np.max(X[:, i])) + 1
-    n_states_y = int(np.max(y)) + 1
+    x1_d = _validate_discrete(x1.ravel(), "x1")
+    x2_d = _validate_discrete(x2.ravel(), "x2")
 
-    relevance_scores = np.zeros(n_features, dtype=np.float32)
-    for i in prange(n_features):
-        relevance_scores[i] = _calculate_mi_cpu_kernel(
-            X[:, i], n_states_X[i], y, n_states_y
+    log_base = math.log(2.0) if unit == "bit" else 1.0
+
+    # Decide backend
+    max_state = int(max(x1_d.max(), x2_d.max())) + 1
+    use_gpu = (
+        backend == "gpu" or (backend == "auto" and _CUDA_AVAILABLE and max_state <= _MAX_STATES_GPU)
+    )
+
+    if use_gpu:
+        out = cuda.device_array(1, dtype=np.float32)
+        _mi_pair_gpu_kernel[1, _THREADS_PER_BLOCK](
+            x1_d.reshape(-1, 1), x2_d, out, max_state
         )
+        return float(out.copy_to_host()[0])
 
-    redundancy_matrix = np.zeros((n_features, n_features), dtype=np.float32)
-    for i in prange(n_features):
-        for j in range(i + 1, n_features):
-            mi = _calculate_mi_cpu_kernel(
-                X[:, i], n_states_X[i], X[:, j], n_states_X[j]
-            )
-            redundancy_matrix[i, j] = mi
-            redundancy_matrix[j, i] = mi
-
-    return relevance_scores, redundancy_matrix
+    if backend == "gpu" and not _CUDA_AVAILABLE:
+        raise RuntimeError("backend='gpu' requested but CUDA not available")
+    if backend == "gpu" and max_state > _MAX_STATES_GPU:
+        raise RuntimeError(
+            f"GPU backend supports ≤{_MAX_STATES_GPU} states (got {max_state}); try backend='cpu'"
+        )
+    return _mi_pair_cpu(x1_d, x2_d, log_base)
 
 
-def calculate_mi_matrices(X: np.ndarray, y: np.ndarray, n_states: int, backend: str = 'cpu') -> tuple[np.ndarray, np.ndarray]:
+def calculate_mi_matrices(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    backend: Literal["auto", "cpu", "gpu"] = "auto",
+    unit: Literal["bit", "nat"] = "bit",
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return (relevance, redundancy) using discrete data only.
+
+    * X.shape == (n_samples, n_features)
+    * y.shape == (n_samples,)
+    * All values must be integer codes ≥0.
     """
-    Pre-computes the relevance vector and redundancy matrix using Mutual Information.
-    This function is optimized for bulk computation and is ideal for mRMR.
+    if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0]:
+        raise ValueError("X must be 2‑D and y 1‑D with matching sample size")
 
-    Parameters
-    ----------
-    X : np.ndarray of shape (n_samples, n_features)
-        The encoded, discrete training data.
-    y : np.ndarray of shape (n_samples,)
-        The encoded, discrete target values.
-    n_states : int
-        The total number of unique discrete states across X and y.
-        Required for the GPU backend.
-    backend : {'cpu', 'gpu'}, default='cpu'
-        The computational backend to use.
+    X_d = _validate_discrete(X, "X")
+    y_d = _validate_discrete(y, "y")
 
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        A tuple containing:
-        - relevance_scores (ndarray of shape (n_features,)): I(f; y) for each feature f.
-        - redundancy_matrix (ndarray of shape (n_features, n_features)): I(f_i; f_j).
-    """
-    if backend == 'cpu':
-        return _calculate_mi_matrices_cpu(X, y)
+    max_state = int(max(X_d.max(), y_d.max())) + 1
+    log_base = math.log(2.0) if unit == "bit" else 1.0
 
-    elif backend == 'gpu':
-        if not cuda.is_available():
-             raise RuntimeError("GPU backend selected, but no CUDA-enabled GPU found.")
-        if n_states > MAX_SHARED_STATES:
-            raise ValueError(
-                f"GPU backend supports a maximum of {MAX_SHARED_STATES} unique discrete states, "
-                f"but data has {n_states}."
-            )
+    use_gpu = (
+        backend == "gpu" or (backend == "auto" and _CUDA_AVAILABLE and max_state <= _MAX_STATES_GPU)
+    )
 
-        n_samples, n_features = X.shape
-        X_gpu = cuda.to_device(np.ascontiguousarray(X))
-        y_gpu = cuda.to_device(np.ascontiguousarray(y))
-
-        # Launch Relevance Kernel
+    if use_gpu:
+        n_samples, n_features = X_d.shape
+        X_gpu = cuda.to_device(X_d)
+        y_gpu = cuda.to_device(y_d)
         relevance_gpu = cuda.device_array(n_features, dtype=np.float32)
-        blocks_per_grid_rel = (n_features,)
-        _relevance_kernel_gpu[blocks_per_grid_rel, THREADS_PER_BLOCK[0]](
-            X_gpu, y_gpu, relevance_gpu, n_samples, n_states
-        )
+        _mi_pair_gpu_kernel[(n_features,), _THREADS_PER_BLOCK](X_gpu, y_gpu, relevance_gpu, max_state)
+        relevance = relevance_gpu.copy_to_host().astype(np.float64)
+        # Large redundancy matrix better on CPU; fall back
+        _, redundancy = _batch_mi_cpu(X_d, y_d, log_base)
+        return relevance, redundancy
 
-        # Launch Redundancy Kernel
-        redundancy_gpu = cuda.device_array((n_features, n_features), dtype=np.float32)
-        blocks_per_grid_red = (n_features, n_features)
-        _redundancy_kernel_gpu[blocks_per_grid_red, THREADS_PER_BLOCK](
-            X_gpu, redundancy_gpu, n_features, n_samples, n_states
-        )
-
-        cuda.synchronize()
-        return relevance_gpu.copy_to_host(), redundancy_gpu.copy_to_host()
-    else:
-        raise ValueError(f"Unsupported backend: '{backend}'. Choose 'cpu' or 'gpu'.")
+    # Pure CPU path
+    return _batch_mi_cpu(X_d, y_d, log_base)

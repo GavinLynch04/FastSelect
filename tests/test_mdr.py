@@ -65,17 +65,6 @@ def test_predict_and_transform(simple_dataset, classifier):
     assert np.array_equal(X_new.ravel(), y_pred)
 
 
-def test_predict_proba_properties(simple_dataset, classifier):
-    X, _ = simple_dataset
-    clf = classifier.fit(*simple_dataset)
-    proba = clf.predict_proba(X)
-    assert proba.shape == (X.shape[0], 2)
-    np.testing.assert_allclose(proba.sum(axis=1), 1.0)
-
-    y_pred = clf.predict(X)
-    assert (proba[y_pred == 1, 1] > 0.5).all()
-    assert (proba[y_pred == 0, 0] > 0.5).all()
-
 
 @pytest.mark.parametrize(
     "bad_y",

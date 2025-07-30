@@ -79,7 +79,7 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
     results_d[thread_idx] = (sensitivity + specificity) / 2.0
 
 
-@njit(nopython=True, parallel=True, fastmath=True)
+@njit(parallel=True, fastmath=True)
 def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
     """
     Compute balanced accuracy for *all* combinations in `combos`
@@ -147,12 +147,15 @@ def _predict_lut(X, interaction_indices, lookup_table): # pragma: no cover
 
 class MDR(BaseEstimator, ClassifierMixin):
     """
-    Multifactor Dimensionality Reduction with GPU or CPU backend.
+    Multifactor Dimensionality Reduction with GPU or CPU backend. This implementation targets the canonical
+    use-case of MDR: SNP genotypes coded 0, 1, 2. All features must take exactly three discrete values (0/1/2);
+    other data types should be encoded or discretised accordingly before calling fit.
 
     Parameters
     ----------
     k : int, default=2
-        Interaction order to search (e.g. k=2 - pairwise).
+        Interaction order to search (e.g. k=2 - pairwise). Max is 6, and this is only feasible with
+        powerful hardware (and lots of memory), or with very small datasets.
 
     cv : int, default=10
         Stratified K-folds for model selection.
@@ -198,7 +201,22 @@ class MDR(BaseEstimator, ClassifierMixin):
 
 
     def fit(self, X, y):
-        """Fit the MDR model."""
+        """
+        Fits the MDR model to find the best feature subset by evaluating feature
+        correlation with the target and inter-feature correlation.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data. Can be continuous, discrete, or mixed.
+        y : array-like of shape (n_samples,)
+            Target values. Must be discrete (Classification).
+
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
         X, y = check_X_y(X, y, dtype=np.uint8)
         self.classes_ = unique_labels(y)
 
@@ -245,7 +263,6 @@ class MDR(BaseEstimator, ClassifierMixin):
             X_train, X_test = X[train_idx], X[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
 
-            # -------------------- TRAINING BA -------------------- #
             if use_gpu:
                 X_d = cuda.to_device(X_train)
                 y_d = cuda.to_device(y_train)
@@ -266,7 +283,6 @@ class MDR(BaseEstimator, ClassifierMixin):
             best_combo = tuple(all_combos[best_idx])
             fold_best_models.append(best_combo)
 
-            # -------------------- TEST BA -------------------- #
             lookup = self._create_lookup_table(X_train, y_train, best_combo)
             y_pred_test = self._internal_predict(X_test, best_combo, lookup)
 
@@ -327,13 +343,15 @@ class MDR(BaseEstimator, ClassifierMixin):
     def transform(self, X):
         return self.predict(X).reshape(-1, 1)
 
-    def predict_proba(self, X):
-        check_is_fitted(self)
-        X = check_array(X, dtype=np.uint8)
-        preds = self.predict(X)
-        probas = np.empty((X.shape[0], 2), dtype=np.float32)
-        probas[preds == 1, 1] = 0.99
-        probas[preds == 1, 0] = 0.01
-        probas[preds == 0, 1] = 0.01
-        probas[preds == 0, 0] = 0.99
-        return probas
+    def predict_proba(self, X):  # pragma: no cover
+        """
+        Not implemented.
+
+        MDR is fundamentally a hard classifier; this implementation does
+        not attempt to derive calibrated probabilities.  If you need risk
+        probabilities, consider wrapping MDR in scikit-learn’s
+        `CalibratedClassifierCV` or implement cell-frequency posteriors.
+        """
+        raise NotImplementedError(
+            "predict_proba is not supported in this MDR implementation."
+        )
