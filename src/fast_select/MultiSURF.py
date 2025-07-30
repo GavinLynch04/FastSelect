@@ -5,7 +5,7 @@ import numpy as np
 from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted,check_X_y, validate_data
+from sklearn.utils.validation import check_is_fitted, validate_data
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
 TPB = 64  # Threads Per Block
@@ -345,7 +345,6 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             raise ValueError(
                 f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}"
             )
-
 
         # n_features_to_select check (handles both int and float)
         if isinstance(self.n_features_to_select, float):

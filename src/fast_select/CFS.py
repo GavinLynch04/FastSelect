@@ -162,8 +162,6 @@ def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1): # pragm
     return selected
 
 
-
-
 @cuda.jit(device=True)
 def _cu_entropy(counts, n_samples): # pragma: no cover
     """(GPU DEVICE) Calculates entropy from a counts array."""

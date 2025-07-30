@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from numba import njit, prange, float32, int32, int64, cuda
+from numba import njit, prange, cuda
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
 
@@ -89,7 +89,6 @@ class mRMR(BaseEstimator, TransformerMixin):
             )
         unique_vals = np.unique(np.concatenate([np.unique(X), np.unique(y)]))
         self.unique_vals_ = unique_vals
-        n_states = len(unique_vals)
         X_encoded, y_encoded = _encode_data_numba(X, y, unique_vals)
 
         relevance, redundancy = mi.calculate_mi_matrices(

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import numpy as np
 from numba import njit, prange
 from scipy.stats import chi2 as chi2_dist
