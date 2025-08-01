@@ -3,12 +3,7 @@ import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
 from numba import cuda
-
-try:
-    from src.fast_select.CFS import CFS
-except ImportError:
-    raise ImportError("Please save your code in a file named 'cfs_selector.py' in the same directory.")
-
+from fast_select.CFS import CFS
 
 @pytest.fixture(scope="module")
 def sample_data():
