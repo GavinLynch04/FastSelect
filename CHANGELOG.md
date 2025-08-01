@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 -   **MultiSURF**: Issue with discrete distance calculation in GPU implementation.
+-   **All Relief-Based Algos**: Fixed data verification issues, and implemented error checking improvements.
 
 ### Testing
 
