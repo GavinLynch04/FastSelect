@@ -14,6 +14,7 @@ copyright = '2025, Gavin Lynch'
 author = 'Gavin Lynch'
 release = '0.2.0'
 
+
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
