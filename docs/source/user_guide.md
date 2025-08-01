@@ -161,7 +161,6 @@ The algorithm exhaustively tests up to k=6 interactions of features to find the 
 
 ---
 ### Summary and Comparison
-
 | Algorithm Family | `X` Data Type | `y` Data Type | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ReliefF / SURF / MultiSURF** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |

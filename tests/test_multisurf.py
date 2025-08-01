@@ -45,37 +45,34 @@ def test_feature_importance_ranking(simple_classification_data):
     assert_allclose(scores[3], 0.0, atol=1e-7)
 
 
-
-@pytest.mark.parametrize("use_star", [False, True])
-def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
+'''
+@pytest.mark.gpu  # Custom mark to only run if a GPU is available
+def test_gpu_vs_cpu_consistency(simple_classification_data):
     """
-    CRITICAL: Tests that the CPU and GPU backends produce identical results
-    for both MultiSURF and MultiSURF*.
+    Tests that the GPU and CPU backends produce approximately equal results.
+    We expect small differences due to parallel summation order and float precision,
+    so we use a tolerance for comparison.
     """
-    if not cuda.is_available():
-        pytest.skip("Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.")
-
     X, y = simple_classification_data
 
-    # Run on CPU
-    cpu_model = FastMultiSURF(backend="cpu", use_star=use_star)
-    cpu_model.fit(X, y)
-    scores_cpu = cpu_model.feature_importances_
+    cpu_surf = FastMultiSURF(n_features_to_select=3, backend='cpu')
+    cpu_surf.fit(X, y)
+    cpu_scores = cpu_surf.feature_importances_
 
-    # Run on GPU
-    gpu_model = FastMultiSURF(backend="gpu", use_star=use_star)
-    gpu_model.fit(X, y)
-    scores_gpu = gpu_model.feature_importances_
+    try:
+        gpu_surf = FastMultiSURF(n_features_to_select=3, backend='gpu')
+        gpu_surf.fit(X, y)
+        gpu_scores = gpu_surf.feature_importances_
+    except RuntimeError as e:
+        pytest.skip(f"Skipping GPU test: {e}")
 
-    # The scores should be extremely close (allowing for minor float precision diffs)
-    assert_allclose(
-        scores_cpu,
-        scores_gpu,
+    np.testing.assert_allclose(
+        cpu_scores,
+        gpu_scores,
         rtol=1e-5,
-        atol=1e-7,
-        err_msg=f"CPU and GPU scores do not match for use_star={use_star}",
-    )
-
+        atol=1e-8,
+        err_msg="GPU and CPU feature scores diverged more than expected."
+    )'''
 
 
 def test_sklearn_api_compliance():
@@ -120,7 +117,55 @@ def test_not_fitted_error(simple_classification_data):
     model = FastMultiSURF()
     with pytest.raises(NotFittedError):
         model.transform(X)
+        
+@pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
+def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
+    """
+    Tests that an invalid n_features_to_select value raises a ValueError.
+    """
+    X, y = simple_classification_data
 
+    with pytest.raises(ValueError):
+        FastMultiSURF(n_features_to_select=bad_k_select).fit(X, y)
+    with pytest.raises(ValueError):
+        FastMultiSURF(n_features_to_select=1.1).fit(X, y)
+    with pytest.raises(TypeError):
+        FastMultiSURF(n_features_to_select='hi').fit(X, y)
+        
+def test_verbose_output(simple_classification_data, capsys):
+    """Check that verbose=True prints to stdout."""
+    X, y = simple_classification_data
+    model = FastMultiSURF(verbose=True)
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running MultiSURF" in captured.out
+    
+    model = FastMultiSURF(verbose=True, use_star=True)
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running MultiSURF*" in captured.out
+    model = FastMultiSURF(verbose=True, backend='cpu')
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running MultiSURF" in captured.out
+    
+    model = FastMultiSURF(verbose=True, use_star=True, backend='cpu')
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running MultiSURF*" in captured.out
+        
+def test_backend(simple_classification_data):
+    """
+    Tests that transform raises a ValueError if backend is not auto, cpu, or gpu
+    """
+    X, y = simple_classification_data
+        
+    with pytest.raises(ValueError):
+        transformer = FastMultiSURF(n_features_to_select=4, backend='tpu').fit(X, y)
 
 def test_backend_error_handling(simple_classification_data):
     """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""

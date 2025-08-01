@@ -5,7 +5,7 @@ import numpy as np
 from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads
 from numba.core.errors import NumbaPerformanceWarning
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted,check_X_y, validate_data
+from sklearn.utils.validation import check_is_fitted, validate_data
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
 TPB = 64  # Threads Per Block
@@ -13,7 +13,7 @@ MAx_F_TILE = 1024  # Features loaded per shared-memory tile
 
 
 @cuda.jit
-def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out):
+def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out): # pragma: no cover
     """MultiSURF scoring for an _arbitrary subset_ of features."""
     n_samples = x.shape[0]
     i = cuda.blockIdx.x  # focal sample index
@@ -87,7 +87,10 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             if dist < thresh:  # This is a NEAR neighbor
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
-                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
+                    if is_discrete[full_idx]:
+                        diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
+                    else:
+                        diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                     if is_hit:
                         cuda.atomic.add(hits_tile, f, diff)
                     else:
@@ -99,7 +102,10 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
             elif use_star and not is_hit:  # This is a FAR MISS
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
-                    diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
+                    if is_discrete[full_idx]:
+                        diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
+                    else:
+                        diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                     cuda.atomic.add(miss_tile, f, -diff)
         cuda.syncthreads()
         # Shared reduction of neighbour counts
@@ -157,7 +163,7 @@ def _multisurf_gpu_host_caller(
 
 
 @njit(parallel=True, fastmath=True)
-def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out):
+def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discrete, scores_out): # pragma: no cover
     """
     Optimized MultiSURF scoring for CPU.
     """
@@ -340,7 +346,6 @@ class MultiSURF(TransformerMixin, BaseEstimator):
                 f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}"
             )
 
-
         # n_features_to_select check (handles both int and float)
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
@@ -377,7 +382,7 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             Returns the instance itself.
         """
         x, y = validate_data(
-            self, x, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
+            self, x, y, y_numeric=True, dtype=np.float32, ensure_2d=True,
         )
             
         self.n_features_in_ = x.shape[1]
@@ -456,15 +461,8 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         x = validate_data(
             self, x,
             reset=False,
-            ensure_2d=True,
             dtype=[np.float64, np.float32]
         )
-
-        if x.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"x has {x.shape[1]} features, but {self.__class__.__name__} "
-                f"was trained with {self.n_features_in_} features."
-            )
 
         return x[:, self.top_features_]
 

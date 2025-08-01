@@ -57,7 +57,7 @@ def test_zero_range_feature_handling(simple_classification_data):
     Explicitly test that a feature with zero variance has zero importance.
     """
     X, y = simple_classification_data
-    transformer = ReliefF(n_neighbors=1, n_features_to_select=4)
+    transformer = ReliefF(n_neighbors=1, n_features_to_select=4, backend='cpu')
     transformer.fit(X, y)
     
     assert_allclose(transformer.feature_importances_[3], 0.0)
@@ -140,6 +140,10 @@ def test_invalid_n_features_to_select_raises_error(simple_classification_data, b
 
     with pytest.raises(ValueError):
         ReliefF(n_features_to_select=bad_k_select).fit(X, y)
+    with pytest.raises(ValueError):
+        ReliefF(n_features_to_select=1.1).fit(X, y)
+    with pytest.raises(TypeError):
+        ReliefF(n_features_to_select='hi').fit(X, y)
 
 def test_transform_with_wrong_n_features(simple_classification_data):
     """
@@ -153,6 +157,30 @@ def test_transform_with_wrong_n_features(simple_classification_data):
     
     with pytest.raises(ValueError):
         transformer.transform(X_bad_shape)
+        
+def test_verbose_output(simple_classification_data, capsys):
+    """Check that verbose=True prints to stdout."""
+    X, y = simple_classification_data
+    relieff = ReliefF(verbose=True)
+    relieff.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running ReliefF" in captured.out
+    
+    relieff = ReliefF(verbose=True, backend='cpu')
+    relieff.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running ReliefF" in captured.out
+        
+def test_backend(simple_classification_data):
+    """
+    Tests that transform raises a ValueError if backend is not auto, cpu, or gpu
+    """
+    X, y = simple_classification_data
+        
+    with pytest.raises(ValueError):
+        transformer = ReliefF(n_features_to_select=4, n_neighbors=2, backend='tpu').fit(X, y)
 
 def test_insufficient_neighbors_in_class(simple_classification_data):
     """

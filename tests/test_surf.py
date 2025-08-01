@@ -131,6 +131,29 @@ def test_backend_error_handling(simple_classification_data):
         model = FastSURF(backend="gpu")
         model.fit(X, y)
 
+def test_verbose_output(simple_classification_data, capsys):
+    """Check that verbose=True prints to stdout."""
+    X, y = simple_classification_data
+    model = FastSURF(verbose=True)
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running SURF" in captured.out
+    
+    model = FastSURF(verbose=True, backend='cpu', use_star=True)
+    model.fit(X, y)
+
+    captured = capsys.readouterr()
+    assert "Running SURF*" in captured.out
+        
+def test_backend(simple_classification_data):
+    """
+    Tests that transform raises a ValueError if backend is not auto, cpu, or gpu
+    """
+    X, y = simple_classification_data
+        
+    with pytest.raises(ValueError):
+        transformer = FastSURF(n_features_to_select=4, backend='tpu').fit(X, y)
 
 def test_nan_input_raises_error(simple_classification_data):
     """Tests that the estimator raises a ValueError for data containing NaNs."""
@@ -142,6 +165,20 @@ def test_nan_input_raises_error(simple_classification_data):
     model = FastSURF(backend="cpu")
     with pytest.raises(ValueError, match="Input X contains NaN."):
         model.fit(X, y)
+        
+@pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
+def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
+    """
+    Tests that an invalid n_features_to_select value raises a ValueError.
+    """
+    X, y = simple_classification_data
+
+    with pytest.raises(ValueError):
+        FastSURF(n_features_to_select=bad_k_select).fit(X, y)
+    with pytest.raises(ValueError):
+        FastSURF(n_features_to_select=1.1).fit(X, y)
+    with pytest.raises(TypeError):
+        FastSURF(n_features_to_select='hi').fit(X, y)
 
 
 def test_single_class_input(simple_classification_data):

@@ -1,6 +1,7 @@
 # **Fast-Select: Accelerated Feature Selection for Modern Datasets**
 [![PyPI version](https://img.shields.io/pypi/v/fast-select?color=blue)](https://pypi.org/project/fast-select/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/GavinLynch04/FastSelect/python-tests.yml?branch=main)](https://github.com/GavinLynch04/FastSelect/actions)
+[![codecov](https://codecov.io/gh/GavinLynch04/FastSelect/branch/main/graph/badge.svg?token=3LKYFCFSB4)](https://codecov.io/gh/GavinLynch04/FastSelect)
 [![Python Versions](https://img.shields.io/pypi/pyversions/fast-select.svg)](https://pypi.org/project/fast-select/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/GavinLynch04/FastSelect/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -34,11 +35,10 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 3. [Backend Selection](#backend-selection-cpu-vs-gpu)
 4. [Benchmarking Highlights](#benchmarking-highlights)
 5. [Algorithm Implementations](#algorithm-implementations)
-6. [Future Directions](#future-directions)
-7. [Contributing](#contributing)
-8. [License](#license)
-9. [How to Cite](#how-to-cite)
-10. [Acknowledgments](#acknowledgments)
+6. [Contributing](#contributing)
+7. [License](#license)
+8. [How to Cite](#how-to-cite)
+9. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -156,6 +156,10 @@ Currently supported:
   - MultiSURF
   - MultiSURF*
   - TuRF
+- **Correlation-Based Feature Selection (CFS)**
+- **Multifactor Dimensionality Reduction (MDR)**
+- **Minimum Redundancy Maximum Relevance (mRMR)**
+- **Chi Squared (Chi2)**
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
@@ -177,18 +181,18 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
 
-> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.1.5 (0.1.5). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
+> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.2.0 (0.2.0). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
 
 You can use the following BibTeX entry:
 
 ```bibtex
 @software{gavin_lynch_2025,
   author       = {Gavin Lynch},
-  title        = {{GavinLynch04/FastSelect: v0.1.5}},
-  month        = jul,
+  title        = {{GavinLynch04/FastSelect: v0.2.0}},
+  month        = aug,
   year         = 2025,
   publisher    = {Zenodo},
-  version      = {0.1.5},
+  version      = {0.2.0},
   doi          = {10.5281/zenodo.16285073},
   url          = {https://doi.org/10.5281/zenodo.16285073}
 }
@@ -203,3 +207,4 @@ This library builds on the exceptional work of the following:
 - The **Numba** team for enabling JIT compilation and GPU acceleration.
 - The **scikit-rebate** authors for their inspiring Relief-based library.
 - The original researchers behind the Relief algorithms for their foundational contributions to feature selection.
+- The original authors and researchers behind the various algorithms implemented in this library.
