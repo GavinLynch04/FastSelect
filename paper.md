@@ -49,13 +49,6 @@ On a 30000‑sample ×200000‑feature synthetic dataset, `Fast‑Select`’s Mu
 * Static type checking with `mypy` and style enforcement with `ruff` & `black`.
 * Continuous deployment builds PyPI wheels and pushes version‑tagged Docker images.
 
-# (Optional) Example
-
-```python
-from fast_select import MultiSURF
-X_selected = MultiSURF(n_features_to_select=50, backend="gpu").fit_transform(X, y)
-```
-
 # Acknowledgements
 
 We thank the *Numba* developers and the maintainers of *scikit‑rebate* for foundational contributions.  Early adopters at the Example Genomics Lab provided invaluable beta feedback.
