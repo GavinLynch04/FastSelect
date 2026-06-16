@@ -44,6 +44,165 @@ def test_feature_importance_ranking(simple_classification_data):
 
     assert_allclose(scores[3], 0.0, atol=1e-7)
 
+def _reference_multisurf_scores(X, y, use_star=False, discrete_limit=10):
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y)
+    n_samples, n_features = X.shape
+    is_discrete = np.array([
+        np.unique(X[:, f]).size <= discrete_limit for f in range(n_features)
+    ])
+    ranges = X.max(axis=0) - X.min(axis=0)
+    ranges[ranges == 0] = 1.0
+    recip = 1.0 / ranges
+    scores = np.zeros(n_features, dtype=np.float64)
+
+    for i in range(n_samples):
+        dists = []
+        for j in range(n_samples):
+            if i == j:
+                continue
+            dist = 0.0
+            for f in range(n_features):
+                if is_discrete[f]:
+                    dist += 1.0 if X[i, f] != X[j, f] else 0.0
+                else:
+                    dist += abs(X[i, f] - X[j, f]) * recip[f]
+            dists.append((j, dist))
+
+        dist_values = np.array([dist for _, dist in dists])
+        mu = dist_values.mean()
+        sigma = dist_values.std()
+        near_thresh = mu - 0.5 * sigma
+        far_thresh = mu + 0.5 * sigma
+
+        near_hit = np.zeros(n_features)
+        near_miss = np.zeros(n_features)
+        far_hit = np.zeros(n_features)
+        far_miss = np.zeros(n_features)
+        n_near_hit = n_near_miss = n_far_hit = n_far_miss = 0
+
+        for j, dist in dists:
+            diffs = np.empty(n_features)
+            for f in range(n_features):
+                if is_discrete[f]:
+                    diffs[f] = 1.0 if X[i, f] != X[j, f] else 0.0
+                else:
+                    diffs[f] = abs(X[i, f] - X[j, f]) * recip[f]
+            is_hit = y[i] == y[j]
+            if dist < near_thresh:
+                if is_hit:
+                    near_hit += diffs
+                    n_near_hit += 1
+                else:
+                    near_miss += diffs
+                    n_near_miss += 1
+            elif use_star and dist > far_thresh:
+                if is_hit:
+                    far_hit += diffs
+                    n_far_hit += 1
+                else:
+                    far_miss += diffs
+                    n_far_miss += 1
+
+        if n_near_hit:
+            scores -= near_hit / n_near_hit
+        if n_near_miss:
+            scores += near_miss / n_near_miss
+        if use_star:
+            if n_far_hit:
+                scores += far_hit / n_far_hit
+            if n_far_miss:
+                scores -= far_miss / n_far_miss
+
+    return scores / n_samples
+
+
+@pytest.mark.parametrize("use_star", [False, True])
+def test_multisurf_matches_reference(use_star):
+    rng = np.random.default_rng(123)
+    X = rng.normal(size=(10, 6)).astype(np.float32)
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
+
+    model = FastMultiSURF(
+        n_features_to_select=2,
+        backend="cpu",
+        discrete_limit=0,
+        use_star=use_star,
+    ).fit(X, y)
+
+    expected = _reference_multisurf_scores(
+        X, y, use_star=use_star, discrete_limit=0
+    )
+    assert_allclose(model.feature_importances_, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_multisurf_star_uses_deadband_for_equal_distances():
+    rng = np.random.default_rng(123)
+    X = rng.normal(size=(10, 6)).astype(np.float32)
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
+
+    model = FastMultiSURF(
+        n_features_to_select=2,
+        backend="cpu",
+        discrete_limit=10,
+        use_star=True,
+    ).fit(X, y)
+
+    assert_allclose(model.feature_importances_, 0.0, atol=1e-7)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="NVIDIA GPU with CUDA not available")
+@pytest.mark.parametrize("use_star", [False, True])
+def test_gpu_vs_cpu_consistency(use_star):
+    rng = np.random.default_rng(123)
+    X = rng.normal(size=(10, 6)).astype(np.float32)
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
+
+    cpu_model = FastMultiSURF(
+        n_features_to_select=3,
+        backend="cpu",
+        discrete_limit=0,
+        use_star=use_star,
+    ).fit(X, y)
+    gpu_model = FastMultiSURF(
+        n_features_to_select=3,
+        backend="gpu",
+        discrete_limit=0,
+        use_star=use_star,
+    ).fit(X, y)
+
+    assert_allclose(
+        gpu_model.feature_importances_,
+        cpu_model.feature_importances_,
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="NVIDIA GPU with CUDA not available")
+def test_gpu_vs_cpu_consistency_across_feature_tiles():
+    rng = np.random.default_rng(456)
+    X = rng.normal(size=(6, 70)).astype(np.float32)
+    y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+
+    cpu_model = FastMultiSURF(
+        n_features_to_select=3,
+        backend="cpu",
+        discrete_limit=0,
+    ).fit(X, y)
+    gpu_model = FastMultiSURF(
+        n_features_to_select=3,
+        backend="gpu",
+        discrete_limit=0,
+    ).fit(X, y)
+
+    assert_allclose(
+        gpu_model.feature_importances_,
+        cpu_model.feature_importances_,
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
 
 '''
 @pytest.mark.gpu  # Custom mark to only run if a GPU is available

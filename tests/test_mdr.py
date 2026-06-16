@@ -65,6 +65,16 @@ def test_predict_and_transform(simple_dataset, classifier):
     assert np.array_equal(X_new.ravel(), y_pred)
 
 
+def test_predict_preserves_original_binary_labels(simple_dataset):
+    X, y = simple_dataset
+    y_labeled = np.where(y == 1, 2, 5)
+
+    clf = MDR(k=2, cv=2, backend="CPU").fit(X, y_labeled)
+    y_pred = clf.predict(X)
+
+    assert set(y_pred) <= {2, 5}
+    np.testing.assert_array_equal(y_pred, y_labeled)
+
 
 @pytest.mark.parametrize(
     "bad_y",

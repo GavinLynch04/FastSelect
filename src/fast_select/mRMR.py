@@ -13,8 +13,8 @@ def _encode_data_numba(X, y, unique_vals): # pragma: no cover
     This is dramatically faster than np.vectorize.
     """
     n_samples, n_features = X.shape
-    X_encoded = np.empty_like(X)
-    y_encoded = np.empty_like(y)
+    X_encoded = np.empty((n_samples, n_features), dtype=np.int32)
+    y_encoded = np.empty(n_samples, dtype=np.int32)
 
     # Parallelize the encoding of X
     for i in prange(n_features):
@@ -53,6 +53,10 @@ class mRMR(BaseEstimator, TransformerMixin):
         self.n_features_to_select = n_features_to_select
         self.method = method
         self.backend = backend
+
+    def _validate_parameters(self):
+        if not isinstance(self.n_features_to_select, int):
+            raise TypeError("n_features_to_select must be an integer.")
         if self.method not in ['MID', 'MIQ']:
             raise ValueError("Method must be either 'MID' or 'MIQ'.")
         if self.backend not in ['cpu', 'gpu']:
@@ -82,6 +86,7 @@ class mRMR(BaseEstimator, TransformerMixin):
         X, y = validate_data(self, X, y, dtype=None, y_numeric=True, ensure_2d=True,)
         self.n_features_in_ = X.shape[1]
 
+        self._validate_parameters()
         if not (0 < self.n_features_to_select <= self.n_features_in_):
             raise ValueError(
                 "n_features_to_select must be a positive integer less "

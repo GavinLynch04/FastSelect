@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin, clone
-from sklearn.utils.validation import check_array, check_is_fitted, validate_data
+from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class TuRF(TransformerMixin, BaseEstimator):
@@ -78,8 +78,19 @@ class TuRF(TransformerMixin, BaseEstimator):
             self, X, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
         )
         self.n_features_in_ = X.shape[1]
+        if not isinstance(self.n_features_to_select, int):
+            raise TypeError("n_features_to_select must be an integer.")
+        if not 0 < self.n_features_to_select <= self.n_features_in_:
+            raise ValueError(
+                "n_features_to_select must be a positive integer less than "
+                f"or equal to the number of features; got "
+                f"n_features_to_select={self.n_features_to_select}, "
+                f"n_features={self.n_features_in_}."
+            )
         if not 0 < self.pct_remove < 1:
             raise ValueError("pct_remove must be between 0 and 1.")
+        if self.n_iterations is not None and self.n_iterations < 0:
+            raise ValueError("n_iterations must be non-negative or None.")
 
         active_feature_indices = np.arange(self.n_features_in_)
         base_estimator = clone(self.estimator)

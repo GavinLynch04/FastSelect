@@ -4,7 +4,7 @@ import pandas as pd
 from numba import cuda
 from sklearn.base import BaseEstimator
 from sklearn.feature_selection import SelectorMixin
-from sklearn.utils.validation import check_X_y, check_is_fitted, validate_data
+from sklearn.utils.validation import check_X_y, check_is_fitted
 from sklearn.preprocessing import KBinsDiscretizer
 import math
 
@@ -315,6 +315,10 @@ class CFS(BaseEstimator, SelectorMixin):
         self.n_features_in_ = X.shape[1]
         if feature_names is not None:
             self.feature_names_in_ = feature_names
+        if self.backend not in ('auto', 'gpu', 'cpu'):
+            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'.")
+        if self.n_jobs == 0:
+            raise ValueError("n_jobs must be -1 or a positive integer.")
 
         # --- 1. Data Discretization and Encoding ---
         is_continuous = np.array([np.issubdtype(X[:, i].dtype, np.floating) for i in range(self.n_features_in_)])
@@ -353,6 +357,7 @@ class CFS(BaseEstimator, SelectorMixin):
             n_states_features_d = cuda.to_device(n_states_features)
             r_cf_d = cuda.device_array(self.n_features_in_, dtype=np.float32)
             r_ff_d = cuda.device_array((self.n_features_in_, self.n_features_in_), dtype=np.float32)
+            r_ff_d[:] = 0.0
             blocks_per_grid = self.n_features_in_
             threads_per_block = 1  # Each thread block handles one feature
             _precompute_correlations_gpu_kernel[blocks_per_grid, threads_per_block](
@@ -424,6 +429,11 @@ class CFS(BaseEstimator, SelectorMixin):
         """
 
         check_is_fitted(self)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X has {X.shape[1]} features, but CFS is expecting "
+                f"{self.n_features_in_} features as input."
+            )
         if isinstance(X, pd.DataFrame):
             return X.iloc[:, self.support_mask_]
         return X[:, self.support_mask_]

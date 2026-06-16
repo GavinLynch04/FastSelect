@@ -9,7 +9,7 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
 
 TPB = 64  # Threads Per Block
-MAx_F_TILE = 1024  # Features loaded per shared-memory tile
+MAx_F_TILE = TPB  # One feature per thread within each shared-memory tile
 
 
 @cuda.jit
@@ -21,6 +21,8 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
     # Shared scratch
     hits_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
     miss_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
+    far_hits_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
+    far_miss_tile = cuda.shared.array(shape=MAx_F_TILE, dtype=float32)
     sh_red_f32 = cuda.shared.array(shape=TPB, dtype=float32)
     sh_red_i32 = cuda.shared.array(shape=TPB, dtype=int32)
 
@@ -51,6 +53,7 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
         off //= 2
         cuda.syncthreads()
     mu = sh_red_f32[0] / (n_samples - 1)
+    cuda.syncthreads()
     # Reduce for variance
     sh_red_f32[tid] = sum_d2
     cuda.syncthreads()
@@ -62,29 +65,34 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
         cuda.syncthreads()
     var = sh_red_f32[0] / (n_samples - 1) - mu * mu
     sigma = math.sqrt(max(var, 0.0))
-    thresh = mu - 0.5 * sigma
+    near_thresh = mu - 0.5 * sigma
+    far_thresh = mu + 0.5 * sigma
 
     for f0 in range(0, n_kept, MAx_F_TILE):
         tile_len = min(MAx_F_TILE, n_kept - f0)
         if tid < tile_len:
             hits_tile[tid] = 0.0
             miss_tile[tid] = 0.0
+            far_hits_tile[tid] = 0.0
+            far_miss_tile[tid] = 0.0
         cuda.syncthreads()
-        n_hit_local = 0
-        n_miss_local = 0
+        n_near_hit_local = 0
+        n_near_miss_local = 0
+        n_far_hit_local = 0
+        n_far_miss_local = 0
         for j in range(tid, n_samples, TPB):
             if j == i:
                 continue
             dist = 0.0
-            for f in range(tile_len):
-                full_idx = feat_idx[f0 + f]
+            for f in range(n_kept):
+                full_idx = feat_idx[f]
                 if is_discrete[full_idx]:  # Use binary differences for discrete features
                     diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
                 else:  # Use scaled continuous difference for continuous features
                     diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
                 dist += diff
             is_hit = y[i] == y[j]
-            if dist < thresh:  # This is a NEAR neighbor
+            if dist < near_thresh:  # This is a NEAR neighbor
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
                     if is_discrete[full_idx]:
@@ -96,20 +104,27 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
                     else:
                         cuda.atomic.add(miss_tile, f, diff)
                 if is_hit:
-                    n_hit_local += 1
+                    n_near_hit_local += 1
                 else:
-                    n_miss_local += 1
-            elif use_star and not is_hit:  # This is a FAR MISS
+                    n_near_miss_local += 1
+            elif use_star and dist > far_thresh:  # This is a FAR neighbor
                 for f in range(tile_len):
                     full_idx = feat_idx[f0 + f]
                     if is_discrete[full_idx]:
                         diff = 1.0 if x[i, full_idx] != x[j, full_idx] else 0.0
                     else:
                         diff = abs(x[i, full_idx] - x[j, full_idx]) * recip_full[full_idx]
-                    cuda.atomic.add(miss_tile, f, -diff)
+                    if is_hit:
+                        cuda.atomic.add(far_hits_tile, f, diff)
+                    else:
+                        cuda.atomic.add(far_miss_tile, f, diff)
+                if is_hit:
+                    n_far_hit_local += 1
+                else:
+                    n_far_miss_local += 1
         cuda.syncthreads()
         # Shared reduction of neighbour counts
-        sh_red_i32[tid] = n_hit_local
+        sh_red_i32[tid] = n_near_hit_local
         cuda.syncthreads()
         off = TPB // 2
         while off:
@@ -117,8 +132,9 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
                 sh_red_i32[tid] += sh_red_i32[tid + off]
             off //= 2
             cuda.syncthreads()
-        total_hits = sh_red_i32[0]
-        sh_red_i32[tid] = n_miss_local
+        total_near_hits = sh_red_i32[0]
+        cuda.syncthreads()
+        sh_red_i32[tid] = n_near_miss_local
         cuda.syncthreads()
         off = TPB // 2
         while off:
@@ -126,14 +142,39 @@ def _multisurf_gpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
                 sh_red_i32[tid] += sh_red_i32[tid + off]
             off //= 2
             cuda.syncthreads()
-        total_miss = sh_red_i32[0]
+        total_near_miss = sh_red_i32[0]
+        cuda.syncthreads()
+        sh_red_i32[tid] = n_far_hit_local
+        cuda.syncthreads()
+        off = TPB // 2
+        while off:
+            if tid < off:
+                sh_red_i32[tid] += sh_red_i32[tid + off]
+            off //= 2
+            cuda.syncthreads()
+        total_far_hits = sh_red_i32[0]
+        cuda.syncthreads()
+        sh_red_i32[tid] = n_far_miss_local
+        cuda.syncthreads()
+        off = TPB // 2
+        while off:
+            if tid < off:
+                sh_red_i32[tid] += sh_red_i32[tid + off]
+            off //= 2
+            cuda.syncthreads()
+        total_far_miss = sh_red_i32[0]
         if tid < tile_len:
             local_idx = f0 + tid
             term = 0.0
-            if total_miss > 0:
-                term += miss_tile[tid] / total_miss
-            if total_hits > 0:
-                term -= hits_tile[tid] / total_hits
+            if total_near_miss > 0:
+                term += miss_tile[tid] / total_near_miss
+            if total_near_hits > 0:
+                term -= hits_tile[tid] / total_near_hits
+            if use_star:
+                if total_far_hits > 0:
+                    term += far_hits_tile[tid] / total_far_hits
+                if total_far_miss > 0:
+                    term -= far_miss_tile[tid] / total_far_miss
             cuda.atomic.add(scores_out, local_idx, term)
         cuda.syncthreads()
 
@@ -151,11 +192,12 @@ def _multisurf_gpu_host_caller(
     n_samples, _ = x_d.shape
     n_kept = feat_idx.size
     feat_idx_d = cuda.to_device(feat_idx.astype(np.int64, copy=False))
+    is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_, copy=False))
     scores_d = cuda.device_array(n_kept, dtype=np.float32)
     scores_d[:] = 0.0  # Zero-fill on device
 
     _multisurf_gpu_kernel[n_samples, TPB](
-        x_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, is_discrete, scores_d
+        x_d, y_d, recip_full_d, feat_idx_d, n_kept, use_star, is_discrete_d, scores_d
     )
     cuda.synchronize()
 
@@ -193,12 +235,17 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
         mu = sum_d / (n_samples - 1)
         var = max(0.0, (sum_d2 / (n_samples - 1)) - (mu * mu))
         sigma = math.sqrt(var)
-        thresh = mu - 0.5 * sigma
+        near_thresh = mu - 0.5 * sigma
+        far_thresh = mu + 0.5 * sigma
 
-        hit_diffs = np.zeros(n_kept, dtype=np.float32)
-        miss_diffs = np.zeros(n_kept, dtype=np.float32)
-        n_hits = 0
-        n_miss = 0
+        near_hit_diffs = np.zeros(n_kept, dtype=np.float32)
+        near_miss_diffs = np.zeros(n_kept, dtype=np.float32)
+        far_hit_diffs = np.zeros(n_kept, dtype=np.float32)
+        far_miss_diffs = np.zeros(n_kept, dtype=np.float32)
+        n_near_hits = 0
+        n_near_miss = 0
+        n_far_hits = 0
+        n_far_miss = 0
 
         for j in range(n_samples):
             if i == j:
@@ -214,41 +261,58 @@ def _multisurf_cpu_kernel(x, y, recip_full, feat_idx, n_kept, use_star, is_discr
                 dist += diff
 
             is_hit = y[i] == y[j]
-            if dist < thresh:  # NEAR neighbor
+            if dist < near_thresh:  # NEAR neighbor
                 if is_hit:
-                    n_hits += 1
+                    n_near_hits += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
                         if is_discrete[f]:
                             diff = 1.0 if x[i, f] != x[j, f] else 0.0
                         else:
                             diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                        hit_diffs[k] += diff
+                        near_hit_diffs[k] += diff
                 else:
-                    n_miss += 1
+                    n_near_miss += 1
                     for k in range(n_kept):
                         f = feat_idx[k]
                         if is_discrete[f]:
                             diff = 1.0 if x[i, f] != x[j, f] else 0.0
                         else:
                             diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                        miss_diffs[k] += diff
-            elif use_star and not is_hit:  # FAR MISS
-                for k in range(n_kept):
-                    f = feat_idx[k]
-                    if is_discrete[f]:
-                        diff = 1.0 if x[i, f] != x[j, f] else 0.0
-                    else:
-                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                    miss_diffs[k] -= diff
+                        near_miss_diffs[k] += diff
+            elif use_star and dist > far_thresh:  # FAR neighbor
+                if is_hit:
+                    n_far_hits += 1
+                    for k in range(n_kept):
+                        f = feat_idx[k]
+                        if is_discrete[f]:
+                            diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        far_hit_diffs[k] += diff
+                else:
+                    n_far_miss += 1
+                    for k in range(n_kept):
+                        f = feat_idx[k]
+                        if is_discrete[f]:
+                            diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        far_miss_diffs[k] += diff
 
-        if n_hits > 0:
-            hit_diffs /= n_hits
-        if n_miss > 0:
-            miss_diffs /= n_miss
+        if n_near_hits > 0:
+            near_hit_diffs /= n_near_hits
+        if n_near_miss > 0:
+            near_miss_diffs /= n_near_miss
+        if n_far_hits > 0:
+            far_hit_diffs /= n_far_hits
+        if n_far_miss > 0:
+            far_miss_diffs /= n_far_miss
 
         for k in range(n_kept):
-            temp_scores[i, k] = miss_diffs[k] - hit_diffs[k]
+            temp_scores[i, k] = near_miss_diffs[k] - near_hit_diffs[k]
+            if use_star:
+                temp_scores[i, k] += far_hit_diffs[k] - far_miss_diffs[k]
     for k in range(n_kept):
         scores_out[k] = temp_scores[:, k].sum()
 

@@ -39,8 +39,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>=1.21",
-    "numba>=0.56",
+    "numpy>=1.23,<2.1",
+    "numba>=0.60",
+    "scipy>=1.10",
     "scikit-learn>=1.6",
     "pandas"
 ]
@@ -88,6 +89,9 @@ find = { where = ["src"] }
 minversion = "7.0"
 addopts = "-ra -q --cov=fast_select --cov-report=term-missing"
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow",
+]
 
 
 [tool.black]
@@ -96,8 +100,10 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
 ignore = ["N811", "N803", "N806", "E731"]
 select = ["E", "F", "W", "I", "N", "UP"]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["fast_select"]

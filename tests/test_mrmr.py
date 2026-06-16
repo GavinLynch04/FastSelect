@@ -37,17 +37,24 @@ def discrete_classification_data():
 
 def test_init_parameter_validation():
     """Verify that the constructor raises errors for invalid parameters."""
-    with pytest.raises(ValueError, match="Method must be either 'MID' or 'MIQ'"):
-        mRMR(n_features_to_select=5, method='INVALID_METHOD')
+    X = np.array([[0, 1], [1, 0], [0, 1], [1, 0]], dtype=np.int64)
+    y = np.array([0, 1, 0, 1], dtype=np.int64)
 
+    assert mRMR(n_features_to_select=1, method='INVALID_METHOD').method == 'INVALID_METHOD'
+    with pytest.raises(ValueError, match="Method must be either 'MID' or 'MIQ'"):
+        mRMR(n_features_to_select=1, method='INVALID_METHOD').fit(X, y)
+
+    assert mRMR(n_features_to_select=1, backend='tpu').backend == 'tpu'
     with pytest.raises(ValueError, match="Backend must be either 'cpu' or 'gpu'"):
-        mRMR(n_features_to_select=5, backend='tpu')
+        mRMR(n_features_to_select=1, backend='tpu').fit(X, y)
 
 @pytest.mark.skipif(cuda.is_available(), reason="This test is for when CUDA is NOT available")
 def test_init_gpu_backend_fails_without_cuda():
     """Verify that selecting 'gpu' backend fails gracefully if CUDA is not found."""
+    X = np.array([[0, 1], [1, 0], [0, 1], [1, 0]], dtype=np.int64)
+    y = np.array([0, 1, 0, 1], dtype=np.int64)
     with pytest.raises(RuntimeError, match="Numba could not find a usable CUDA installation"):
-        mRMR(n_features_to_select=5, backend='gpu')
+        mRMR(n_features_to_select=1, backend='gpu').fit(X, y)
 
 
 @pytest.mark.parametrize("method", ['MID', 'MIQ'])
@@ -197,4 +204,16 @@ def test_encode_data_numba(discrete_classification_data):
     assert y_encoded.shape == y.shape
     assert np.max(X_encoded) < len(unique_vals)
     assert np.max(y_encoded) < len(unique_vals)
-    assert X_encoded.dtype == X.dtype
+    assert X_encoded.dtype == np.int32
+    assert y_encoded.dtype == np.int32
+
+
+def test_float_coded_discrete_data(discrete_classification_data):
+    X, y = discrete_classification_data
+    X = X.astype(np.float64)
+
+    model = mRMR(n_features_to_select=3, backend='cpu')
+    model.fit(X, y)
+
+    assert model.top_features_.shape == (3,)
+    assert model.redundancy_matrix_.shape == (X.shape[1], X.shape[1])

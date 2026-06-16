@@ -10,7 +10,6 @@ from sklearn.utils.validation import (
     check_array,
     check_is_fitted,
 )
-from sklearn.utils.multiclass import unique_labels
 
 
 MAX_K_FOR_KERNEL = 6
@@ -170,7 +169,7 @@ class MDR(BaseEstimator, ClassifierMixin):
     def __init__(self, k: int = 2, cv: int = 10, backend: str = "auto", verbose: bool = False):
         self.k = k
         self.cv = cv
-        self.backend = backend.lower()
+        self.backend = backend
         self.verbose = verbose
 
     def _create_lookup_table(self, X, y, interaction_indices):
@@ -218,7 +217,8 @@ class MDR(BaseEstimator, ClassifierMixin):
             Returns the instance itself.
         """
         X, y = check_X_y(X, y, dtype=np.uint8)
-        self.classes_ = unique_labels(y)
+        self.classes_, y_encoded = np.unique(y, return_inverse=True)
+        y_encoded = y_encoded.astype(np.uint8)
 
         if len(self.classes_) != 2:
             raise ValueError("MDR only supports binary classification.")
@@ -230,6 +230,14 @@ class MDR(BaseEstimator, ClassifierMixin):
             )
 
         n_samples, n_features = X.shape
+        if self.cv < 2:
+            raise ValueError("cv must be at least 2.")
+        min_class_count = np.min(np.bincount(y_encoded))
+        if self.cv > min_class_count:
+            raise ValueError(
+                f"cv ({self.cv}) cannot be greater than the smallest class size "
+                f"({min_class_count})."
+            )
         if self.k > n_features:
             raise ValueError(
                 f"k must be ≤ n_features. Got k={self.k}, n_features={n_features}"
@@ -237,11 +245,12 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         # Decide backend
         cuda_available = cuda.is_available()
-        if self.backend not in ("auto", "cpu", "gpu"):
+        backend = self.backend.lower()
+        if backend not in ("auto", "cpu", "gpu"):
             raise ValueError("backend must be 'auto', 'CPU', or 'GPU'.")
-        if self.backend == "gpu" and not cuda_available:
+        if backend == "gpu" and not cuda_available:
             raise RuntimeError("backend='GPU' requested but no CUDA device found.")
-        use_gpu = (self.backend == "gpu") or (self.backend == "auto" and cuda_available)
+        use_gpu = (backend == "gpu") or (backend == "auto" and cuda_available)
 
         # Pre-compute all k-feature combos
         feature_idx = np.arange(n_features, dtype=np.uint32)
@@ -259,9 +268,9 @@ class MDR(BaseEstimator, ClassifierMixin):
                 f"{self.k}-way search over {n_combos} combos"
             )
 
-        for fold_i, (train_idx, test_idx) in enumerate(skf.split(X, y), start=1):
+        for fold_i, (train_idx, test_idx) in enumerate(skf.split(X, y_encoded), start=1):
             X_train, X_test = X[train_idx], X[test_idx]
-            y_train, y_test = y[train_idx], y[test_idx]
+            y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
 
             if use_gpu:
                 X_d = cuda.to_device(X_train)
@@ -329,16 +338,17 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         # Train final lookup table on full data
         self.best_model_lookup_table_ = self._create_lookup_table(
-            X, y, self.best_interaction_
+            X, y_encoded, self.best_interaction_
         )
         return self
 
     def predict(self, X):
         check_is_fitted(self)
         X = check_array(X, dtype=np.uint8)
-        return self._internal_predict(
+        encoded = self._internal_predict(
             X, self.best_interaction_, self.best_model_lookup_table_
         )
+        return self.classes_[encoded]
 
     def transform(self, X):
         return self.predict(X).reshape(-1, 1)

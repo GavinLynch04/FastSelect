@@ -1,8 +1,8 @@
 from __future__ import annotations
 import numpy as np
-from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads, get_thread_id
+from numba import cuda, float32, njit, prange, config, get_num_threads, set_num_threads, get_thread_id
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, validate_data
+from sklearn.utils.validation import check_is_fitted, validate_data
 
 TPB = 64  # Threads Per Block
 
@@ -134,14 +134,11 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): #
     SURF/SURF* scoring for CPU.
     """
     n_samples, n_features = x.shape
-    n_threads = private_scores.shape[0]
 
     for i in prange(n_samples):
         tid = get_thread_id()
         
         dists_from_i = np.empty(n_samples, dtype=np.float32)
-        
-        diffs_from_i = np.empty((n_samples, n_features), dtype=np.float32)
 
         for j in range(n_samples):
             if i == j:
@@ -154,8 +151,6 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): #
                     feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
                     feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                
-                diffs_from_i[j, f] = feat_diff
                 dist_ij += feat_diff
             dists_from_i[j] = dist_ij
         
@@ -175,18 +170,36 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): #
             is_hit = (y[i] == y[j])
             is_near = (dist_ij < avg_dist)
 
-            feat_diff_array = diffs_from_i[j]
-
             if is_near:
                 if is_hit:
-                    near_hit_sum += feat_diff_array
+                    for f in range(n_features):
+                        if is_discrete[f]:
+                            feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        near_hit_sum[f] += feat_diff
                 else:
-                    near_miss_sum += feat_diff_array
+                    for f in range(n_features):
+                        if is_discrete[f]:
+                            feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        near_miss_sum[f] += feat_diff
             elif use_star:
                 if is_hit:
-                    far_hit_sum += feat_diff_array
+                    for f in range(n_features):
+                        if is_discrete[f]:
+                            feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        far_hit_sum[f] += feat_diff
                 else:
-                    far_miss_sum += feat_diff_array
+                    for f in range(n_features):
+                        if is_discrete[f]:
+                            feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                        else:
+                            feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                        far_miss_sum[f] += feat_diff
         
         score_update = (near_miss_sum - near_hit_sum)
         if use_star:

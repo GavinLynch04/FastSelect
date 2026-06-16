@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+from numba import cuda
 from numpy.testing import assert_array_equal, assert_allclose
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
@@ -205,3 +206,36 @@ def test_single_class_input(simple_classification_data):
 
     assert np.all(np.isfinite(model.feature_importances_))
     assert np.all(model.feature_importances_ <= 0)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="NVIDIA GPU with CUDA not available")
+def test_gpu_matches_cpu_for_binary_targets(simple_classification_data):
+    X, y = simple_classification_data
+
+    cpu_model = ReliefF(
+        backend="cpu",
+        n_neighbors=2,
+        n_features_to_select=2,
+    ).fit(X, y)
+    gpu_model = ReliefF(
+        backend="gpu",
+        n_neighbors=2,
+        n_features_to_select=2,
+    ).fit(X, y)
+
+    assert_allclose(
+        gpu_model.feature_importances_,
+        cpu_model.feature_importances_,
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="NVIDIA GPU with CUDA not available")
+def test_gpu_rejects_multiclass_targets():
+    rng = np.random.default_rng(123)
+    X = rng.normal(size=(12, 5)).astype(np.float32)
+    y = np.array([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2], dtype=np.int32)
+
+    with pytest.raises(RuntimeError, match="binary classification only"):
+        ReliefF(backend="gpu", n_neighbors=2).fit(X, y)

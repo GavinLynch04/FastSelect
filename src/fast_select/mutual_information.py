@@ -68,7 +68,7 @@ _THREADS_PER_BLOCK = (16, 16)
 
 
 @cuda.jit
-def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
+def _mi_pair_gpu_kernel(X, y, out, n_states, log_base): # pragma: no cover
     feature_idx = cuda.blockIdx.x
     tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
 
@@ -81,8 +81,9 @@ def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
     cuda.syncthreads()
 
     n = X.shape[0]
-    stride = cuda.blockDim.x * cuda.gridDim.x
-    idx = tx + cuda.blockIdx.x
+    linear_tid = ty * cuda.blockDim.x + tx
+    stride = cuda.blockDim.x * cuda.blockDim.y
+    idx = linear_tid
     while idx < n:
         r = int(X[idx, feature_idx])
         c = int(y[idx])
@@ -112,7 +113,7 @@ def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
                 pxy = cont[r, c]
                 if pxy > eps:
                     mi += pxy * math.log(pxy / (px[r] * py[c] + eps))
-        out[feature_idx] = mi / math.log(2.0)
+        out[feature_idx] = mi / log_base
 
 def calculate_mi_single_pair(
     x1: np.ndarray,
@@ -142,7 +143,7 @@ def calculate_mi_single_pair(
     if use_gpu:
         out = cuda.device_array(1, dtype=np.float32)
         _mi_pair_gpu_kernel[1, _THREADS_PER_BLOCK](
-            x1_d.reshape(-1, 1), x2_d, out, max_state
+            x1_d.reshape(-1, 1), x2_d, out, max_state, log_base
         )
         return float(out.copy_to_host()[0])
 
@@ -186,7 +187,9 @@ def calculate_mi_matrices(
         X_gpu = cuda.to_device(X_d)
         y_gpu = cuda.to_device(y_d)
         relevance_gpu = cuda.device_array(n_features, dtype=np.float32)
-        _mi_pair_gpu_kernel[(n_features,), _THREADS_PER_BLOCK](X_gpu, y_gpu, relevance_gpu, max_state)
+        _mi_pair_gpu_kernel[(n_features,), _THREADS_PER_BLOCK](
+            X_gpu, y_gpu, relevance_gpu, max_state, log_base
+        )
         relevance = relevance_gpu.copy_to_host().astype(np.float64)
         # Large redundancy matrix better on CPU; fall back
         _, redundancy = _batch_mi_cpu(X_d, y_d, log_base)

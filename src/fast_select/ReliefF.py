@@ -2,11 +2,11 @@ from __future__ import annotations
 import numpy as np
 from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_threads, config
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_X_y, validate_data
-import time
+from sklearn.utils.validation import check_is_fitted, validate_data
 import warnings
 
 TPB = 64  # Threads-per-block
+MAX_GPU_NEIGHBORS = 32
 
 @cuda.jit
 def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out): # pragma: no cover
@@ -18,11 +18,10 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
-
-    local_hit_d = cuda.local.array(10, float32)
-    local_hit_i = cuda.local.array(10, int32)
-    local_mis_d = cuda.local.array(10, float32)
-    local_mis_i = cuda.local.array(10, int32)
+    local_hit_d = cuda.local.array(MAX_GPU_NEIGHBORS, float32)
+    local_hit_i = cuda.local.array(MAX_GPU_NEIGHBORS, int32)
+    local_mis_d = cuda.local.array(MAX_GPU_NEIGHBORS, float32)
+    local_mis_i = cuda.local.array(MAX_GPU_NEIGHBORS, int32)
 
     for k in range(k_neighbors):
         local_hit_d[k] = 3.4e38
@@ -63,7 +62,7 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                     break
     
 
-    SHARED_MEM_SIZE = 640
+    SHARED_MEM_SIZE = TPB * MAX_GPU_NEIGHBORS
     shared_hit_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
     shared_hit_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
     shared_mis_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
@@ -103,6 +102,8 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
         for f in range(n_features):
             hit_sum = 0.0
             miss_sum = 0.0
+            hit_count = 0
+            miss_count = 0
             
             for k in range(k_neighbors):
                 h = shared_hit_i[k]
@@ -113,14 +114,20 @@ def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out):
                         hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
                     else:
                         hit_sum += abs(x[i, f] - x[h, f]) * recip_full[f]
+                    hit_count += 1
 
                 if m != -1:
                     if is_discrete[f]:
                         miss_sum += 1.0 if x[i, f] != x[m, f] else 0.0
                     else:
                         miss_sum += abs(x[i, f] - x[m, f]) * recip_full[f]
+                    miss_count += 1
             
-            update = (miss_sum - hit_sum) / k_neighbors
+            update = 0.0
+            if miss_count > 0:
+                update += miss_sum / miss_count
+            if hit_count > 0:
+                update -= hit_sum / hit_count
             cuda.atomic.add(scores_out, f, update)
 
 
@@ -203,15 +210,14 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                     else:
                         current_miss_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
 
-                # Weight the sum and add to total miss sum
-                miss_sum += weight * current_miss_sum
+                # Weight the mean miss contribution for this class.
+                if m_found[c] > 0:
+                    miss_sum += weight * (current_miss_sum / m_found[c])
 
-            # Final update for feature 'f' using number of neighbors found
             update = 0.0
             if h_found > 0:
                 update -= hit_sum / h_found
-            if k > 0:  # Denominator for miss term is always k
-                update += miss_sum / k
+            update += miss_sum
 
             temp[i, f] = update
 
@@ -219,7 +225,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
     for f in range(n_features):
         scores_out[f] = temp[:, f].sum()
 
-def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs, discrete_weights):
+def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs):
     n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
     
@@ -349,10 +355,34 @@ class ReliefF(TransformerMixin, BaseEstimator):
         n_select = self._validate_parameters(n_samples, self.n_features_in_)
 
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
+
+        if self.backend == "auto":
+            use_gpu = (
+                cuda.is_available()
+                and len(self.classes_) == 2
+                and self.n_neighbors <= MAX_GPU_NEIGHBORS
+            )
+            self.effective_backend_ = "gpu" if use_gpu else "cpu"
+        elif self.backend == "gpu":
+            if not cuda.is_available():
+                raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
+            if len(self.classes_) > 2:
+                raise RuntimeError(
+                    "The ReliefF GPU backend currently supports binary classification only; "
+                    "use backend='cpu' for multiclass targets."
+                )
+            if self.n_neighbors > MAX_GPU_NEIGHBORS:
+                raise ValueError(
+                    f"The ReliefF GPU backend supports n_neighbors <= {MAX_GPU_NEIGHBORS}; "
+                    f"got {self.n_neighbors}."
+                )
+            self.effective_backend_ = "gpu"
+        else:
+            self.effective_backend_ = "cpu"
+
         if len(self.classes_) < 2:
             self.feature_importances_ = np.zeros(self.n_features_in_, dtype=np.float32)
             self.top_features_ = np.arange(n_select)
-            self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
             return self
 
         min_class_size = np.min(np.bincount(y_encoded))
@@ -368,8 +398,6 @@ class ReliefF(TransformerMixin, BaseEstimator):
         ], dtype=bool)
         self.is_discrete_ = is_discrete
 
-        discrete_weights = np.ones(self.n_features_in_, dtype=np.float32)
-
         class_labels, class_counts = np.unique(y, return_counts=True)
         class_probs = class_counts / len(y)
         y_enc = np.searchsorted(class_labels, y)
@@ -378,11 +406,6 @@ class ReliefF(TransformerMixin, BaseEstimator):
         feature_ranges[is_discrete] = 1.0
         feature_ranges[feature_ranges == 0] = 1.0
         recip_full = (1.0 / feature_ranges).astype(np.float32)
-
-        if self.backend == "auto":
-            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
-        else:
-            self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
             x_d = cuda.to_device(x.astype(np.float32))
@@ -399,7 +422,7 @@ class ReliefF(TransformerMixin, BaseEstimator):
             scores = _relieff_cpu_host_caller(
                 x.astype(np.float32), y_enc.astype(np.int32), recip_full,
                 is_discrete, self.n_neighbors, class_probs.astype(np.float32),
-                self.n_jobs, discrete_weights
+                self.n_jobs
             )
 
         self.feature_importances_ = scores
