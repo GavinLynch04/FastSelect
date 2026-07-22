@@ -128,8 +128,7 @@ def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_prob
     n_samples, n_features = x_d.shape
     dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
 
-    blocks = (n_samples + TPB - 1) // TPB
-    _compute_dist_matrix_gpu_kernel[blocks, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
+    _compute_dist_matrix_gpu_kernel[n_samples, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
 
     dist_matrix = dist_matrix_d.copy_to_host()
     weights_matrix = _compute_relieff_weights(dist_matrix, y_enc, class_probs, k)
@@ -138,7 +137,7 @@ def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_prob
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
 
-    _accumulate_weighted_diffs_gpu_kernel[blocks, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
+    _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
 
     return scores_d.copy_to_host()
 

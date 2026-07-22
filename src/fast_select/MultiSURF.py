@@ -125,8 +125,7 @@ def _multisurf_gpu_host_caller(x_d, y, recip_full_d, feat_idx: np.ndarray, use_s
     feat_idx_d = cuda.to_device(feat_idx.astype(np.int32))
     dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
 
-    blocks = (n_samples + TPB - 1) // TPB
-    _compute_dist_matrix_multisurf_kernel[blocks, TPB](x_d, recip_full_d, feat_idx_d, is_discrete_d, dist_matrix_d)
+    _compute_dist_matrix_multisurf_kernel[n_samples, TPB](x_d, recip_full_d, feat_idx_d, is_discrete_d, dist_matrix_d)
 
     dist_matrix = dist_matrix_d.copy_to_host()
     weights_matrix = _compute_multisurf_weights(dist_matrix, y, use_star)
@@ -135,7 +134,7 @@ def _multisurf_gpu_host_caller(x_d, y, recip_full_d, feat_idx: np.ndarray, use_s
     scores_d = cuda.device_array(n_kept, dtype=np.float32)
     scores_d[:] = 0.0
 
-    _accumulate_weighted_diffs_multisurf_kernel[blocks, TPB](x_d, weights_d, recip_full_d, feat_idx_d, is_discrete_d, scores_d)
+    _accumulate_weighted_diffs_multisurf_kernel[n_samples, TPB](x_d, weights_d, recip_full_d, feat_idx_d, is_discrete_d, scores_d)
 
     return scores_d.copy_to_host()
 
