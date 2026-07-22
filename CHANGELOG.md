@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-22
+
+### Fixed
+
+- **CUDA Runtime Context Initialization**: Added Numba CUDA attached context monkey-patching in `utils.py` to prevent `ac.devnum` `IndexError` (`0x10000003`) and `CUDA_ERROR_INVALID_CONTEXT` on Windows host environments.
+- **GPU Grid Launching**: Corrected kernel block grid calculation across `ReliefF`, `SURF`, and `MultiSURF` (`blocks = (n_samples + TPB - 1) // TPB`), preventing CUDA memory access violations on large sample sizes ($N \ge 1000$).
+- **ReliefF Multi-Class Weighting**: Aligned CPU and GPU multi-class probability weighting ($P(c)/(1-P(y_i))$) and dynamic $k$-neighbor searching with literature standard (Kononenko 1994).
+- **Deterministic Distance Tie-Breaking**: Synchronized CPU insertion sort (`d < hit_d[k-1]`) and GPU distance matrix sorting (`np.argsort(..., kind='stable')`) so discrete feature Hamming distance ties break identically across backends.
+
+### Optimized
+
+- **Zero-Allocation CPU Kernels**: Rebuilt `_relieff_cpu_kernel`, `_surf_cpu_kernel`, and `_multisurf_cpu_kernel` with `@njit(parallel=True, fastmath=True)`, replacing sample-wise matrix allocations ($N \times P$) with thread-local scalar aggregations.
+- **Stream-Safe Host Callers**: Replaced explicit `cuda.synchronize()` calls across all Relief, CFS, and MDR host callers with native `device_array.copy_to_host()`, eliminating `CUDA_ERROR_CONTEXT_IS_DESTROYED` crashes.
+
+### Testing & Parity
+
+- **Parity Test Suite**: Added `tests/test_gpu_cpu_parity.py` testing CPU vs GPU numerical alignment across 5 synthetic dataset types (`standard`, `single_feature`, `all_discrete`, `p_dominant`, `zero_variance`), verifying max relative difference $\le 2.08 \times 10^{-7}$.
+- **Code Coverage**: Achieved 95% total test coverage across the library (114 passing unit tests).
+
 ## [0.2.0] - 2025-07-30
 
 ### Implemented
