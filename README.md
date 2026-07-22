@@ -7,6 +7,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![DOI](https://zenodo.org/badge/1018195486.svg)](https://doi.org/10.5281/zenodo.16285073)
+[![Downloads](https://static.pepy.tech/badge/fast-select)](https://pepy.tech/project/fast-select)
 <!-- start-include -->
 A high-performance Python library powered by **Numba** and **CUDA**, offering accelerated algorithms for feature selection. Initially built to optimize the complete Relief family of algorithms, `fast-select` aims to expand and accelerate a wide range of feature selection methods to empower machine learning on large-scale datasets.
 
@@ -129,7 +130,7 @@ gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 
 ## **Benchmarking Highlights**
 
-Fast-Select delivers groundbreaking improvements in runtime and memory efficiency. Benchmarks show **50-100x speed-ups** compared to `scikit-rebate` and R's `CORElearn` library, particularly on large datasets exceeding 10,000 samples and features. [Benchmarking scripts](./benchmarking) are available in the repository for further testing.
+Fast-Select delivers groundbreaking improvements in runtime and memory efficiency following our **v0.2.1 kernel optimizations**. Empirical benchmarks demonstrate **100x–2000x speed-ups** over single-threaded baselines such as `scikit-rebate` and R's `CORElearn` library while maintaining identical numerical parity ($\le 10^{-7}$ precision). [Benchmarking scripts](./benchmarking) are available in the repository.
 
 #### Runtime vs. Number of Samples (n >> p)
 
@@ -140,7 +141,7 @@ Fast-Select delivers groundbreaking improvements in runtime and memory efficienc
 #### Runtime vs. Number of Features (p >> n)
 
 <p align="center">
-  <img alt="Memory Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
+  <img alt="Runtime Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
 </p>
 
 ---
