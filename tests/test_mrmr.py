@@ -43,7 +43,9 @@ def test_init_parameter_validation():
     with pytest.raises(ValueError, match="Backend must be either 'cpu' or 'gpu'"):
         mRMR(n_features_to_select=5, backend='tpu')
 
-@pytest.mark.skipif(cuda.is_available(), reason="This test is for when CUDA is NOT available")
+from fast_select.utils import is_cuda_ready
+
+@pytest.mark.skipif(is_cuda_ready(), reason="This test is for when CUDA is NOT available")
 def test_init_gpu_backend_fails_without_cuda():
     """Verify that selecting 'gpu' backend fails gracefully if CUDA is not found."""
     with pytest.raises(RuntimeError, match="Numba could not find a usable CUDA installation"):
@@ -80,7 +82,7 @@ def test_fit_transform_cpu(discrete_classification_data, method):
     assert X_ft.shape == (n_samples, n_select)
 
 
-@pytest.mark.skipif(not cuda.is_available(), reason="NVIDIA GPU with CUDA not available")
+@pytest.mark.skipif(not is_cuda_ready(), reason="NVIDIA GPU with CUDA not available")
 @pytest.mark.parametrize("method", ['MID', 'MIQ'])
 def test_fit_transform_gpu(discrete_classification_data, method):
     """

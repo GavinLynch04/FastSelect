@@ -52,13 +52,15 @@ def test_feature_importance_ranking(simple_classification_data):
     assert set(model.top_features_) == {0, 2}
 
 
+from fast_select.utils import is_cuda_ready
+
 @pytest.mark.parametrize("use_star", [False, True])
 def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
     """
     CRITICAL: Tests that the CPU and GPU backends produce identical results
     for both SURF and SURF*.
     """
-    if not cuda.is_available():
+    if not is_cuda_ready():
         pytest.skip("Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.")
 
     X, y = simple_classification_data
@@ -123,7 +125,7 @@ def test_not_fitted_error(simple_classification_data):
 
 def test_backend_error_handling(simple_classification_data):
     """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""
-    if cuda.is_available():
+    if is_cuda_ready():
         pytest.skip("Skipping GPU error test: GPU is available.")
     
     X, y = simple_classification_data

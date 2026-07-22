@@ -4,6 +4,7 @@ import pytest
 from sklearn.exceptions import NotFittedError
 from numba import cuda
 from fast_select.CFS import CFS
+from fast_select.utils import is_cuda_ready
 
 @pytest.fixture(scope="module")
 def sample_data():
@@ -54,7 +55,7 @@ def sample_data():
         "expected": expected_selection
     }
 
-GPU_UNAVAILABLE = not cuda.is_available()
+GPU_UNAVAILABLE = not is_cuda_ready()
 
 
 def test_initialization():
@@ -208,15 +209,14 @@ def test_gpu_state_limit_handling(sample_data):
     Tests that the GPU backend correctly handles features with more than 32 states.
     This tests the critical bug fix for fixed-size local arrays.
     """
-    X, y = sample_data["X_numpy"], sample_data["y"]
-    # Feature 5 has cardinality of 40, which is > 32
-    X_high_cardinality = X[:, [0, 5]]
+    X_high_cardinality = np.arange(35, dtype=np.float64).reshape(35, 1).repeat(2, axis=1)
+    y_high = np.random.choice([0, 1], size=35)
 
-    cfs = CFS(backend='gpu', n_bins=10)
+    cfs = CFS(backend='gpu', n_bins=35)
     # This should raise a ValueError due to the check for n_states > 32
     with pytest.raises(ValueError,
                        match="GPU backend supports up to 32 unique states/bins."):
-        cfs.fit(X_high_cardinality, y)
+        cfs.fit(X_high_cardinality, y_high)
 
 
 def test_transform_bug_fix(sample_data):

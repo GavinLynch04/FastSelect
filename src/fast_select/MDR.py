@@ -11,6 +11,7 @@ from sklearn.utils.validation import (
     check_is_fitted,
 )
 from sklearn.utils.multiclass import unique_labels
+from .utils import is_cuda_ready, ensure_cuda_context
 
 
 MAX_K_FOR_KERNEL = 6
@@ -236,12 +237,14 @@ class MDR(BaseEstimator, ClassifierMixin):
             )
 
         # Decide backend
-        cuda_available = cuda.is_available()
+        cuda_available = is_cuda_ready()
         if self.backend not in ("auto", "cpu", "gpu"):
             raise ValueError("backend must be 'auto', 'CPU', or 'GPU'.")
         if self.backend == "gpu" and not cuda_available:
             raise RuntimeError("backend='GPU' requested but no CUDA device found.")
         use_gpu = (self.backend == "gpu") or (self.backend == "auto" and cuda_available)
+        if use_gpu:
+            ensure_cuda_context()
 
         # Pre-compute all k-feature combos
         feature_idx = np.arange(n_features, dtype=np.uint32)
@@ -272,7 +275,6 @@ class MDR(BaseEstimator, ClassifierMixin):
                 threads = 128
                 blocks = (n_combos + threads - 1) // threads
                 mdr_kernel[blocks, threads](X_d, y_d, self.k, combos_d, results_d)
-                cuda.synchronize()
                 train_bas = results_d.copy_to_host()
             else:
                 train_bas = _batch_balanced_accuracy_cpu(

@@ -1,45 +1,32 @@
 import time
+import tracemalloc
 import warnings
-
+import numpy as np
 import pandas as pd
-from fast_relief.MultiSURF import MultiSURF as FastMultiSURF
-from fast_relief.ReliefF import ReliefF as FastReliefF
-from fast_relief.SURF import SURF as FastSURF
 from sklearn.base import clone
-
-# Import the estimators to compare
 from sklearn.datasets import make_classification
-from skrebate import SURF, MultiSURFstar, ReliefF, SURFstar
-from skrebate import MultiSURF as SkrebateMultiSURF
 
-# Try to import CUDA to see if GPU is available
-try:
-    from numba import cuda
-
-    GPU_AVAILABLE = cuda.is_available()
-except ImportError:
-    GPU_AVAILABLE = False
+from fast_select.MultiSURF import MultiSURF as FastMultiSURF
+from fast_select.ReliefF import ReliefF as FastReliefF
+from fast_select.SURF import SURF as FastSURF
+from fast_select.utils import is_cuda_ready
 
 # --- Benchmark Configuration ---
-P_DOMINANT_SCENARIOS = {"n_samples": 100, "n_features_range": [200, 400, 600, 800, 1000]}
-N_DOMINANT_SCENARIOS = {"n_features": 100, "n_samples_range": [200, 400, 600, 800, 1000]}
+P_DOMINANT_SCENARIOS = {"n_samples": 100, "n_features_range": [200, 500, 1000]}
+N_DOMINANT_SCENARIOS = {"n_features": 100, "n_samples_range": [200, 500, 1000]}
 N_FEATURES_TO_SELECT = 10
 N_REPEATS = 1
 
+GPU_AVAILABLE = is_cuda_ready()
+
 # --- Estimators to Test ---
 estimators = {
-    # skrebate estimators
-    "skrebate.ReliefF": ReliefF(n_features_to_select=N_FEATURES_TO_SELECT, n_neighbors=10, n_jobs=-1),
-    "skrebate.SURF": SURF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=-1),
-    "skrebate.SURF*": SURFstar(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=-1),
-    "skrebate.MultiSURF": SkrebateMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=-1),
-    "skrebate.MultiSURF*": MultiSURFstar(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=-1),
-    # fast-relief CPU estimators
-    "fast_relief.ReliefF (CPU)": FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu"),
-    "fast_relief.SURF (CPU)": FastSURF(n_features_to_select=N_FEATURES_TO_SELECT),
-    "fast_relief.SURF* (CPU)": FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, use_star=True),
-    "fast_relief.MultiSURF (CPU)": FastMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu"),
-    "fast_relief.MultiSURF* (CPU)": FastMultiSURF(
+    # fast-select CPU estimators
+    "fast_select.ReliefF (CPU)": lambda: FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu"),
+    "fast_select.SURF (CPU)": lambda: FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu"),
+    "fast_select.SURF* (CPU)": lambda: FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu", use_star=True),
+    "fast_select.MultiSURF (CPU)": lambda: FastMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu"),
+    "fast_select.MultiSURF* (CPU)": lambda: FastMultiSURF(
         n_features_to_select=N_FEATURES_TO_SELECT, backend="cpu", use_star=True
     ),
 }
@@ -48,13 +35,13 @@ if GPU_AVAILABLE:
     print("NVIDIA GPU detected. Including GPU benchmarks.")
     estimators.update(
         {
-            "fast_relief.ReliefF (GPU)": FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-            "fast_relief.SURF (GPU)": FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-            "fast_relief.SURF* (GPU)": FastSURF(
+            "fast_select.ReliefF (GPU)": lambda: FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
+            "fast_select.SURF (GPU)": lambda: FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
+            "fast_select.SURF* (GPU)": lambda: FastSURF(
                 n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu", use_star=True
             ),
-            "fast_relief.MultiSURF (GPU)": FastMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-            "fast_relief.MultiSURF* (GPU)": FastMultiSURF(
+            "fast_select.MultiSURF (GPU)": lambda: FastMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
+            "fast_select.MultiSURF* (GPU)": lambda: FastMultiSURF(
                 n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu", use_star=True
             ),
         }
@@ -64,30 +51,48 @@ else:
 
 
 def run_single_benchmark(estimator, X, y):
-    """Measures the runtime of a single estimator fit."""
+    """Measures execution time and peak memory overhead of a single estimator fit."""
+    import gc
+    from fast_select.utils import ensure_cuda_context
+    gc.collect()
+    is_gpu = getattr(estimator, 'backend', None) == 'gpu'
+    if is_gpu:
+        ensure_cuda_context()
+
+    if not is_gpu:
+        tracemalloc.start()
+
     start_time = time.perf_counter()
     estimator.fit(X, y)
     end_time = time.perf_counter()
-    return end_time - start_time
+
+    if not is_gpu:
+        _, peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        peak_ram_mb = peak_bytes / (1024 * 1024)
+    else:
+        peak_ram_mb = (X.nbytes + y.nbytes) / (1024 * 1024)
+
+    runtime = end_time - start_time
+    return runtime, peak_ram_mb
 
 
 def warmup_jit_compilers(estimators_dict):
-    """Performs a 'warm-up' run on a small dataset to compile JIT functions."""
+    """Performs a warm-up run to trigger Numba JIT compilation."""
     print("\n--- Warming up JIT compilers ---")
-    X_warmup, y_warmup = make_classification(n_samples=10, n_features=10, random_state=42)
+    X_warmup, y_warmup = make_classification(n_samples=20, n_features=10, random_state=42)
 
-    for name, estimator in estimators_dict.items():
-        if "fast_relief" in name:
-            print(f"  Warming up {name}...")
-            try:
-                clone(estimator).fit(X_warmup, y_warmup)
-            except Exception as e:
-                warnings.warn(f"  > Warm-up FAILED for {name}. Reason: {e}")
+    for name, estimator_fn in estimators_dict.items():
+        print(f"  Warming up {name}...")
+        try:
+            estimator_fn().fit(X_warmup, y_warmup)
+        except Exception as e:
+            warnings.warn(f"  > Warm-up FAILED for {name}. Reason: {e}")
     print("--- Warm-up complete ---")
 
 
 def main():
-    """Main function to run all benchmark scenarios."""
+    """Main benchmark execution."""
     results = []
     warmup_jit_compilers(estimators)
 
@@ -97,14 +102,14 @@ def main():
     for n_features in P_DOMINANT_SCENARIOS["n_features_range"]:
         print(f"\nGenerating data: {n_samples} samples, {n_features} features")
         X, y = make_classification(
-            n_samples=n_samples, n_features=n_features, n_informative=20, n_redundant=100, random_state=42
+            n_samples=n_samples, n_features=n_features, n_informative=min(20, n_features), random_state=42
         )
 
-        for name, estimator in estimators.items():
+        for name, estimator_fn in estimators.items():
             for i in range(N_REPEATS):
                 print(f"  Benchmarking {name} (Run {i+1}/{N_REPEATS})...")
                 try:
-                    runtime = run_single_benchmark(clone(estimator), X, y)
+                    runtime, peak_ram = run_single_benchmark(estimator_fn(), X, y)
                     results.append(
                         {
                             "scenario": "p >> n",
@@ -112,6 +117,7 @@ def main():
                             "n_samples": n_samples,
                             "n_features": n_features,
                             "runtime": runtime,
+                            "peak_ram_mb": peak_ram,
                         }
                     )
                 except Exception as e:
@@ -123,14 +129,14 @@ def main():
     for n_samples in N_DOMINANT_SCENARIOS["n_samples_range"]:
         print(f"\nGenerating data: {n_samples} samples, {n_features} features")
         X, y = make_classification(
-            n_samples=n_samples, n_features=n_features, n_informative=20, n_redundant=50, random_state=42
+            n_samples=n_samples, n_features=n_features, n_informative=20, random_state=42
         )
 
-        for name, estimator in estimators.items():
+        for name, estimator_fn in estimators.items():
             for i in range(N_REPEATS):
                 print(f"  Benchmarking {name} (Run {i+1}/{N_REPEATS})...")
                 try:
-                    runtime = run_single_benchmark(clone(estimator), X, y)
+                    runtime, peak_ram = run_single_benchmark(estimator_fn(), X, y)
                     results.append(
                         {
                             "scenario": "n >> p",
@@ -138,16 +144,17 @@ def main():
                             "n_samples": n_samples,
                             "n_features": n_features,
                             "runtime": runtime,
+                            "peak_ram_mb": peak_ram,
                         }
                     )
                 except Exception as e:
                     warnings.warn(f"  > FAILED: {name} on {n_samples}x{n_features}. Reason: {e}")
 
-    # --- Save results to CSV ---
     df = pd.DataFrame(results)
     output_file = "benchmark_results.csv"
     df.to_csv(output_file, index=False)
     print(f"\nBenchmarking complete. Results saved to '{output_file}'")
+    print(df.to_string())
 
 
 if __name__ == "__main__":

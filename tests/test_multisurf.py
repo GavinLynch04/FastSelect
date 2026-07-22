@@ -167,13 +167,15 @@ def test_backend(simple_classification_data):
     with pytest.raises(ValueError):
         transformer = FastMultiSURF(n_features_to_select=4, backend='tpu').fit(X, y)
 
+from fast_select.utils import is_cuda_ready
+
 def test_backend_error_handling(simple_classification_data):
     """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""
-    if cuda.is_available():
+    if is_cuda_ready():
         pytest.skip("Skipping GPU error test: GPU is available.")
     
     X, y = simple_classification_data
-    with pytest.raises(RuntimeError, match="no compatible NVIDIA GPU"):
+    with pytest.raises(RuntimeError, match="no CUDA-enabled GPU is available"):
         model = FastMultiSURF(backend="gpu", n_features_to_select=2)
         model.fit(X, y)
 

@@ -3,6 +3,7 @@ import numpy as np
 from numba import njit, prange, cuda
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
+from .utils import is_cuda_ready
 
 from . import mutual_information as mi
 
@@ -57,7 +58,7 @@ class mRMR(BaseEstimator, TransformerMixin):
             raise ValueError("Method must be either 'MID' or 'MIQ'.")
         if self.backend not in ['cpu', 'gpu']:
             raise ValueError("Backend must be either 'cpu' or 'gpu'.")
-        if self.backend == 'gpu' and not cuda.is_available():
+        if self.backend == 'gpu' and not is_cuda_ready():
             raise RuntimeError(
                 "GPU backend was selected, but Numba could not find a usable CUDA installation. "
                 "Please ensure you have an NVIDIA GPU with the latest drivers and a compatible CUDA toolkit."

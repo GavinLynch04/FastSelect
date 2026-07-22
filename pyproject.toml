@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fast-select"
-version = "0.2.0"
+version = "0.2.1"
 
 authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
@@ -18,9 +18,12 @@ readme = "README.md"
 requires-python = ">=3.9"
 
 license = "MIT"
-license-files = ["LICENSE"]
 
-keywords = ["bioinformatics", "feature selection", "relief", "reliefF", "machine learning", "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*, mRMR, chi2"]
+keywords = [
+  "bioinformatics", "feature selection", "relief", "reliefF", "machine learning",
+  "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
+  "mRMR", "chi2", "CFS", "MDR", "mutual information"
+]
 
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -41,7 +44,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.21",
     "numba>=0.56",
-    "scikit-learn>=1.6",
+    "scikit-learn>=1.0",
     "pandas"
 ]
 
@@ -71,6 +74,7 @@ dev = [
     "fast-select[gpu, test, docs]",
     "black>=23.0",
     "ruff>=0.1.0",
+    "build>=1.0.0",
     "twine>=4.0",
     "sphinx",
     "furo",

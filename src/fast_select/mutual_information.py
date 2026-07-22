@@ -4,9 +4,11 @@ from typing import Literal, Tuple
 import numpy as np
 import numba
 from numba import njit, prange
+from .utils import is_cuda_ready
+
 try:
     from numba import cuda
-    _CUDA_AVAILABLE = cuda.is_available()
+    _CUDA_AVAILABLE = is_cuda_ready()
 except Exception:  # pragma: no cover
     _CUDA_AVAILABLE = False
 

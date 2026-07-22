@@ -1,239 +1,261 @@
 from __future__ import annotations
 import numpy as np
-from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_threads, config
+from numba import cuda, float32, int32, njit, prange, set_num_threads, get_num_threads, get_thread_id, config
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_X_y, validate_data
-import time
+from sklearn.utils.validation import check_is_fitted, validate_data
 import warnings
+from .utils import is_cuda_ready
 
 TPB = 64  # Threads-per-block
 
 @cuda.jit
-def _relieff_gpu_kernel(x, y, recip_full, is_discrete, k_neighbors, scores_out): # pragma: no cover
+def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix): # pragma: no cover
     """
-    ReliefF scoring on the GPU.
-    Uses shared memory for threads in a block to cooperate correctly.
+    Computes all pairwise sample distances on GPU with memory coalescing.
+    Grid: (n_samples,), Threads per block: TPB
     """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
-
-    local_hit_d = cuda.local.array(10, float32)
-    local_hit_i = cuda.local.array(10, int32)
-    local_mis_d = cuda.local.array(10, float32)
-    local_mis_i = cuda.local.array(10, int32)
-
-    for k in range(k_neighbors):
-        local_hit_d[k] = 3.4e38
-        local_mis_d[k] = 3.4e38
-        local_hit_i[k] = -1 
-        local_mis_i[k] = -1
-        
-    for j in range(tid, n_samples, TPB):
+    for j in range(n_samples):
         if i == j:
+            if tid == 0:
+                dist_matrix[i, j] = 0.0
             continue
-        dist = 0.0
-        for f in range(n_features):
+
+        local_dist = 0.0
+        for f in range(tid, n_features, TPB):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
                 diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-            dist += diff
-        
-        if y[i] == y[j]:  # hit
-            for k in range(k_neighbors - 1, -1, -1):
-                if dist < local_hit_d[k]:
-                    if k < k_neighbors - 1:
-                        local_hit_d[k + 1] = local_hit_d[k]
-                        local_hit_i[k + 1] = local_hit_i[k]
-                    local_hit_d[k] = dist
-                    local_hit_i[k] = j
-                else:
-                    break
-        else:  # miss
-            for k in range(k_neighbors - 1, -1, -1):
-                if dist < local_mis_d[k]:
-                    if k < k_neighbors - 1:
-                        local_mis_d[k + 1] = local_mis_d[k]
-                        local_mis_i[k + 1] = local_mis_i[k]
-                    local_mis_d[k] = dist
-                    local_mis_i[k] = j
-                else:
-                    break
-    
+            local_dist += diff
 
-    SHARED_MEM_SIZE = 640
-    shared_hit_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
-    shared_hit_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
-    shared_mis_d = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=float32)
-    shared_mis_i = cuda.shared.array(shape=SHARED_MEM_SIZE, dtype=int32)
-    for k in range(k_neighbors):
-        idx = tid * k_neighbors + k
-        shared_hit_d[idx] = local_hit_d[k]
-        shared_hit_i[idx] = local_hit_i[k]
-        shared_mis_d[idx] = local_mis_d[k]
-        shared_mis_i[idx] = local_mis_i[k]
+        sh_sum = cuda.shared.array(shape=64, dtype=float32)
+        sh_sum[tid] = local_dist
+        cuda.syncthreads()
 
-    cuda.syncthreads()
+        off = TPB // 2
+        while off > 0:
+            if tid < off:
+                sh_sum[tid] += sh_sum[tid + off]
+            cuda.syncthreads()
+            off //= 2
 
-    if tid == 0:
-        for k in range(1, k_neighbors * TPB):
-            # Sort hits
-            d_h, i_h = shared_hit_d[k], shared_hit_i[k]
-            j = k - 1
-            while j >= 0 and shared_hit_d[j] > d_h:
-                shared_hit_d[j + 1] = shared_hit_d[j]
-                shared_hit_i[j + 1] = shared_hit_i[j]
-                j -= 1
-            shared_hit_d[j + 1] = d_h
-            shared_hit_i[j + 1] = i_h
-            # Sort misses
-            d_m, i_m = shared_mis_d[k], shared_mis_i[k]
-            j = k - 1
-            while j >= 0 and shared_mis_d[j] > d_m:
-                shared_mis_d[j + 1] = shared_mis_d[j]
-                shared_mis_i[j + 1] = shared_mis_i[j]
-                j -= 1
-            shared_mis_d[j + 1] = d_m
-            shared_mis_i[j + 1] = i_m
-
-        
-        # Recalculate feature diffs and update scores atomically
-        for f in range(n_features):
-            hit_sum = 0.0
-            miss_sum = 0.0
-            
-            for k in range(k_neighbors):
-                h = shared_hit_i[k]
-                m = shared_mis_i[k]
-                
-                if h != -1:
-                    if is_discrete[f]:
-                        hit_sum += 1.0 if x[i, f] != x[h, f] else 0.0
-                    else:
-                        hit_sum += abs(x[i, f] - x[h, f]) * recip_full[f]
-
-                if m != -1:
-                    if is_discrete[f]:
-                        miss_sum += 1.0 if x[i, f] != x[m, f] else 0.0
-                    else:
-                        miss_sum += abs(x[i, f] - x[m, f]) * recip_full[f]
-            
-            update = (miss_sum - hit_sum) / k_neighbors
-            cuda.atomic.add(scores_out, f, update)
+        if tid == 0:
+            dist_matrix[i, j] = sh_sum[0]
+        cuda.syncthreads()
 
 
-def _relieff_gpu_host_caller(x_d, y_d, recip_full_d, is_discrete_d, k):
-    """Launch the GPU kernel and collect scores."""
+@cuda.jit
+def _accumulate_weighted_diffs_gpu_kernel(x, weights_matrix, recip_full, is_discrete, scores_out): # pragma: no cover
+    """
+    Accumulates feature difference scores weighted by neighbor relationships on GPU.
+    Grid: (n_samples,), Threads per block: TPB
+    """
+    n_samples, n_features = x.shape
+    i = cuda.blockIdx.x
+    tid = cuda.threadIdx.x
+
+    for j in range(n_samples):
+        w = weights_matrix[i, j]
+        if w == 0.0:
+            continue
+
+        for f in range(tid, n_features, TPB):
+            if is_discrete[f]:
+                diff = 1.0 if x[i, f] != x[j, f] else 0.0
+            else:
+                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+            cuda.atomic.add(scores_out, f, w * diff)
+
+
+def _compute_relieff_weights(dist_matrix, y_enc, class_probs, k):
+    """
+    Computes ReliefF neighbor weight matrix W of shape (n_samples, n_samples)
+    incorporating multi-class probability weighting matching literature standard.
+    """
+    n_samples = dist_matrix.shape[0]
+    n_classes = len(class_probs)
+    weights = np.zeros((n_samples, n_samples), dtype=np.float32)
+
+    for i in range(n_samples):
+        lbl_i = y_enc[i]
+        denom = 1.0 - class_probs[lbl_i]
+        if denom <= 0:
+            denom = 1.0
+
+        dists = dist_matrix[i].copy()
+        dists[i] = np.inf
+
+        # Find top k hits (class == lbl_i)
+        hit_mask = (y_enc == lbl_i)
+        hit_dists = np.where(hit_mask, dists, np.inf)
+        hit_indices = np.argsort(hit_dists, kind='stable')[:k]
+        actual_hits = [idx for idx in hit_indices if hit_dists[idx] != np.inf]
+        h_count = len(actual_hits)
+
+        if h_count > 0:
+            weight_hit = -1.0 / (h_count * n_samples)
+            for h_idx in actual_hits:
+                weights[i, h_idx] += weight_hit
+
+        # Find top k misses for each class c != lbl_i
+        for c in range(n_classes):
+            if c == lbl_i:
+                continue
+            miss_mask = (y_enc == c)
+            miss_dists = np.where(miss_mask, dists, np.inf)
+            miss_indices = np.argsort(miss_dists, kind='stable')[:k]
+            actual_misses = [idx for idx in miss_indices if miss_dists[idx] != np.inf]
+            m_count = len(actual_misses)
+
+            if m_count > 0:
+                prob_weight = class_probs[c] / denom
+                weight_miss = prob_weight / (m_count * n_samples)
+                for m_idx in actual_misses:
+                    weights[i, m_idx] += weight_miss
+
+    return weights
+
+
+from .utils import is_cuda_ready, ensure_cuda_context
+
+def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_probs, k):
+    """Host caller launching distance computation, weight matrix assembly, and score accumulation."""
+    ensure_cuda_context()
     n_samples, n_features = x_d.shape
+    dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
+
+    _compute_dist_matrix_gpu_kernel[n_samples, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
+
+    dist_matrix = dist_matrix_d.copy_to_host()
+    weights_matrix = _compute_relieff_weights(dist_matrix, y_enc, class_probs, k)
+
+    weights_d = cuda.to_device(weights_matrix)
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
-    _relieff_gpu_kernel[n_samples, TPB](x_d, y_d, recip_full_d, is_discrete_d, k, scores_d)
-    cuda.synchronize()
-    return scores_d.copy_to_host() / n_samples
+
+    _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
+
+    return scores_d.copy_to_host()
 
 
 @njit(parallel=True, fastmath=True)
 def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores_out): # pragma: no cover
     n_samples, n_features = x.shape
     n_classes = class_probs.shape[0]
-    temp = np.zeros((n_samples, n_features), dtype=np.float32)
+    n_threads = get_num_threads()
+
+    thread_scores = np.zeros((n_threads, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
-        dists = np.empty(n_samples, dtype=np.float32)
+        tid = get_thread_id()
+        lbl_i = y_enc[i]
+
+        hit_d = np.full(k, np.inf, dtype=np.float32)
+        hit_idx = np.full(k, -1, dtype=np.int32)
+
+        miss_d = np.full((n_classes, k), np.inf, dtype=np.float32)
+        miss_idx = np.full((n_classes, k), -1, dtype=np.int32)
+
         for j in range(n_samples):
             if i == j:
-                dists[j] = np.inf
                 continue
+
             d = 0.0
             for f in range(n_features):
                 if is_discrete[f]:
                     d += 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
                     d += abs(x[i, f] - x[j, f]) * recip_full[f]
-            dists[j] = d
 
-        order = np.argsort(dists)
-        lbl_i = y_enc[i]
-        hits = np.empty(k, dtype=np.int32)
-        misses = np.empty((n_classes, k), dtype=np.int32)
-        h_found = 0
-        m_found = np.zeros(n_classes, dtype=np.int32)
-
-        for idx in order:
-            lbl = y_enc[idx]
-            if lbl == lbl_i:
-                if h_found < k:
-                    hits[h_found] = idx
-                    h_found += 1
+            lbl_j = y_enc[j]
+            if lbl_j == lbl_i:
+                if d < hit_d[k - 1]:
+                    pos = k - 1
+                    while pos > 0 and d < hit_d[pos - 1]:
+                        hit_d[pos] = hit_d[pos - 1]
+                        hit_idx[pos] = hit_idx[pos - 1]
+                        pos -= 1
+                    hit_d[pos] = d
+                    hit_idx[pos] = j
             else:
-                if m_found[lbl] < k:
-                    misses[lbl, m_found[lbl]] = idx
-                    m_found[lbl] += 1
-            if h_found == k and (m_found >= k).all():
+                if d < miss_d[lbl_j, k - 1]:
+                    pos = k - 1
+                    while pos > 0 and d < miss_d[lbl_j, pos - 1]:
+                        miss_d[lbl_j, pos] = miss_d[lbl_j, pos - 1]
+                        miss_idx[lbl_j, pos] = miss_idx[lbl_j, pos - 1]
+                        pos -= 1
+                    miss_d[lbl_j, pos] = d
+                    miss_idx[lbl_j, pos] = j
+
+        h_found = 0
+        for ki in range(k):
+            if hit_idx[ki] != -1:
+                h_found += 1
+            else:
                 break
 
         denom = 1.0 - class_probs[lbl_i]
-        if denom == 0:  # Add guard for single-class case
+        if denom <= 0:
             denom = 1.0
 
-        for f in range(n_features):
-            hit_sum = 0.0
+        if h_found > 0:
+            scale_hit = -1.0 / (h_found * n_samples)
             for ki in range(h_found):
-                j = hits[ki]
-                if is_discrete[f]:
-                    hit_sum += 1.0 if x[i, f] != x[j, f] else 0.0
-                else:
-                    hit_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
-
-            miss_sum = 0.0
-            for c in range(n_classes):
-                if c == lbl_i:
-                    continue
-
-                weight = class_probs[c] / denom
-
-                # Sum diffs for this miss class
-                current_miss_sum = 0.0
-                for ki in range(m_found[c]):
-                    j = misses[c, ki]
+                h = hit_idx[ki]
+                for f in range(n_features):
                     if is_discrete[f]:
-                        current_miss_sum += 1.0 if x[i, f] != x[j, f] else 0.0
+                        diff = 1.0 if x[i, f] != x[h, f] else 0.0
                     else:
-                        current_miss_sum += abs(x[i, f] - x[j, f]) * recip_full[f]
+                        diff = abs(x[i, f] - x[h, f]) * recip_full[f]
+                    thread_scores[tid, f] += scale_hit * diff
 
-                # Weight the sum and add to total miss sum
-                miss_sum += weight * current_miss_sum
+        for c in range(n_classes):
+            if c == lbl_i:
+                continue
+            m_found = 0
+            for ki in range(k):
+                if miss_idx[c, ki] != -1:
+                    m_found += 1
+                else:
+                    break
+            if m_found > 0:
+                weight_c = class_probs[c] / denom
+                scale_miss = weight_c / (m_count if (m_count := m_found) > 0 else 1) / n_samples
+                for ki in range(m_found):
+                    m = miss_idx[c, ki]
+                    for f in range(n_features):
+                        if is_discrete[f]:
+                            diff = 1.0 if x[i, f] != x[m, f] else 0.0
+                        else:
+                            diff = abs(x[i, f] - x[m, f]) * recip_full[f]
+                        thread_scores[tid, f] += scale_miss * diff
 
-            # Final update for feature 'f' using number of neighbors found
-            update = 0.0
-            if h_found > 0:
-                update -= hit_sum / h_found
-            if k > 0:  # Denominator for miss term is always k
-                update += miss_sum / k
-
-            temp[i, f] = update
-
-    # Aggregate scores from all instances
     for f in range(n_features):
-        scores_out[f] = temp[:, f].sum()
+        tot = 0.0
+        for t in range(n_threads):
+            tot += thread_scores[t, f]
+        scores_out[f] = tot
+
 
 def _relieff_cpu_host_caller(x, y_enc, recip_full, is_discrete, k, class_probs, n_jobs, discrete_weights):
     n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
-    
+
     num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
-    
+
     original_num_threads = get_num_threads()
     set_num_threads(num_threads_to_set)
-    
+
     try:
         _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, scores)
     finally:
         set_num_threads(original_num_threads)
-        
-    return scores / n_samples
+
+    return scores
 
 
 class ReliefF(TransformerMixin, BaseEstimator):
@@ -246,27 +268,22 @@ class ReliefF(TransformerMixin, BaseEstimator):
     ----------
     n_features_to_select : int | float, default=0.2
         The number of top features to select. If variable is a float, that percent
-        of features will be selected (0.2 = 20% of features will be returned from transform
-        or fit_transform). If variable is an int, that number of features will be
-        returned.
+        of features will be selected. If variable is an int, that number of features will be returned.
 
     discrete_limit : int, default=10
-        The limit for the number of independent feature values to be considered
-        discrete or continuous (affects distance calculation).
+        The limit for the number of independent feature values to be considered discrete.
 
     n_neighbors : int, default=3
         The number of nearest neighbors to use for score calculation.
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
         The compute backend to use.
-        
+
     verbose : bool, default=False
-        Controls whether progress updates are printed during the fit. Only avaliable if backend='cpu'.
-        
+        Controls whether progress updates are printed during the fit.
+
     n_jobs : int, default=-1
-        Controls the number of threads utilized by Numba while running on the cpu.
-        -1 uses all threads avaliable by default. Set to a low number if experiencing
-        difficulties and lagging running the script.
+        Controls the number of threads utilized by Numba while running on CPU.
 
     Attributes
     ----------
@@ -298,24 +315,20 @@ class ReliefF(TransformerMixin, BaseEstimator):
 
     def _validate_parameters(self, n_samples, n_features):
         """Validate all user-provided parameters."""
-        # Backend check
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
 
-        # Sample count check
         if n_samples < 2:
             raise ValueError(
                 f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}"
             )
 
-        # n_neighbors check
         if not (0 < self.n_neighbors < n_samples):
             raise ValueError(
                 f"n_neighbors ({self.n_neighbors}) must be an integer "
                 f"between 1 and n_samples - 1 ({n_samples - 1})."
             )
 
-        # n_features_to_select check (handles both int and float)
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
                 raise ValueError(
@@ -334,12 +347,8 @@ class ReliefF(TransformerMixin, BaseEstimator):
 
         return n_select
 
-
     def fit(self, x: np.ndarray, y: np.ndarray):
-        """
-        Calculates feature importances using the ReliefF algorithm on a GPU/CPU.
-        ... (docstring remains the same) ...
-        """
+        """Calculates feature importances using the ReliefF algorithm."""
         x, y = validate_data(
             self, x, y, dtype=np.float64, ensure_2d=True, y_numeric=True,
         )
@@ -371,8 +380,8 @@ class ReliefF(TransformerMixin, BaseEstimator):
         discrete_weights = np.ones(self.n_features_in_, dtype=np.float32)
 
         class_labels, class_counts = np.unique(y, return_counts=True)
-        class_probs = class_counts / len(y)
-        y_enc = np.searchsorted(class_labels, y)
+        class_probs = (class_counts / len(y)).astype(np.float32)
+        y_enc = np.searchsorted(class_labels, y).astype(np.int32)
 
         feature_ranges = x.max(axis=0) - x.min(axis=0)
         feature_ranges[is_discrete] = 1.0
@@ -380,25 +389,26 @@ class ReliefF(TransformerMixin, BaseEstimator):
         recip_full = (1.0 / feature_ranges).astype(np.float32)
 
         if self.backend == "auto":
-            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
+            self.effective_backend_ = "gpu" if is_cuda_ready() else "cpu"
+        elif self.backend == "gpu" and not is_cuda_ready():
+            raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
         else:
             self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
             x_d = cuda.to_device(x.astype(np.float32))
-            y_d = cuda.to_device(y_enc.astype(np.int32))
             recip_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
             if self.verbose:
                 print("Running ReliefF on the GPU now...")
             scores = _relieff_gpu_host_caller(
-                x_d, y_d, recip_d, is_discrete_d, self.n_neighbors)
-        else: # CPU
+                x_d, y_enc, recip_d, is_discrete_d, class_probs, self.n_neighbors)
+        else:
             if self.verbose:
                 print("Running ReliefF on the CPU now...")
             scores = _relieff_cpu_host_caller(
-                x.astype(np.float32), y_enc.astype(np.int32), recip_full,
-                is_discrete, self.n_neighbors, class_probs.astype(np.float32),
+                x.astype(np.float32), y_enc, recip_full,
+                is_discrete, self.n_neighbors, class_probs,
                 self.n_jobs, discrete_weights
             )
 
@@ -407,21 +417,9 @@ class ReliefF(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, x: np.ndarray) -> np.ndarray:
-        """
-        Reduces x to the selected features.
-
-        Parameters
-        ----------
-        x : array-like of shape (n_samples, n_features)
-            The input samples to transform.
-
-        Returns
-        -------
-        x_new : ndarray of shape (n_samples, n_features_to_select)
-            The input samples with only the selected features.
-        """
+        """Reduces x to the selected features."""
         check_is_fitted(self)
-        
+
         x = validate_data(
             self, x,
             reset=False,
@@ -431,23 +429,6 @@ class ReliefF(TransformerMixin, BaseEstimator):
         return x[:, self.top_features_]
 
     def fit_transform(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """
-        Fit to data, then transform it.
-
-        A convenience method that fits the model and applies the transformation
-        to the same data.
-
-        Parameters
-        ----------
-        x : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target values (class labels).
-
-        Returns
-        -------
-        x_new : ndarray of shape (n_samples, n_features_to_select)
-            The transformed input samples.
-        """
+        """Fit to data, then transform it."""
         self.fit(x, y)
         return self.transform(x)
