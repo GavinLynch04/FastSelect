@@ -7,6 +7,7 @@ from sklearn.feature_selection import SelectorMixin
 from sklearn.utils.validation import check_X_y, check_is_fitted, validate_data
 from sklearn.preprocessing import KBinsDiscretizer
 import math
+from .utils import is_cuda_ready, ensure_cuda_context
 
 @numba.njit(cache=True)
 def _cfs_merit(sum_r_cf, k, sum_r_ff): # pragma: no cover
@@ -338,13 +339,14 @@ class CFS(BaseEstimator, SelectorMixin):
 
         # --- 2. Backend Selection and Correlation Calculation ---
         if self.backend == 'auto':
-            effective_backend = 'gpu' if cuda.is_available() else 'cpu'
+            effective_backend = 'gpu' if is_cuda_ready() else 'cpu'
         else:
             effective_backend = self.backend
 
         if effective_backend == 'gpu':
-            if not cuda.is_available():
+            if not is_cuda_ready():
                 raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
+            ensure_cuda_context()
             max_states = np.max(n_states_features)
             if n_states_y > 32 or max_states > 32:
                 raise ValueError("GPU backend supports up to 32 unique states/bins.")
@@ -358,7 +360,6 @@ class CFS(BaseEstimator, SelectorMixin):
             _precompute_correlations_gpu_kernel[blocks_per_grid, threads_per_block](
                 X_d, y_d, n_states_features_d, n_states_y, r_cf_d, r_ff_d
             )
-            cuda.synchronize()
             r_cf_all = r_cf_d.copy_to_host()
             r_ff_matrix = r_ff_d.copy_to_host()
 

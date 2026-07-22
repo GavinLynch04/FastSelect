@@ -2,170 +2,149 @@ from __future__ import annotations
 import numpy as np
 from numba import cuda, float32, int32, njit, prange, config, get_num_threads, set_num_threads, get_thread_id
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted, validate_data
+from sklearn.utils.validation import check_is_fitted, validate_data
+import warnings
+from .utils import is_cuda_ready
 
 TPB = 64  # Threads Per Block
 
 @cuda.jit
-def _surf_gpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out): # pragma: no cover
-    """
-    SURF/SURF* scoring on the GPU for all features.
-    """
+def _compute_dist_matrix_surf_kernel(x, recip_full, is_discrete, dist_matrix): # pragma: no cover
+    """Computes all pairwise distances on GPU with memory coalescing."""
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
-    sh_dist_sum = cuda.shared.array(shape=TPB, dtype=float32)
-    sh_near_hit = cuda.shared.array(shape=1, dtype=float32)
-    sh_near_miss = cuda.shared.array(shape=1, dtype=float32)
-    sh_far_hit = cuda.shared.array(shape=1, dtype=float32)
-    sh_far_miss = cuda.shared.array(shape=1, dtype=float32)
-
-    local_sum_d = 0.0
-    for j in range(tid, n_samples, TPB):
+    for j in range(n_samples):
         if i == j:
+            if tid == 0:
+                dist_matrix[i, j] = 0.0
             continue
 
-        dist = 0.0
-        for f in range(n_features):
+        local_dist = 0.0
+        for f in range(tid, n_features, TPB):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
                 diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-            dist += diff
-        local_sum_d += dist
+            local_dist += diff
 
-    sh_dist_sum[tid] = local_sum_d
-    cuda.syncthreads()
-
-    off = TPB // 2
-    while off > 0:
-        if tid < off:
-            sh_dist_sum[tid] += sh_dist_sum[tid + off]
+        sh_sum = cuda.shared.array(shape=64, dtype=float32)
+        sh_sum[tid] = local_dist
         cuda.syncthreads()
-        off //= 2
 
-    if tid == 0:
-        if n_samples > 1:
-            avg_dist_val = sh_dist_sum[0] / (n_samples - 1)
-        else:
-            avg_dist_val = 0.0
-        sh_dist_sum[0] = avg_dist_val  # Reuse shared memory for broadcast
+        off = TPB // 2
+        while off > 0:
+            if tid < off:
+                sh_sum[tid] += sh_sum[tid + off]
+            cuda.syncthreads()
+            off //= 2
 
-    cuda.syncthreads()
-    avg_dist = sh_dist_sum[0]  # All threads read the broadcasted value
-
-    for f in range(n_features):
         if tid == 0:
-            sh_near_hit[0] = 0.0
-            sh_near_miss[0] = 0.0
-            if use_star:
-                sh_far_hit[0] = 0.0
-                sh_far_miss[0] = 0.0
+            dist_matrix[i, j] = sh_sum[0]
         cuda.syncthreads()
 
-        local_near_hit_sum = 0.0
-        local_near_miss_sum = 0.0
-        local_far_hit_sum = 0.0
-        local_far_miss_sum = 0.0
 
-        for j in range(tid, n_samples, TPB):
+@cuda.jit
+def _accumulate_weighted_diffs_surf_kernel(x, weights_matrix, recip_full, is_discrete, scores_out): # pragma: no cover
+    """Accumulates feature difference scores weighted by SURF neighbor relationships."""
+    n_samples, n_features = x.shape
+    i = cuda.blockIdx.x
+    tid = cuda.threadIdx.x
+
+    for j in range(n_samples):
+        w = weights_matrix[i, j]
+        if w == 0.0:
+            continue
+
+        for f in range(tid, n_features, TPB):
+            if is_discrete[f]:
+                diff = 1.0 if x[i, f] != x[j, f] else 0.0
+            else:
+                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+            cuda.atomic.add(scores_out, f, w * diff)
+
+
+def _compute_surf_weights(dist_matrix, y, use_star):
+    """Computes SURF / SURF* weight matrix W of shape (n_samples, n_samples)."""
+    n_samples = dist_matrix.shape[0]
+    weights = np.zeros((n_samples, n_samples), dtype=np.float32)
+    scale = 1.0 / n_samples
+
+    for i in range(n_samples):
+        row_dists = dist_matrix[i]
+        sum_d = np.sum(row_dists) - row_dists[i]
+        avg_dist = sum_d / (n_samples - 1) if n_samples > 1 else 0.0
+
+        for j in range(n_samples):
             if i == j:
                 continue
-
-            dist = 0.0
-            for f_inner in range(n_features):
-                if is_discrete[f_inner]:
-                    diff = 1.0 if x[i, f_inner] != x[j, f_inner] else 0.0
-                else:
-                    diff = abs(x[i, f_inner] - x[j, f_inner]) * recip_full[f_inner]
-                dist += diff
-
             is_hit = (y[i] == y[j])
-            is_near = (dist < avg_dist)
-
-            if is_discrete[f]:
-                feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
-            else:
-                feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+            is_near = (row_dists[j] < avg_dist)
 
             if is_near:
-                if is_hit:
-                    local_near_hit_sum += feat_diff
-                else:
-                    local_near_miss_sum += feat_diff
+                weights[i, j] = scale if not is_hit else -scale
             elif use_star:
-                if is_hit:
-                    local_far_hit_sum += feat_diff
-                else:
-                    local_far_miss_sum += feat_diff
+                weights[i, j] = scale if is_hit else -scale
 
-        cuda.atomic.add(sh_near_hit, 0, local_near_hit_sum)
-        cuda.atomic.add(sh_near_miss, 0, local_near_miss_sum)
-        if use_star:
-            cuda.atomic.add(sh_far_hit, 0, local_far_hit_sum)
-            cuda.atomic.add(sh_far_miss, 0, local_far_miss_sum)
-        cuda.syncthreads()
+    return weights
 
-        if tid == 0:
-            score_update = sh_near_miss[0] - sh_near_hit[0]
-            if use_star:
-                score_update += sh_far_hit[0] - sh_far_miss[0]
 
-            cuda.atomic.add(scores_out, f, score_update)
+from .utils import is_cuda_ready, ensure_cuda_context
 
-def _surf_gpu_host_caller(x_d, y_d, recip_full_d, use_star, is_discrete_d):
-    """Host helper function that launches the kernel and returns scores."""
+def _surf_gpu_host_caller(x_d, y, recip_full_d, use_star, is_discrete_d):
+    """Host helper function that launches GPU kernels for SURF and returns scores."""
+    ensure_cuda_context()
     n_samples, n_features = x_d.shape
+    dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
+
+    blocks = (n_samples + TPB - 1) // TPB
+    _compute_dist_matrix_surf_kernel[blocks, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
+
+    dist_matrix = dist_matrix_d.copy_to_host()
+    weights_matrix = _compute_surf_weights(dist_matrix, y, use_star)
+
+    weights_d = cuda.to_device(weights_matrix)
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
 
-    _surf_gpu_kernel[n_samples, TPB](
-        x_d, y_d, recip_full_d, use_star, is_discrete_d, scores_d
-    )
-    cuda.synchronize()
+    _accumulate_weighted_diffs_surf_kernel[blocks, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
 
-    return scores_d.copy_to_host() / n_samples
+    return scores_d.copy_to_host()
 
 
 @njit(parallel=True, fastmath=True)
-def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): # pragma: no cover
+def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, scores_out): # pragma: no cover
     """
-    SURF/SURF* scoring for CPU.
+    Optimized SURF/SURF* scoring for CPU with zero N x P temporary matrix allocations inside prange.
     """
     n_samples, n_features = x.shape
-    n_threads = private_scores.shape[0]
+    n_threads = get_num_threads()
+    thread_scores = np.zeros((n_threads, n_features), dtype=np.float32)
 
     for i in prange(n_samples):
         tid = get_thread_id()
-        
         dists_from_i = np.empty(n_samples, dtype=np.float32)
-        
-        diffs_from_i = np.empty((n_samples, n_features), dtype=np.float32)
+        sum_d = 0.0
 
         for j in range(n_samples):
             if i == j:
                 dists_from_i[j] = 0.0
                 continue
-                
+
             dist_ij = 0.0
             for f in range(n_features):
                 if is_discrete[f]:
-                    feat_diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
-                    feat_diff = abs(x[i, f] - x[j, f]) * recip_full[f]
-                
-                diffs_from_i[j, f] = feat_diff
-                dist_ij += feat_diff
+                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                dist_ij += diff
+
             dists_from_i[j] = dist_ij
-        
-        sum_d = np.sum(dists_from_i)
-        avg_dist = sum_d / (n_samples - 1)
-        
-        near_hit_sum = np.zeros(n_features, dtype=np.float32)
-        near_miss_sum = np.zeros(n_features, dtype=np.float32)
-        far_hit_sum = np.zeros(n_features, dtype=np.float32)
-        far_miss_sum = np.zeros(n_features, dtype=np.float32)
+            sum_d += dist_ij
+
+        avg_dist = sum_d / (n_samples - 1) if n_samples > 1 else 0.0
+        scale = 1.0 / n_samples
 
         for j in range(n_samples):
             if i == j:
@@ -175,103 +154,79 @@ def _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores): #
             is_hit = (y[i] == y[j])
             is_near = (dist_ij < avg_dist)
 
-            feat_diff_array = diffs_from_i[j]
-
+            weight = 0.0
             if is_near:
-                if is_hit:
-                    near_hit_sum += feat_diff_array
-                else:
-                    near_miss_sum += feat_diff_array
+                weight = scale if not is_hit else -scale
             elif use_star:
-                if is_hit:
-                    far_hit_sum += feat_diff_array
-                else:
-                    far_miss_sum += feat_diff_array
-        
-        score_update = (near_miss_sum - near_hit_sum)
-        if use_star:
-            score_update += (far_hit_sum - far_miss_sum)
-        
-        private_scores[tid] += score_update
+                weight = scale if is_hit else -scale
+
+            if weight != 0.0:
+                for f in range(n_features):
+                    if is_discrete[f]:
+                        diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                    else:
+                        diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                    thread_scores[tid, f] += weight * diff
+
+    for f in range(n_features):
+        tot = 0.0
+        for t in range(n_threads):
+            tot += thread_scores[t, f]
+        scores_out[f] = tot
 
 
 def _surf_cpu_host_caller(x, y, recip_full, use_star, is_discrete, n_jobs):
-    """
-    Host caller for the CPU kernel.
-    Manages thread setup and final reduction of scores.
-    """
+    """Host caller for the CPU kernel."""
     n_samples, n_features = x.shape
-    
+    scores = np.zeros(n_features, dtype=np.float32)
+
     num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
 
-    private_scores = np.zeros((num_threads_to_set, n_features), dtype=np.float32)
-    
     original_num_threads = get_num_threads()
+    set_num_threads(num_threads_to_set)
+
     try:
-        set_num_threads(num_threads_to_set)
-        _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, private_scores)
+        _surf_cpu_kernel(x, y, recip_full, use_star, is_discrete, scores)
     finally:
         set_num_threads(original_num_threads)
-        
-    final_scores = private_scores.sum(axis=0)
-    
-    return final_scores / n_samples
+
+    return scores
+
 
 class SURF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the SURF algorithm.
 
-    This estimator provides a unified, scikit-learn compatible API for running
-    SURF or SURF* on either a CPU or a GPU. The implementation is designed
-    for performance and scalability, avoiding the memory bottlenecks of
-    older implementations by calculating distances on-the-fly.
+    This estimator provides a unified scikit-learn compatible API for SURF and SURF*.
 
     Parameters
     ----------
     n_features_to_select : int or float, default=0.2
         The number of top features to select.
-        - If an int, the exact number of features to select.
-        - If a float between (0, 1], the percentage of features to select.
 
     backend : {'auto', 'gpu', 'cpu'}, default='auto'
-        The compute backend to use. 'auto' will use a GPU if available.
+        The compute backend to use.
 
     use_star : bool, default=False
-        If True, runs the SURF* algorithm, which includes updates from
-        "far" neighbors. If False (default), runs the standard SURF algorithm.
+        If True, runs SURF*, including updates from far neighbors.
 
     discrete_limit : int, default=10
         Features with this many or fewer unique values are treated as discrete.
 
     n_jobs : int, default=-1
-        Number of CPU threads to use for the 'cpu' backend. -1 means all.
-        This parameter is ignored for the 'gpu' backend.
+        Number of CPU threads to use for 'cpu' backend.
 
     verbose : bool, default=False
         Controls whether to print progress messages during fit.
-
-    Attributes
-    ----------
-    n_features_in_ : int
-        The number of features seen during `fit`.
-
-    feature_importances_ : ndarray of shape (n_features,)
-        The calculated importance scores for each feature.
-
-    top_features_ : ndarray of shape (n_features_to_select,)
-        The indices of the selected top features.
-
-    effective_backend_ : str
-        The backend that was actually used during `fit` ('gpu' or 'cpu').
     """
 
     def __init__(
-            self,
-            n_features_to_select: int | float = 0.2,
-            backend: str = "auto",
-            use_star: bool = False,
-            discrete_limit: int = 10,
-            n_jobs: int = -1,
-            verbose: bool = False,
+        self,
+        n_features_to_select: int | float = 0.2,
+        backend: str = "auto",
+        use_star: bool = False,
+        discrete_limit: int = 10,
+        n_jobs: int = -1,
+        verbose: bool = False,
     ):
         self.n_features_to_select = n_features_to_select
         self.backend = backend
@@ -279,20 +234,16 @@ class SURF(TransformerMixin, BaseEstimator):
         self.discrete_limit = discrete_limit
         self.n_jobs = n_jobs
         self.verbose = verbose
-        
-    def _validate_parameters(self, n_samples, n_features):
-        """Validate all user-provided parameters."""
-        # Backend check
+
+    def _validate_parameters(self, n_samples: int, n_features: int) -> int:
         if self.backend not in ["auto", "gpu", "cpu"]:
             raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
 
-        # Sample count check
         if n_samples < 2:
             raise ValueError(
                 f"SURF requires at least 2 samples, but got n_samples = {n_samples}"
             )
 
-        # n_features_to_select check (handles both int and float)
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
                 raise ValueError(
@@ -312,37 +263,28 @@ class SURF(TransformerMixin, BaseEstimator):
         return n_select
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        """
-        Calculates feature importances using the SURF or SURF* algorithm.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples. NaN values are not supported.
-        y : array-like of shape (n_samples,)
-            The target values (class labels). Must be numeric.
-
-        Returns
-        -------
-        self : object
-            Returns the instance itself.
-        """
+        """Fits SURF to training data."""
         X, y = validate_data(
-            self, X, y, y_numeric=True, dtype=np.float64, ensure_2d=True,
+            self, X, y, dtype=np.float64, ensure_2d=True, y_numeric=True,
         )
-            
         self.n_features_in_ = X.shape[1]
         n_samples = X.shape[0]
-        
+
         n_select = self._validate_parameters(n_samples, self.n_features_in_)
 
+        self.classes_, y_encoded = np.unique(y, return_inverse=True)
+        if len(self.classes_) < 2:
+            self.feature_importances_ = np.zeros(self.n_features_in_, dtype=np.float32)
+            self.top_features_ = np.arange(n_select)
+            self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
+            return self
+
         if self.backend == "auto":
-            self.effective_backend_ = "gpu" if cuda.is_available() else "cpu"
-        elif self.backend == "gpu" and not cuda.is_available():
+            self.effective_backend_ = "gpu" if is_cuda_ready() else "cpu"
+        elif self.backend == "gpu" and not is_cuda_ready():
             raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
         else:
             self.effective_backend_ = self.backend
-
 
         self.is_discrete_ = np.array([
             np.unique(X[:, f]).size <= self.discrete_limit
@@ -359,16 +301,15 @@ class SURF(TransformerMixin, BaseEstimator):
             print(f"Running {algo_name} on the {self.effective_backend_.upper()} now...")
 
         if self.effective_backend_ == "gpu":
-            X_d = cuda.to_device(X)
-            y_d = cuda.to_device(y.astype(np.int32))
+            X_d = cuda.to_device(X.astype(np.float32))
             recip_full_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(self.is_discrete_)
             scores = _surf_gpu_host_caller(
-                X_d, y_d, recip_full_d, self.use_star, is_discrete_d
+                X_d, y_encoded.astype(np.int32), recip_full_d, self.use_star, is_discrete_d
             )
-        else:  # CPU
+        else:
             scores = _surf_cpu_host_caller(
-                X, y.astype(np.int32), recip_full, self.use_star, self.is_discrete_, self.n_jobs
+                X.astype(np.float32), y_encoded.astype(np.int32), recip_full, self.use_star, self.is_discrete_, self.n_jobs
             )
 
         self.feature_importances_ = scores
@@ -379,47 +320,19 @@ class SURF(TransformerMixin, BaseEstimator):
 
         return self
 
-    def transform(self, x: np.ndarray) -> np.ndarray:
-        """
-        Reduces x to the selected features.
-
-        Parameters
-        ----------
-        x : array-like of shape (n_samples, n_features)
-            The input samples to transform.
-
-        Returns
-        -------
-        x_new : ndarray of shape (n_samples, n_features_to_select)
-            The input samples with only the selected features.
-        """
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Reduces X to selected top features."""
         check_is_fitted(self)
-        x = validate_data(
-            self, x,
+
+        X = validate_data(
+            self, X,
             reset=False,
             dtype=[np.float64, np.float32]
         )
 
-        return x[:, self.top_features_]
+        return X[:, self.top_features_]
 
     def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """
-        Fit to data, then transform it.
-
-        A convenience method that fits the model and applies the transformation
-        to the same data.
-
-        Parameters
-        ----------
-        x : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target values (class labels).
-
-        Returns
-        -------
-        x_new : ndarray of shape (n_samples, n_features_to_select)
-            The transformed input samples.
-        """
+        """Fit to data, then transform it."""
         self.fit(X, y)
         return self.transform(X)

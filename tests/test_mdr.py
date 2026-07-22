@@ -9,10 +9,11 @@ except ModuleNotFoundError:
     HYPOTHESIS_AVAILABLE = False
 
 from fast_select.MDR import MDR, MAX_K_FOR_KERNEL
+from fast_select.utils import is_cuda_ready
 
 try:
     from numba import cuda
-    CUDA_AVAILABLE = cuda.is_available()
+    CUDA_AVAILABLE = is_cuda_ready()
 except Exception:
     CUDA_AVAILABLE = False
 
@@ -171,7 +172,6 @@ def test_gpu_kernel_consistency(simple_dataset):
     results_d = cuda.device_array(n_combos, dtype=np.float32)
 
     mdr_kernel[1, 32](X_d, y_d, k, combos_d, results_d)
-    cuda.synchronize()
     gpu_bas = results_d.copy_to_host()
 
     # CPU reference
