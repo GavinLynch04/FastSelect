@@ -1,18 +1,19 @@
-import numpy as np
-import numba
-from numba import cuda, njit, prange
-from itertools import combinations
 from collections import Counter
+from itertools import combinations
+
+import numba
+import numpy as np
+from numba import cuda, njit, prange
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import StratifiedKFold
+from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import (
-    check_X_y,
     check_array,
     check_is_fitted,
+    check_X_y,
 )
-from sklearn.utils.multiclass import unique_labels
-from .utils import is_cuda_ready, ensure_cuda_context
 
+from .utils import ensure_cuda_context, is_cuda_ready
 
 MAX_K_FOR_KERNEL = 6
 MAX_CELLS = 3 ** MAX_K_FOR_KERNEL
@@ -66,9 +67,9 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
 
     for i in range(3 ** k):
         if control_counts[i] == 0:
-            is_high_risk = True
+            is_high_risk = case_counts[i] > 0
         else:
-            is_high_risk = (case_counts[i] / control_counts[i]) > threshold_ratio
+            is_high_risk = (case_counts[i] / control_counts[i]) >= threshold_ratio
 
         if is_high_risk:
             tp += case_counts[i]
@@ -118,7 +119,9 @@ def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
         tp = 0
         tn = 0
         for i in range(n_cells):
-            if control[i] == 0 or (case[i] / control[i]) > thr:
+            if (control[i] == 0 and case[i] > 0) or (
+                control[i] > 0 and (case[i] / control[i]) >= thr
+            ):
                 tp += case[i]
             else:
                 tn += control[i]
@@ -192,8 +195,15 @@ class MDR(BaseEstimator, ClassifierMixin):
         total_cases = case_counts.sum()
         total_controls = control_counts.sum()
         threshold = np.inf if total_controls == 0 else total_cases / total_controls
-        ratios = case_counts / (control_counts + 1e-9)
-        return (ratios > threshold).astype(np.uint8)
+        lookup = np.zeros(n_cells, dtype=np.uint8)
+        for cell in range(n_cells):
+            if control_counts[cell] == 0:
+                lookup[cell] = case_counts[cell] > 0
+            else:
+                lookup[cell] = (
+                    case_counts[cell] / control_counts[cell]
+                ) >= threshold
+        return lookup
 
     def _internal_predict(self, X, interaction, lookup_table):
         """Predict labels using Numba-compiled LUT helper."""
@@ -223,8 +233,11 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         if len(self.classes_) != 2:
             raise ValueError("MDR only supports binary classification.")
+        y_encoded = (y == self.classes_[1]).astype(np.uint8)
         if np.max(X) > 2 or np.min(X) < 0:
             raise ValueError("Genotypes must be coded 0/1/2.")
+        if self.k < 1:
+            raise ValueError("k must be at least 1.")
         if self.k > MAX_K_FOR_KERNEL:
             raise ValueError(
                 f"k={self.k} exceeds MAX_K_FOR_KERNEL={MAX_K_FOR_KERNEL}."
@@ -262,9 +275,11 @@ class MDR(BaseEstimator, ClassifierMixin):
                 f"{self.k}-way search over {n_combos} combos"
             )
 
-        for fold_i, (train_idx, test_idx) in enumerate(skf.split(X, y), start=1):
+        for fold_i, (train_idx, test_idx) in enumerate(
+            skf.split(X, y_encoded), start=1
+        ):
             X_train, X_test = X[train_idx], X[test_idx]
-            y_train, y_test = y[train_idx], y[test_idx]
+            y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
 
             if use_gpu:
                 X_d = cuda.to_device(X_train)
@@ -331,16 +346,17 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         # Train final lookup table on full data
         self.best_model_lookup_table_ = self._create_lookup_table(
-            X, y, self.best_interaction_
+            X, y_encoded, self.best_interaction_
         )
         return self
 
     def predict(self, X):
         check_is_fitted(self)
         X = check_array(X, dtype=np.uint8)
-        return self._internal_predict(
+        encoded = self._internal_predict(
             X, self.best_interaction_, self.best_model_lookup_table_
         )
+        return self.classes_[encoded]
 
     def transform(self, X):
         return self.predict(X).reshape(-1, 1)

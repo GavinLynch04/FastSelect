@@ -1,13 +1,17 @@
-import numpy as np
+import heapq
+import math
+
 import numba
+import numpy as np
 import pandas as pd
 from numba import cuda
 from sklearn.base import BaseEstimator
 from sklearn.feature_selection import SelectorMixin
-from sklearn.utils.validation import check_X_y, check_is_fitted, validate_data
 from sklearn.preprocessing import KBinsDiscretizer
-import math
-from .utils import is_cuda_ready, ensure_cuda_context
+from sklearn.utils.validation import check_is_fitted, check_X_y
+
+from .utils import ensure_cuda_context, is_cuda_ready
+
 
 @numba.njit(cache=True)
 def _cfs_merit(sum_r_cf, k, sum_r_ff): # pragma: no cover
@@ -104,72 +108,75 @@ def _precompute_correlations_cpu(X_encoded, y_encoded, n_states_features, n_stat
 
     return r_cf_all, r_ff_matrix
 
-def _prune_redundant(selected, r_cf, r_ff):
-    # keep features in descending r_cf order
-    kept = []
-    for idx in sorted(selected, key=lambda i: -r_cf[i]):
-        if not any(r_ff[idx, j] >= r_cf[idx] for j in kept):
-            kept.append(idx)
-    return kept
+def _best_first_search(
+    n_features, r_cf_all, r_ff_matrix, max_backtracks=5
+): # pragma: no cover
+    """Forward best-first CFS search with the paper's stale-node stopping rule."""
+    queue = []
+    visited = {()}
+    best_subset = ()
+    best_merit = 0.0
+    stale_nodes = 0
 
-@numba.njit(cache=True)
-def _best_first_search(n_features, r_cf_all, r_ff_matrix, min_r_cf=0.1): # pragma: no cover
-    first = np.argmax(r_cf_all)
-    if r_cf_all[first] < min_r_cf:
-        return numba.typed.List.empty_list(numba.types.int64)
+    for feature in range(n_features):
+        subset = (feature,)
+        visited.add(subset)
+        sum_r_cf = float(r_cf_all[feature])
+        subset_merit = float(_cfs_merit(sum_r_cf, 1, 0.0))
+        heapq.heappush(queue, (-subset_merit, subset, sum_r_cf, 0.0))
 
-    selected = numba.typed.List([first])
-    current_best = r_cf_all[first]  # merit for k=1 is just its r_cf
-
-    while True:
-        best_i = -1
-        best_merit = current_best
-
-        for i in range(n_features):
-            if i in selected or r_cf_all[i] < min_r_cf:
-                continue
-
-            # build candidate subset
-            k = len(selected) + 1
-            sum_r_cf = 0.0
-            sum_r_ff = 0.0
-
-            # accumulate r_cf and r_ff for candidate = selected + [i]
-            for idx in selected:
-                sum_r_cf += r_cf_all[idx]
-            sum_r_cf += r_cf_all[i]
-
-            for a in selected:
-                for b in selected:
-                    if a < b:
-                        sum_r_ff += r_ff_matrix[a, b]
-
-            # add pairwise terms involving the new feature i
-            for sel in selected:
-                sum_r_ff += r_ff_matrix[i, sel]
-
-            merit = _cfs_merit(sum_r_cf, k, sum_r_ff)
-
-            if merit > best_merit:
-                best_merit = merit
-                best_i = i
-
-        if best_i != -1:
-            selected.append(best_i)
-            current_best = best_merit
+    while queue and stale_nodes < max_backtracks:
+        neg_merit, subset, sum_r_cf, sum_r_ff = heapq.heappop(queue)
+        subset_merit = -neg_merit
+        if subset_merit > best_merit + 1e-12:
+            best_merit = subset_merit
+            best_subset = subset
+            stale_nodes = 0
         else:
-            break
+            stale_nodes += 1
 
-    return selected
+        selected = set(subset)
+        for feature in range(n_features):
+            if feature in selected:
+                continue
+            child = tuple(sorted(subset + (feature,)))
+            if child in visited:
+                continue
+            visited.add(child)
+            child_sum_r_cf = sum_r_cf + float(r_cf_all[feature])
+            child_sum_r_ff = sum_r_ff
+            for selected_feature in subset:
+                child_sum_r_ff += float(
+                    r_ff_matrix[feature, selected_feature]
+                )
+            child_merit = float(
+                _cfs_merit(
+                    child_sum_r_cf,
+                    len(child),
+                    child_sum_r_ff,
+                )
+            )
+            heapq.heappush(
+                queue,
+                (
+                    -child_merit,
+                    child,
+                    child_sum_r_cf,
+                    child_sum_r_ff,
+                ),
+            )
+
+    return list(best_subset)
 
 
 @cuda.jit(device=True)
-def _cu_entropy(counts, n_samples): # pragma: no cover
+def _cu_entropy(counts, n_samples, n_states): # pragma: no cover
     """(GPU DEVICE) Calculates entropy from a counts array."""
     if n_samples == 0:
         return 0.0
     entropy = 0.0
-    for count in counts:
+    for i in range(n_states):
+        count = counts[i]
         if count > 0:
             prob = count / n_samples
             entropy -= prob * math.log2(prob)
@@ -199,8 +206,8 @@ def _cu_symmetrical_uncertainty(x, y, n_states_x, n_states_y): # pragma: no cove
         counts_x[x[i]] += 1.0
         counts_y[y[i]] += 1.0
 
-    h_x = _cu_entropy(counts_x, n_samples)
-    h_y = _cu_entropy(counts_y, n_samples)
+    h_x = _cu_entropy(counts_x, n_samples, n_states_x)
+    h_y = _cu_entropy(counts_y, n_samples, n_states_y)
 
     if h_x + h_y < 1e-12:
         return 0.0
@@ -270,6 +277,10 @@ class CFS(BaseEstimator, SelectorMixin):
     n_jobs : int, default=-1
         Number of CPU threads to use. Ignored for the 'gpu' backend.
 
+    max_backtracks : int, default=5
+        Stop best-first search after this many consecutive expanded subsets
+        fail to improve the best CFS merit, matching the canonical default.
+
     Attributes
     ----------
     n_features_in_ : int
@@ -288,11 +299,19 @@ class CFS(BaseEstimator, SelectorMixin):
         The CFS merit score of the selected feature subset.
     """
 
-    def __init__(self, n_bins=10, strategy='uniform', backend='auto', n_jobs=-1):
+    def __init__(
+        self,
+        n_bins=10,
+        strategy='uniform',
+        backend='auto',
+        n_jobs=-1,
+        max_backtracks=5,
+    ):
         self.n_bins = n_bins
         self.strategy = strategy
         self.backend = backend
         self.n_jobs = n_jobs
+        self.max_backtracks = max_backtracks
 
     def fit(self, X, y):
         """
@@ -314,6 +333,10 @@ class CFS(BaseEstimator, SelectorMixin):
         feature_names = np.asarray(X.columns) if hasattr(X, "columns") else None
         X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2)
         self.n_features_in_ = X.shape[1]
+        if self.backend not in ('auto', 'cpu', 'gpu'):
+            raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+        if self.max_backtracks < 1:
+            raise ValueError("max_backtracks must be at least 1")
         if feature_names is not None:
             self.feature_names_in_ = feature_names
 
@@ -375,15 +398,14 @@ class CFS(BaseEstimator, SelectorMixin):
                 numba.set_num_threads(original_n_threads)
 
         # --- 3. Best First Search (on CPU) ---
-        selected_indices_list = _best_first_search(self.n_features_in_, r_cf_all, r_ff_matrix)
+        selected_indices_list = _best_first_search(
+            self.n_features_in_,
+            r_cf_all,
+            r_ff_matrix,
+            self.max_backtracks,
+        )
 
         self.selected_indices_ = np.sort(np.array(list(selected_indices_list), dtype=int))
-        self.selected_indices_ = np.sort(
-            np.array(_prune_redundant(self.selected_indices_,
-                                      r_cf_all,
-                                      r_ff_matrix),
-                     dtype=int)
-        )
         self.support_mask_ = np.zeros(self.n_features_in_, dtype=bool)
         if len(self.selected_indices_) > 0:
             self.support_mask_[self.selected_indices_] = True

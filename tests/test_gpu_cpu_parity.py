@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
-from fast_select import ReliefF, SURF, MultiSURF, CFS, MDR, mRMR
+
+from fast_select import SURF, MultiSURF, ReliefF
 from fast_select.utils import is_cuda_ready
 
 REQUIRES_CUDA = pytest.mark.skipif(
@@ -63,4 +64,68 @@ def test_cpu_gpu_numerical_parity_relief(synthetic_datasets, estimator_cls, ds_k
         rtol=1e-4,
         atol=1e-5,
         err_msg=f"{estimator_cls.__name__} CPU/GPU parity failed on {ds_key}"
+    )
+
+
+@REQUIRES_CUDA
+def test_relieff_gpu_neighbor_buffers_match_cpu():
+    """Exercise GPU neighbor selection with multiple classes and a larger k."""
+    rng = np.random.default_rng(20210721)
+    X = rng.standard_normal((160, 24), dtype=np.float32)
+    y = np.tile(np.arange(4, dtype=np.int32), 40)
+
+    cpu = ReliefF(
+        n_features_to_select=8, n_neighbors=10, backend="cpu"
+    ).fit(X, y)
+    gpu = ReliefF(
+        n_features_to_select=8, n_neighbors=10, backend="gpu"
+    ).fit(X, y)
+
+    assert_allclose(cpu.feature_importances_, gpu.feature_importances_, rtol=1e-4, atol=1e-5)
+
+
+@REQUIRES_CUDA
+def test_relieff_gpu_large_neighbor_fallback_matches_cpu():
+    """The bounded-memory fallback remains correct when classes times k exceeds n."""
+    rng = np.random.default_rng(7)
+    X = rng.standard_normal((12, 8), dtype=np.float32)
+    y = np.tile(np.arange(4, dtype=np.int32), 3)
+
+    cpu = ReliefF(
+        n_features_to_select=4, n_neighbors=4, backend="cpu"
+    ).fit(X, y)
+    gpu = ReliefF(
+        n_features_to_select=4, n_neighbors=4, backend="gpu"
+    ).fit(X, y)
+
+    assert_allclose(cpu.feature_importances_, gpu.feature_importances_, rtol=1e-4, atol=1e-5)
+
+
+@REQUIRES_CUDA
+@pytest.mark.parametrize("estimator_cls", [SURF, MultiSURF])
+def test_star_variants_cpu_gpu_numerical_parity(estimator_cls):
+    """Exercise the distinct far-neighbor equations used by the star variants."""
+    rng = np.random.default_rng(20210721)
+    X = rng.standard_normal((120, 18), dtype=np.float32)
+    X[:, -2:] = rng.integers(0, 3, size=(120, 2))
+    y = np.tile(np.arange(3, dtype=np.int32), 40)
+
+    cpu = estimator_cls(
+        n_features_to_select=6,
+        backend="cpu",
+        use_star=True,
+        discrete_limit=3,
+    ).fit(X, y)
+    gpu = estimator_cls(
+        n_features_to_select=6,
+        backend="gpu",
+        use_star=True,
+        discrete_limit=3,
+    ).fit(X, y)
+
+    assert_allclose(
+        cpu.feature_importances_,
+        gpu.feature_importances_,
+        rtol=1e-4,
+        atol=1e-5,
     )

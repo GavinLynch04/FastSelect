@@ -45,8 +45,10 @@ def sample_data():
         feature_0, feature_1, feature_2, feature_3, feature_4, feature_5
     ]).T
 
-    # Expected outcome for most tests: features 0 and 2 are the best subset.
-    expected_selection = [0, 2]
+    # The canonical CFS merit slightly favors retaining feature 1 as well.
+    # Earlier FastSelect releases removed it with an unpublished post-search
+    # pruning rule.
+    expected_selection = [0, 1, 2]
 
     return {
         "X_numpy": X,
@@ -151,9 +153,11 @@ def test_pandas_integration(sample_data):
 
 def test_edge_case_no_features_selected(sample_data):
     """Tests behavior when no features have correlation with the target."""
-    X, y = sample_data["X_numpy"], sample_data["y"]
-    # Use only the random noise and constant features
-    X_noise = X[:, 3:5]
+    X_noise = np.tile(
+        np.array([[0, 1], [0, 1], [1, 1], [1, 1]], dtype=np.int32),
+        (25, 1),
+    )
+    y = np.tile(np.array([0, 1, 0, 1], dtype=np.int32), 25)
 
     cfs = CFS(backend='cpu')
     cfs.fit(X_noise, y)

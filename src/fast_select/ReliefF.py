@@ -11,19 +11,17 @@ TPB = 64  # Threads-per-block
 @cuda.jit
 def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix): # pragma: no cover
     """
-    Computes all pairwise sample distances on GPU with memory coalescing.
+    Computes each pairwise sample distance once and mirrors the result.
     Grid: (n_samples,), Threads per block: TPB
     """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
-    for j in range(n_samples):
-        if i == j:
-            if tid == 0:
-                dist_matrix[i, j] = 0.0
-            continue
+    if tid == 0:
+        dist_matrix[i, i] = 0.0
 
+    for j in range(i + 1, n_samples):
         local_dist = 0.0
         for f in range(tid, n_features, TPB):
             if is_discrete[f]:
@@ -45,6 +43,7 @@ def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix): # 
 
         if tid == 0:
             dist_matrix[i, j] = sh_sum[0]
+            dist_matrix[j, i] = sh_sum[0]
         cuda.syncthreads()
 
 
@@ -71,51 +70,152 @@ def _accumulate_weighted_diffs_gpu_kernel(x, weights_matrix, recip_full, is_disc
             cuda.atomic.add(scores_out, f, w * diff)
 
 
+@cuda.jit
+def _select_relieff_neighbors_gpu_kernel(
+    dist_matrix, y, k, neighbor_distances, neighbor_indices
+): # pragma: no cover
+    """Select the nearest hits/misses for one sample per GPU thread."""
+    i = cuda.grid(1)
+    n_samples = dist_matrix.shape[0]
+    if i >= n_samples:
+        return
+
+    n_classes = neighbor_indices.shape[1]
+    for c in range(n_classes):
+        for neighbor in range(k):
+            neighbor_distances[i, c, neighbor] = np.inf
+            neighbor_indices[i, c, neighbor] = -1
+
+    for j in range(n_samples):
+        if i == j:
+            continue
+        label = y[j]
+        distance = dist_matrix[i, j]
+        if distance < neighbor_distances[i, label, k - 1]:
+            pos = k - 1
+            while (
+                pos > 0
+                and distance < neighbor_distances[i, label, pos - 1]
+            ):
+                neighbor_distances[i, label, pos] = neighbor_distances[
+                    i, label, pos - 1
+                ]
+                neighbor_indices[i, label, pos] = neighbor_indices[
+                    i, label, pos - 1
+                ]
+                pos -= 1
+            neighbor_distances[i, label, pos] = distance
+            neighbor_indices[i, label, pos] = j
+
+
+@cuda.jit
+def _score_relieff_neighbors_gpu_kernel(
+    x,
+    y,
+    neighbor_indices,
+    class_probs,
+    recip_full,
+    is_discrete,
+    scores_out,
+): # pragma: no cover
+    """Score only selected ReliefF neighbors, avoiding a dense weight matrix."""
+    n_samples, n_features = x.shape
+    n_classes = neighbor_indices.shape[1]
+    k = neighbor_indices.shape[2]
+    i = cuda.blockIdx.x
+    tid = cuda.threadIdx.x
+    label_i = y[i]
+    denom = 1.0 - class_probs[label_i]
+    if denom <= 0.0:
+        denom = 1.0
+
+    for c in range(n_classes):
+        count = 0
+        for neighbor in range(k):
+            if neighbor_indices[i, c, neighbor] >= 0:
+                count += 1
+        if count == 0:
+            continue
+
+        if c == label_i:
+            weight = -1.0 / (count * n_samples)
+        else:
+            weight = class_probs[c] / denom / (count * n_samples)
+
+        for neighbor in range(count):
+            j = neighbor_indices[i, c, neighbor]
+            for f in range(tid, n_features, TPB):
+                if is_discrete[f]:
+                    diff = 1.0 if x[i, f] != x[j, f] else 0.0
+                else:
+                    diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                cuda.atomic.add(scores_out, f, weight * diff)
+
+
+@njit(parallel=True)
 def _compute_relieff_weights(dist_matrix, y_enc, class_probs, k):
     """
     Computes ReliefF neighbor weight matrix W of shape (n_samples, n_samples)
-    incorporating multi-class probability weighting matching literature standard.
+    using bounded insertion buffers instead of sorting a full row per class.
     """
     n_samples = dist_matrix.shape[0]
     n_classes = len(class_probs)
     weights = np.zeros((n_samples, n_samples), dtype=np.float32)
 
-    for i in range(n_samples):
+    for i in prange(n_samples):
         lbl_i = y_enc[i]
         denom = 1.0 - class_probs[lbl_i]
         if denom <= 0:
             denom = 1.0
 
-        dists = dist_matrix[i].copy()
-        dists[i] = np.inf
+        hit_dists = np.full(k, np.inf, dtype=np.float32)
+        hit_indices = np.full(k, -1, dtype=np.int32)
+        miss_dists = np.full((n_classes, k), np.inf, dtype=np.float32)
+        miss_indices = np.full((n_classes, k), -1, dtype=np.int32)
 
-        # Find top k hits (class == lbl_i)
-        hit_mask = (y_enc == lbl_i)
-        hit_dists = np.where(hit_mask, dists, np.inf)
-        hit_indices = np.argsort(hit_dists, kind='stable')[:k]
-        actual_hits = [idx for idx in hit_indices if hit_dists[idx] != np.inf]
-        h_count = len(actual_hits)
+        for j in range(n_samples):
+            if i == j:
+                continue
+            distance = dist_matrix[i, j]
+            label = y_enc[j]
+            if label == lbl_i:
+                if distance < hit_dists[k - 1]:
+                    pos = k - 1
+                    while pos > 0 and distance < hit_dists[pos - 1]:
+                        hit_dists[pos] = hit_dists[pos - 1]
+                        hit_indices[pos] = hit_indices[pos - 1]
+                        pos -= 1
+                    hit_dists[pos] = distance
+                    hit_indices[pos] = j
+            elif distance < miss_dists[label, k - 1]:
+                pos = k - 1
+                while pos > 0 and distance < miss_dists[label, pos - 1]:
+                    miss_dists[label, pos] = miss_dists[label, pos - 1]
+                    miss_indices[label, pos] = miss_indices[label, pos - 1]
+                    pos -= 1
+                miss_dists[label, pos] = distance
+                miss_indices[label, pos] = j
 
-        if h_count > 0:
-            weight_hit = -1.0 / (h_count * n_samples)
-            for h_idx in actual_hits:
-                weights[i, h_idx] += weight_hit
+        hit_count = 0
+        for neighbor in range(k):
+            if hit_indices[neighbor] >= 0:
+                hit_count += 1
+        if hit_count > 0:
+            hit_weight = -1.0 / (hit_count * n_samples)
+            for neighbor in range(hit_count):
+                weights[i, hit_indices[neighbor]] = hit_weight
 
-        # Find top k misses for each class c != lbl_i
         for c in range(n_classes):
             if c == lbl_i:
                 continue
-            miss_mask = (y_enc == c)
-            miss_dists = np.where(miss_mask, dists, np.inf)
-            miss_indices = np.argsort(miss_dists, kind='stable')[:k]
-            actual_misses = [idx for idx in miss_indices if miss_dists[idx] != np.inf]
-            m_count = len(actual_misses)
-
-            if m_count > 0:
-                prob_weight = class_probs[c] / denom
-                weight_miss = prob_weight / (m_count * n_samples)
-                for m_idx in actual_misses:
-                    weights[i, m_idx] += weight_miss
+            miss_count = 0
+            for neighbor in range(k):
+                if miss_indices[c, neighbor] >= 0:
+                    miss_count += 1
+            if miss_count > 0:
+                miss_weight = class_probs[c] / denom / (miss_count * n_samples)
+                for neighbor in range(miss_count):
+                    weights[i, miss_indices[c, neighbor]] = miss_weight
 
     return weights
 
@@ -123,21 +223,56 @@ def _compute_relieff_weights(dist_matrix, y_enc, class_probs, k):
 from .utils import is_cuda_ready, ensure_cuda_context
 
 def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_probs, k):
-    """Host caller launching distance computation, weight matrix assembly, and score accumulation."""
+    """Launch ReliefF distance, neighbor-selection, and scoring stages."""
     ensure_cuda_context()
     n_samples, n_features = x_d.shape
     dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
 
     _compute_dist_matrix_gpu_kernel[n_samples, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
 
-    dist_matrix = dist_matrix_d.copy_to_host()
-    weights_matrix = _compute_relieff_weights(dist_matrix, y_enc, class_probs, k)
-
-    weights_d = cuda.to_device(weights_matrix)
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
 
-    _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
+    n_classes = class_probs.shape[0]
+    if n_classes * k <= n_samples:
+        y_d = cuda.to_device(y_enc)
+        class_probs_d = cuda.to_device(class_probs)
+        neighbor_distances_d = cuda.device_array(
+            (n_samples, n_classes, k), dtype=np.float32
+        )
+        neighbor_indices_d = cuda.device_array(
+            (n_samples, n_classes, k), dtype=np.int32
+        )
+        selection_threads = 128
+        selection_blocks = (n_samples + selection_threads - 1) // selection_threads
+        _select_relieff_neighbors_gpu_kernel[
+            selection_blocks, selection_threads
+        ](
+            dist_matrix_d,
+            y_d,
+            k,
+            neighbor_distances_d,
+            neighbor_indices_d,
+        )
+        _score_relieff_neighbors_gpu_kernel[n_samples, TPB](
+            x_d,
+            y_d,
+            neighbor_indices_d,
+            class_probs_d,
+            recip_full_d,
+            is_discrete_d,
+            scores_d,
+        )
+    else:
+        # Preserve bounded memory for unusually large k/class combinations.
+        dist_matrix = dist_matrix_d.copy_to_host()
+        weights_matrix = _compute_relieff_weights(
+            dist_matrix, y_enc, class_probs, k
+        )
+        weights_d = cuda.to_device(weights_matrix)
+        _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](
+            x_d, weights_d, recip_full_d, is_discrete_d, scores_d
+        )
 
     return scores_d.copy_to_host()
 
@@ -169,7 +304,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                 if is_discrete[f]:
                     d += 1.0 if x[i, f] != x[j, f] else 0.0
                 else:
-                    d += abs(x[i, f] - x[j, f]) * recip_full[f]
+                    d += abs(x[i, f] - x[j, f])
 
             lbl_j = y_enc[j]
             if lbl_j == lbl_i:
@@ -210,7 +345,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                     if is_discrete[f]:
                         diff = 1.0 if x[i, f] != x[h, f] else 0.0
                     else:
-                        diff = abs(x[i, f] - x[h, f]) * recip_full[f]
+                        diff = abs(x[i, f] - x[h, f])
                     thread_scores[tid, f] += scale_hit * diff
 
         for c in range(n_classes):
@@ -231,7 +366,7 @@ def _relieff_cpu_kernel(x, y_enc, recip_full, is_discrete, k, class_probs, score
                         if is_discrete[f]:
                             diff = 1.0 if x[i, f] != x[m, f] else 0.0
                         else:
-                            diff = abs(x[i, f] - x[m, f]) * recip_full[f]
+                            diff = abs(x[i, f] - x[m, f])
                         thread_scores[tid, f] += scale_miss * diff
 
     for f in range(n_features):
@@ -295,6 +430,12 @@ class ReliefF(TransformerMixin, BaseEstimator):
 
     effective_backend_ : str
         The backend that was actually used during `fit` ('gpu' or 'cpu').
+
+    Notes
+    -----
+    This implementation follows the complete-data classification equations,
+    including multiclass prior weighting. Missing-value ReliefF extensions are
+    outside its supported scope; input containing NaNs is rejected.
     """
 
     def __init__(
@@ -350,7 +491,9 @@ class ReliefF(TransformerMixin, BaseEstimator):
     def fit(self, x: np.ndarray, y: np.ndarray):
         """Calculates feature importances using the ReliefF algorithm."""
         x, y = validate_data(
-            self, x, y, dtype=np.float64, ensure_2d=True, y_numeric=True,
+            self, x, y,
+            dtype=[np.float64, np.float32],
+            ensure_2d=True, y_numeric=True,
         )
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
@@ -396,7 +539,7 @@ class ReliefF(TransformerMixin, BaseEstimator):
             self.effective_backend_ = self.backend
 
         if self.effective_backend_ == "gpu":
-            x_d = cuda.to_device(x.astype(np.float32))
+            x_d = cuda.to_device(np.ascontiguousarray(x, dtype=np.float32))
             recip_d = cuda.to_device(recip_full)
             is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
             if self.verbose:
@@ -406,8 +549,12 @@ class ReliefF(TransformerMixin, BaseEstimator):
         else:
             if self.verbose:
                 print("Running ReliefF on the CPU now...")
+            x_cpu = x.astype(np.float32, copy=True)
+            np.multiply(
+                x_cpu, recip_full, out=x_cpu, where=~is_discrete[np.newaxis, :]
+            )
             scores = _relieff_cpu_host_caller(
-                x.astype(np.float32), y_enc, recip_full,
+                x_cpu, y_enc, recip_full,
                 is_discrete, self.n_neighbors, class_probs,
                 self.n_jobs, discrete_weights
             )

@@ -70,8 +70,8 @@ def test_predict_and_transform(simple_dataset, classifier):
 @pytest.mark.parametrize(
     "bad_y",
     [
-        np.array([0, 0, 0, 2], dtype=np.uint8),       # non-binary
-        np.array([0, 0, 255, 1], dtype=np.uint8),     # >1 value
+        np.array([0, 0, 1, 2], dtype=np.uint8),
+        np.array([0, 1, 2, 3], dtype=np.uint8),
     ],
 )
 def test_fit_raises_on_invalid_y(bad_y):
@@ -191,7 +191,9 @@ def test_gpu_kernel_consistency(simple_dataset):
         thr = total_case / total_ctrl
         tp = tn = 0
         for i in range(n_cells):
-            high = (control[i] == 0) or (case[i] / control[i] > thr)
+            high = (control[i] == 0 and case[i] > 0) or (
+                control[i] > 0 and case[i] / control[i] >= thr
+            )
             tp += case[i] if high else 0
             tn += control[i] if not high else 0
         sens = tp / total_case

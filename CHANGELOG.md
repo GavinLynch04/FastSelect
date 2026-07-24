@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-23
+
+### Corrected algorithm definitions
+
+- **SURF / SURF***: Replaced target-specific radii with the published global
+  mean pair-distance radius and restored separate hit/miss neighbor-count
+  normalization. SURF* now excludes threshold ties and normalizes its reversed
+  far-neighbor updates separately.
+- **MultiSURF***: Added the upper `mean + standard_deviation / 2` boundary,
+  restored the dead band, and replaced the former non-near-miss update with
+  published far-hit/far-miss feature-similarity scoring.
+- **CFS**: Replaced greedy forward selection, the unpublished `0.1` relevance
+  cutoff, and post-search pruning with forward best-first search and the
+  canonical consecutive-non-improvement stopping rule.
+- **MDR**: Restored the inclusive high-risk ratio threshold, treats empty cells
+  as low risk, and now maps arbitrary binary class labels to and from internal
+  case/control codes.
+- **Mutual information CUDA**: Fixed duplicated and overlapping sample counts,
+  honored both bit and natural-log units, and validates GPU state limits before
+  launching.
+- **CFS CUDA**: Entropy calculations now read only initialized categorical
+  states.
+
+These are intentional score-changing corrections. SURF-family, CFS, MDR, and
+GPU mRMR results produced by earlier releases may differ.
+
+### Compliance and verification
+
+- Added independent, equation-driven regression tests for SURF, SURF*,
+  MultiSURF, MultiSURF*, CFS merit/search, mutual-information units, and MDR
+  threshold/label behavior.
+- Expanded CPU/GPU parity coverage to both star variants and mutual information
+  in bit and natural-log units.
+- Added repository, production-code, and test `CLAUDE.md` policies that make
+  defining papers authoritative over external implementations and require
+  sustained five-second v0.2.1 benchmarks for performance changes.
+
+### Performance
+
+- Fused CUDA distance/scoring stages for the Relief family and removed
+  host-side distance/weight round trips and redundant pair-distance work.
+- Reused thread-local CPU buffers and pre-normalized continuous columns.
+- Made canonical CFS best-first child evaluation incremental, reducing the
+  corrected search benchmark from about 0.264 to 0.051 seconds per CPU fit on
+  the recorded 900-by-128 case.
+
 ## [0.2.1] - 2026-07-22
 
 ### Fixed

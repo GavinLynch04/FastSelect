@@ -7,6 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import make_classification
 
 from fast_select.mRMR import mRMR, _encode_data_numba
+from fast_select.mutual_information import calculate_mi_matrices
 
 
 @pytest.fixture(scope="module")
@@ -200,3 +201,21 @@ def test_encode_data_numba(discrete_classification_data):
     assert np.max(X_encoded) < len(unique_vals)
     assert np.max(y_encoded) < len(unique_vals)
     assert X_encoded.dtype == X.dtype
+
+
+@pytest.mark.skipif(not is_cuda_ready(), reason="NVIDIA GPU with CUDA not available")
+@pytest.mark.parametrize("unit", ["bit", "nat"])
+def test_mutual_information_gpu_matches_cpu(unit):
+    rng = np.random.default_rng(31)
+    X = rng.integers(0, 5, size=(513, 12), dtype=np.int32)
+    y = rng.integers(0, 4, size=513, dtype=np.int32)
+
+    cpu_relevance, cpu_redundancy = calculate_mi_matrices(
+        X, y, backend="cpu", unit=unit
+    )
+    gpu_relevance, gpu_redundancy = calculate_mi_matrices(
+        X, y, backend="gpu", unit=unit
+    )
+
+    np.testing.assert_allclose(gpu_relevance, cpu_relevance, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(gpu_redundancy, cpu_redundancy, rtol=1e-12, atol=1e-12)

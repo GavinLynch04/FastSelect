@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import math
-from typing import Literal, Tuple
-import numpy as np
+from typing import Literal
+
 import numba
+import numpy as np
 from numba import njit, prange
+
 from .utils import is_cuda_ready
 
 try:
@@ -44,12 +47,14 @@ def _mi_pair_cpu(x1: np.ndarray, x2: np.ndarray, log_base: float) -> float: # pr
         for j in range(k2):
             pxy = table[i, j]
             if pxy > eps:
-                mi += pxy * math.log(pxy / (p1[i] * p2[j] + eps))
+                mi += pxy * math.log(pxy / (p1[i] * p2[j]))
     return mi / log_base
 
 
 @njit(parallel=True, cache=True, fastmath=True)
-def _batch_mi_cpu(X: np.ndarray, y: np.ndarray, log_base: float) -> Tuple[np.ndarray, np.ndarray]: # pragma: no cover
+def _batch_mi_cpu(
+    X: np.ndarray, y: np.ndarray, log_base: float
+) -> tuple[np.ndarray, np.ndarray]: # pragma: no cover
     n_samples, n_features = X.shape
     relevance = np.empty(n_features, dtype=np.float64)
     redundancy = np.zeros((n_features, n_features), dtype=np.float64)
@@ -70,9 +75,11 @@ _THREADS_PER_BLOCK = (16, 16)
 
 
 @cuda.jit
-def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
+def _mi_pair_gpu_kernel(X, y, out, n_states, log_base): # pragma: no cover
     feature_idx = cuda.blockIdx.x
     tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
+    linear_tid = tx + ty * cuda.blockDim.x
+    threads_per_block = cuda.blockDim.x * cuda.blockDim.y
 
     cont = cuda.shared.array((_MAX_STATES_GPU, _MAX_STATES_GPU), dtype=numba.float32)
 
@@ -83,13 +90,12 @@ def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
     cuda.syncthreads()
 
     n = X.shape[0]
-    stride = cuda.blockDim.x * cuda.gridDim.x
-    idx = tx + cuda.blockIdx.x
+    idx = linear_tid
     while idx < n:
         r = int(X[idx, feature_idx])
         c = int(y[idx])
         cuda.atomic.add(cont, (r, c), 1.0)
-        idx += stride
+        idx += threads_per_block
     cuda.syncthreads()
 
     if tx == 0 and ty == 0:
@@ -113,8 +119,8 @@ def _mi_pair_gpu_kernel(X, y, out, n_states): # pragma: no cover
             for c in range(n_states):
                 pxy = cont[r, c]
                 if pxy > eps:
-                    mi += pxy * math.log(pxy / (px[r] * py[c] + eps))
-        out[feature_idx] = mi / math.log(2.0)
+                    mi += pxy * math.log(pxy / (px[r] * py[c]))
+        out[feature_idx] = mi / log_base
 
 def calculate_mi_single_pair(
     x1: np.ndarray,
@@ -130,6 +136,11 @@ def calculate_mi_single_pair(
     if x1.ndim != 1 or x2.ndim != 1 or x1.shape != x2.shape:
         raise ValueError("x1 and x2 must be 1‑D arrays of equal length")
 
+    if backend not in ("auto", "cpu", "gpu"):
+        raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+    if unit not in ("bit", "nat"):
+        raise ValueError("unit must be 'bit' or 'nat'")
+
     x1_d = _validate_discrete(x1.ravel(), "x1")
     x2_d = _validate_discrete(x2.ravel(), "x2")
 
@@ -142,9 +153,16 @@ def calculate_mi_single_pair(
     )
 
     if use_gpu:
+        if not _CUDA_AVAILABLE:
+            raise RuntimeError("backend='gpu' requested but CUDA not available")
+        if max_state > _MAX_STATES_GPU:
+            raise RuntimeError(
+                f"GPU backend supports at most {_MAX_STATES_GPU} states "
+                f"(got {max_state}); try backend='cpu'"
+            )
         out = cuda.device_array(1, dtype=np.float32)
         _mi_pair_gpu_kernel[1, _THREADS_PER_BLOCK](
-            x1_d.reshape(-1, 1), x2_d, out, max_state
+            x1_d.reshape(-1, 1), x2_d, out, max_state, log_base
         )
         return float(out.copy_to_host()[0])
 
@@ -163,7 +181,7 @@ def calculate_mi_matrices(
     *,
     backend: Literal["auto", "cpu", "gpu"] = "auto",
     unit: Literal["bit", "nat"] = "bit",
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Return (relevance, redundancy) using discrete data only.
 
     * X.shape == (n_samples, n_features)
@@ -172,6 +190,11 @@ def calculate_mi_matrices(
     """
     if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0]:
         raise ValueError("X must be 2‑D and y 1‑D with matching sample size")
+
+    if backend not in ("auto", "cpu", "gpu"):
+        raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+    if unit not in ("bit", "nat"):
+        raise ValueError("unit must be 'bit' or 'nat'")
 
     X_d = _validate_discrete(X, "X")
     y_d = _validate_discrete(y, "y")
@@ -184,11 +207,20 @@ def calculate_mi_matrices(
     )
 
     if use_gpu:
+        if not _CUDA_AVAILABLE:
+            raise RuntimeError("backend='gpu' requested but CUDA not available")
+        if max_state > _MAX_STATES_GPU:
+            raise RuntimeError(
+                f"GPU backend supports at most {_MAX_STATES_GPU} states "
+                f"(got {max_state}); try backend='cpu'"
+            )
         n_samples, n_features = X_d.shape
         X_gpu = cuda.to_device(X_d)
         y_gpu = cuda.to_device(y_d)
         relevance_gpu = cuda.device_array(n_features, dtype=np.float32)
-        _mi_pair_gpu_kernel[(n_features,), _THREADS_PER_BLOCK](X_gpu, y_gpu, relevance_gpu, max_state)
+        _mi_pair_gpu_kernel[(n_features,), _THREADS_PER_BLOCK](
+            X_gpu, y_gpu, relevance_gpu, max_state, log_base
+        )
         relevance = relevance_gpu.copy_to_host().astype(np.float64)
         # Large redundancy matrix better on CPU; fall back
         _, redundancy = _batch_mi_cpu(X_d, y_d, log_base)

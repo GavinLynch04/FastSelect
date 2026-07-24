@@ -130,7 +130,11 @@ gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 
 ## **Benchmarking Highlights**
 
-Fast-Select delivers groundbreaking improvements in runtime and memory efficiency following our **v0.2.1 kernel optimizations**. Empirical benchmarks demonstrate **100x–2000x speed-ups** over single-threaded baselines such as `scikit-rebate` and R's `CORElearn` library while maintaining identical numerical parity ($\le 10^{-7}$ precision). [Benchmarking scripts](./benchmarking) are available in the repository.
+Fast-Select delivers substantial runtime and memory improvements through its
+Numba and CUDA kernels. CPU and GPU paths are checked against independent,
+equation-driven algorithm tests rather than assuming an external implementation
+is authoritative. Sustained comparison scripts and raw results are available in
+the [benchmarking directory](./benchmarking).
 
 #### Runtime vs. Number of Samples (n >> p)
 
