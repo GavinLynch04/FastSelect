@@ -75,3 +75,16 @@ This page provides a detailed API reference for the main classes and functions i
    :undoc-members:
    :show-inheritance:
 ```
+
+## Mutual Information
+
+Discrete mutual information with the same CPU/CUDA backend selection as the
+estimators. These back the mRMR criterion and are exported for direct use.
+
+```{eval-rst}
+.. autofunction:: fast_select.mutual_information.calculate_mi_single_pair
+```
+
+```{eval-rst}
+.. autofunction:: fast_select.mutual_information.calculate_mi_matrices
+```

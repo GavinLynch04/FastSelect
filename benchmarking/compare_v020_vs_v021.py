@@ -1,13 +1,14 @@
 import time
 import tracemalloc
 import warnings
+
 import numpy as np
 import pandas as pd
-from numba import njit, prange, get_num_threads
+from numba import njit, prange
 
+from fast_select.MultiSURF import MultiSURF
 from fast_select.ReliefF import ReliefF
 from fast_select.SURF import SURF
-from fast_select.MultiSURF import MultiSURF
 from fast_select.utils import is_cuda_ready
 
 warnings.filterwarnings("ignore")
@@ -18,7 +19,6 @@ warnings.filterwarnings("ignore")
 def _relieff_cpu_kernel_v020(x, y, recip_full, is_discrete, class_probs, k, scores_out):
     n_samples, n_features = x.shape
     n_classes = len(class_probs)
-    n_threads = get_num_threads()
 
     for i in prange(n_samples):
         # UNOPTIMIZED (v0.2.0): Heap allocation inside parallel loop
@@ -88,15 +88,16 @@ def run_benchmark_v020(X, y, k=10):
 def run_benchmark_v021(estimator_class, X, y, backend="cpu"):
     if backend == "gpu":
         from fast_select.utils import ensure_cuda_context
+
         ensure_cuda_context()
         t0 = time.perf_counter()
-        model = estimator_class(n_features_to_select=10, backend=backend).fit(X, y)
+        estimator_class(n_features_to_select=10, backend=backend).fit(X, y)
         t1 = time.perf_counter()
         peak_ram_mb = (X.nbytes + y.nbytes) / (1024 * 1024)
     else:
         tracemalloc.start()
         t0 = time.perf_counter()
-        model = estimator_class(n_features_to_select=10, backend=backend).fit(X, y)
+        estimator_class(n_features_to_select=10, backend=backend).fit(X, y)
         t1 = time.perf_counter()
         _, peak_bytes = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -182,57 +183,67 @@ def main():
     ]
 
     if is_cuda_ready():
-        results.append({
-            "Version": "v0.2.1 (Optimized)",
-            "Backend": "GPU",
-            "Estimator": "ReliefF",
-            "Dataset": f"{n_samples}x{n_features}",
-            "Runtime (s)": round(time_v021_gpu, 4),
-            "Peak RAM (MB)": round(ram_v021_gpu, 2),
-            "Speedup vs v0.2.0": f"{(time_v020 / time_v021_gpu):.2f}x",
-        })
+        results.append(
+            {
+                "Version": "v0.2.1 (Optimized)",
+                "Backend": "GPU",
+                "Estimator": "ReliefF",
+                "Dataset": f"{n_samples}x{n_features}",
+                "Runtime (s)": round(time_v021_gpu, 4),
+                "Peak RAM (MB)": round(ram_v021_gpu, 2),
+                "Speedup vs v0.2.0": f"{(time_v020 / time_v021_gpu):.2f}x",
+            }
+        )
 
-    results.append({
-        "Version": "v0.2.1 (Optimized)",
-        "Backend": "CPU",
-        "Estimator": "SURF",
-        "Dataset": f"{n_samples}x{n_features}",
-        "Runtime (s)": round(time_surf_cpu, 4),
-        "Peak RAM (MB)": round(ram_surf_cpu, 2),
-        "Speedup vs v0.2.0": f"{(time_v020 / time_surf_cpu):.2f}x",
-    })
-
-    if is_cuda_ready():
-        results.append({
+    results.append(
+        {
             "Version": "v0.2.1 (Optimized)",
-            "Backend": "GPU",
+            "Backend": "CPU",
             "Estimator": "SURF",
             "Dataset": f"{n_samples}x{n_features}",
-            "Runtime (s)": round(time_surf_gpu, 4),
-            "Peak RAM (MB)": round(ram_surf_gpu, 2),
-            "Speedup vs v0.2.0": f"{(time_v020 / time_surf_gpu):.2f}x",
-        })
-
-    results.append({
-        "Version": "v0.2.1 (Optimized)",
-        "Backend": "CPU",
-        "Estimator": "MultiSURF",
-        "Dataset": f"{n_samples}x{n_features}",
-        "Runtime (s)": round(time_msurf_cpu, 4),
-        "Peak RAM (MB)": round(ram_msurf_cpu, 2),
-        "Speedup vs v0.2.0": f"{(time_v020 / time_msurf_cpu):.2f}x",
-    })
+            "Runtime (s)": round(time_surf_cpu, 4),
+            "Peak RAM (MB)": round(ram_surf_cpu, 2),
+            "Speedup vs v0.2.0": f"{(time_v020 / time_surf_cpu):.2f}x",
+        }
+    )
 
     if is_cuda_ready():
-        results.append({
+        results.append(
+            {
+                "Version": "v0.2.1 (Optimized)",
+                "Backend": "GPU",
+                "Estimator": "SURF",
+                "Dataset": f"{n_samples}x{n_features}",
+                "Runtime (s)": round(time_surf_gpu, 4),
+                "Peak RAM (MB)": round(ram_surf_gpu, 2),
+                "Speedup vs v0.2.0": f"{(time_v020 / time_surf_gpu):.2f}x",
+            }
+        )
+
+    results.append(
+        {
             "Version": "v0.2.1 (Optimized)",
-            "Backend": "GPU",
+            "Backend": "CPU",
             "Estimator": "MultiSURF",
             "Dataset": f"{n_samples}x{n_features}",
-            "Runtime (s)": round(time_msurf_gpu, 4),
-            "Peak RAM (MB)": round(ram_msurf_gpu, 2),
-            "Speedup vs v0.2.0": f"{(time_v020 / time_msurf_gpu):.2f}x",
-        })
+            "Runtime (s)": round(time_msurf_cpu, 4),
+            "Peak RAM (MB)": round(ram_msurf_cpu, 2),
+            "Speedup vs v0.2.0": f"{(time_v020 / time_msurf_cpu):.2f}x",
+        }
+    )
+
+    if is_cuda_ready():
+        results.append(
+            {
+                "Version": "v0.2.1 (Optimized)",
+                "Backend": "GPU",
+                "Estimator": "MultiSURF",
+                "Dataset": f"{n_samples}x{n_features}",
+                "Runtime (s)": round(time_msurf_gpu, 4),
+                "Peak RAM (MB)": round(ram_msurf_gpu, 2),
+                "Speedup vs v0.2.0": f"{(time_v020 / time_msurf_gpu):.2f}x",
+            }
+        )
 
     df_summary = pd.DataFrame(results)
 

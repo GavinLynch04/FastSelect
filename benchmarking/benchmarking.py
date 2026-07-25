@@ -2,17 +2,19 @@ import gc
 import time
 import tracemalloc
 import warnings
-import numpy as np
+
 import pandas as pd
 from sklearn.datasets import make_classification
 
 from fast_select.MultiSURF import MultiSURF as FastMultiSURF
 from fast_select.ReliefF import ReliefF as FastReliefF
 from fast_select.SURF import SURF as FastSURF
-from fast_select.utils import is_cuda_ready, ensure_cuda_context
+from fast_select.utils import ensure_cuda_context, is_cuda_ready
 
 try:
-    from skrebate import ReliefF as SkReliefF, MultiSURF as SkMultiSURF
+    from skrebate import MultiSURF as SkMultiSURF
+    from skrebate import ReliefF as SkReliefF
+
     SKREBATE_AVAILABLE = True
 except ImportError:
     SKREBATE_AVAILABLE = False
@@ -36,24 +38,30 @@ estimators = {
 
 if GPU_AVAILABLE:
     print("NVIDIA GPU detected. Including GPU benchmarks.", flush=True)
-    estimators.update({
-        "fast-select.ReliefF (GPU)": lambda: FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-        "fast-select.SURF (GPU)": lambda: FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-        "fast-select.MultiSURF (GPU)": lambda: FastMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
-    })
+    estimators.update(
+        {
+            "fast-select.ReliefF (GPU)": lambda: FastReliefF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
+            "fast-select.SURF (GPU)": lambda: FastSURF(n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"),
+            "fast-select.MultiSURF (GPU)": lambda: FastMultiSURF(
+                n_features_to_select=N_FEATURES_TO_SELECT, backend="gpu"
+            ),
+        }
+    )
 
 if SKREBATE_AVAILABLE:
     print("scikit-rebate detected. Including baseline CPU benchmarks.", flush=True)
-    estimators.update({
-        "scikit-rebate.ReliefF": lambda: SkReliefF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=1),
-        "scikit-rebate.MultiSURF": lambda: SkMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=1),
-    })
+    estimators.update(
+        {
+            "scikit-rebate.ReliefF": lambda: SkReliefF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=1),
+            "scikit-rebate.MultiSURF": lambda: SkMultiSURF(n_features_to_select=N_FEATURES_TO_SELECT, n_jobs=1),
+        }
+    )
 
 
 def run_single_benchmark(estimator, X, y):
     """Measures execution time and peak RAM overhead of a single estimator fit."""
     gc.collect()
-    is_gpu = getattr(estimator, 'backend', None) == 'gpu'
+    is_gpu = getattr(estimator, "backend", None) == "gpu"
     if is_gpu:
         ensure_cuda_context()
 
@@ -110,14 +118,16 @@ def main():
                 print(f"  Benchmarking {name} (Run {i+1}/{N_REPEATS})...", flush=True)
                 try:
                     runtime, peak_ram = run_single_benchmark(estimator_fn(), X, y)
-                    results.append({
-                        "scenario": "p >> n",
-                        "algorithm": name,
-                        "n_samples": n_samples,
-                        "n_features": n_features,
-                        "runtime": runtime,
-                        "peak_ram_mb": peak_ram,
-                    })
+                    results.append(
+                        {
+                            "scenario": "p >> n",
+                            "algorithm": name,
+                            "n_samples": n_samples,
+                            "n_features": n_features,
+                            "runtime": runtime,
+                            "peak_ram_mb": peak_ram,
+                        }
+                    )
                 except Exception as e:
                     warnings.warn(f"  > FAILED: {name} on {n_samples}x{n_features}. Reason: {e}")
 
@@ -126,9 +136,7 @@ def main():
     n_features = N_DOMINANT_SCENARIOS["n_features"]
     for n_samples in N_DOMINANT_SCENARIOS["n_samples_range"]:
         print(f"\nGenerating data: {n_samples} samples, {n_features} features", flush=True)
-        X, y = make_classification(
-            n_samples=n_samples, n_features=n_features, n_informative=20, random_state=42
-        )
+        X, y = make_classification(n_samples=n_samples, n_features=n_features, n_informative=20, random_state=42)
 
         for name, estimator_fn in estimators.items():
             if "scikit-rebate" in name and n_samples > 300:
@@ -137,14 +145,16 @@ def main():
                 print(f"  Benchmarking {name} (Run {i+1}/{N_REPEATS})...", flush=True)
                 try:
                     runtime, peak_ram = run_single_benchmark(estimator_fn(), X, y)
-                    results.append({
-                        "scenario": "n >> p",
-                        "algorithm": name,
-                        "n_samples": n_samples,
-                        "n_features": n_features,
-                        "runtime": runtime,
-                        "peak_ram_mb": peak_ram,
-                    })
+                    results.append(
+                        {
+                            "scenario": "n >> p",
+                            "algorithm": name,
+                            "n_samples": n_samples,
+                            "n_features": n_features,
+                            "runtime": runtime,
+                            "peak_ram_mb": peak_ram,
+                        }
+                    )
                 except Exception as e:
                     warnings.warn(f"  > FAILED: {name} on {n_samples}x{n_features}. Reason: {e}")
 

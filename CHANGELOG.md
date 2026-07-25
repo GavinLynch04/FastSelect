@@ -5,7 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-07-23
+## [1.0.0] - 2026-07-24
+
+First stable release. From this version on, the public API follows Semantic
+Versioning: breaking changes to estimator names, constructor parameters, or
+fitted attributes require a major version bump.
+
+This release supersedes the 0.3.0 work, which was prepared but never published;
+0.2.1 is the last version available on PyPI, so everything below is what you get
+upgrading from 0.2.1.
+
+### Breaking
+
+- **Scores change.** The algorithm corrections listed under *Corrected algorithm
+  definitions* are intentional. SURF, SURF\*, MultiSURF\*, CFS, MDR, and GPU mRMR
+  results produced by 0.2.1 and earlier may differ. Re-run any selection you
+  intend to compare against older output.
+- **`pandas` is no longer a runtime dependency.** `CFS.transform` now detects
+  DataFrames by duck typing, so a DataFrame in still returns a DataFrame out;
+  only the mandatory install shrank. Install `fast-select[test]`, or pandas
+  directly, if you relied on it being pulled in transitively.
+- **The `gpu` extra is now empty.** It previously installed `cupy-cuda11x`, which
+  this library has never imported. The CUDA backend runs on `numba.cuda` and
+  needs an NVIDIA driver and CUDA toolkit on the machine, not a Python package.
+  `pip install fast-select[gpu]` still resolves, so no command breaks.
+- **Building from source requires `setuptools>=77`** for the PEP 639 license
+  metadata. Installing from a wheel or sdist is unaffected.
+
+### Added
+
+- `fast_select.__version__`, resolved from installed package metadata.
+- `calculate_mi_single_pair` and `calculate_mi_matrices` are exported at the top
+  level and documented in the API reference. Both take `backend` and `unit`
+  (`"bit"` or `"nat"`) and back the mRMR criterion.
+- CI now enforces `ruff` and `black` and builds/validates the distribution with
+  `twine check --strict` on every push and pull request.
 
 ### Corrected algorithm definitions
 
@@ -28,9 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CFS CUDA**: Entropy calculations now read only initialized categorical
   states.
 
-These are intentional score-changing corrections. SURF-family, CFS, MDR, and
-GPU mRMR results produced by earlier releases may differ.
-
 ### Compliance and verification
 
 - Added independent, equation-driven regression tests for SURF, SURF*,
@@ -50,6 +81,50 @@ GPU mRMR results produced by earlier releases may differ.
 - Made canonical CFS best-first child evaluation incremental, reducing the
   corrected search benchmark from about 0.264 to 0.051 seconds per CPU fit on
   the recorded 900-by-128 case.
+
+### Fixed
+
+- Removed a `RuntimeWarning: nopython is set for njit and is ignored` emitted on
+  every `import fast_select`, caused by a redundant `nopython=True` on an MDR
+  kernel.
+- Registered the `slow` and `gpu` pytest markers, clearing
+  `PytestUnknownMarkWarning` during collection.
+
+### Packaging and tooling
+
+- Marked `Development Status :: 5 - Production/Stable`.
+- Populated the previously empty `docs` extra with the Sphinx toolchain, and
+  pointed Read the Docs at it instead of the full `dev` extra (which pulled a
+  CUDA wheel into the docs build).
+- Moved the deprecated top-level `ruff` settings into `[tool.ruff.lint]`, and
+  ignored the naming rules that the paper-matching module, class, and function
+  names (`ReliefF.py`, `mRMR`, `chi2`, ...) intentionally violate.
+- Applied `black` and `ruff` across `src/`, `tests/`, and `benchmarking/`;
+  the repository is now clean under both, matching the badges in the README.
+- `CITATION.cff` and the Sphinx `release` no longer carry a hand-maintained
+  version string that drifted from `pyproject.toml`.
+
+### Documentation
+
+- Corrected README claims that the library uses **Joblib** for CPU parallelism;
+  the CPU kernels are thread-parallel Numba `prange`, and joblib is not a
+  dependency.
+- Documented the real GPU prerequisites (NVIDIA driver plus CUDA toolkit, no
+  Python package) and added a `is_cuda_ready()` check to the install section.
+- Added a *Versioning and Stability* section with an explicit 0.2.x upgrade
+  warning, and contribution instructions covering the lint/test commands and
+  the paper-citation requirement for algorithm changes.
+- Rewrote `paper.md`, which described infrastructure the project does not have
+  (a Cython shim, `mypy`, Docker images, macOS/Windows CI), overstated coverage,
+  and cited a 88x/12x scikit-rebate speed-up on a 30000x200000 dataset for which
+  no supporting measurement exists in the repository. Claims are now limited to
+  what the repository can substantiate, and a new *Correctness* section describes
+  the paper-oracle verification approach.
+- Added the missing `paper.bib` referenced by the `paper.md` front matter,
+  populated with the defining papers for every implemented algorithm.
+- Fixed docstring cross-references that made the Sphinx build emit errors, and
+  documented CFS's search as Hall's forward best-first rather than "greedy", and
+  MDR's high-risk rule as inclusive with empty cells treated as low risk.
 
 ## [0.2.1] - 2026-07-22
 

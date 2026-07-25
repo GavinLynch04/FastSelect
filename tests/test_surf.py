@@ -1,11 +1,11 @@
-import pytest
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose, assert_array_equal
-from numba import cuda
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
 
 from fast_select import SURF as FastSURF
+from fast_select.utils import is_cuda_ready
 
 
 @pytest.fixture
@@ -19,19 +19,21 @@ def simple_classification_data():
     - feature 2 (discrete): Perfectly relevant. Value 10 for class 0, 20 for class 1.
     - feature 3 (continuous): Irrelevant, has zero range (constant).
     """
-    X = np.array([
-        # Class 0 - values are low
-        [0.1, 5.0, 10, 3.0],
-        [0.2, 4.0, 10, 3.0],
-        [0.3, 6.0, 10, 3.0],
-        # Class 1 - values are high and far away
-        [10.8, 5.0, 20, 3.0],
-        [10.9, 4.0, 20, 3.0],
-        [11.0, 6.0, 20, 3.0],
-    ], dtype=np.float32)
+    X = np.array(
+        [
+            # Class 0 - values are low
+            [0.1, 5.0, 10, 3.0],
+            [0.2, 4.0, 10, 3.0],
+            [0.3, 6.0, 10, 3.0],
+            # Class 1 - values are high and far away
+            [10.8, 5.0, 20, 3.0],
+            [10.9, 4.0, 20, 3.0],
+            [11.0, 6.0, 20, 3.0],
+        ],
+        dtype=np.float32,
+    )
     y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
     return X, y
-
 
 
 def test_feature_importance_ranking(simple_classification_data):
@@ -51,8 +53,6 @@ def test_feature_importance_ranking(simple_classification_data):
 
     assert set(model.top_features_) == {0, 2}
 
-
-from fast_select.utils import is_cuda_ready
 
 @pytest.mark.parametrize("use_star", [False, True])
 def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
@@ -80,7 +80,6 @@ def test_internal_consistency_cpu_gpu(simple_classification_data, use_star):
         atol=1e-7,
         err_msg=f"CPU and GPU scores do not match for use_star={use_star}",
     )
-
 
 
 def test_sklearn_api_compliance():
@@ -127,11 +126,12 @@ def test_backend_error_handling(simple_classification_data):
     """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""
     if is_cuda_ready():
         pytest.skip("Skipping GPU error test: GPU is available.")
-    
+
     X, y = simple_classification_data
     with pytest.raises(RuntimeError, match="no CUDA-enabled GPU is available"):
         model = FastSURF(backend="gpu")
         model.fit(X, y)
+
 
 def test_verbose_output(simple_classification_data, capsys):
     """Check that verbose=True prints to stdout."""
@@ -141,21 +141,23 @@ def test_verbose_output(simple_classification_data, capsys):
 
     captured = capsys.readouterr()
     assert "Running SURF" in captured.out
-    
-    model = FastSURF(verbose=True, backend='cpu', use_star=True)
+
+    model = FastSURF(verbose=True, backend="cpu", use_star=True)
     model.fit(X, y)
 
     captured = capsys.readouterr()
     assert "Running SURF*" in captured.out
-        
+
+
 def test_backend(simple_classification_data):
     """
     Tests that transform raises a ValueError if backend is not auto, cpu, or gpu
     """
     X, y = simple_classification_data
-        
+
     with pytest.raises(ValueError):
-        transformer = FastSURF(n_features_to_select=4, backend='tpu').fit(X, y)
+        FastSURF(n_features_to_select=4, backend="tpu").fit(X, y)
+
 
 def test_nan_input_raises_error(simple_classification_data):
     """Tests that the estimator raises a ValueError for data containing NaNs."""
@@ -167,7 +169,8 @@ def test_nan_input_raises_error(simple_classification_data):
     model = FastSURF(backend="cpu")
     with pytest.raises(ValueError, match="Input X contains NaN."):
         model.fit(X, y)
-        
+
+
 @pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
 def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
     """
@@ -180,7 +183,7 @@ def test_invalid_n_features_to_select_raises_error(simple_classification_data, b
     with pytest.raises(ValueError):
         FastSURF(n_features_to_select=1.1).fit(X, y)
     with pytest.raises(TypeError):
-        FastSURF(n_features_to_select='hi').fit(X, y)
+        FastSURF(n_features_to_select="hi").fit(X, y)
 
 
 def test_single_class_input(simple_classification_data):
@@ -190,10 +193,8 @@ def test_single_class_input(simple_classification_data):
     """
     X, _ = simple_classification_data
     y_single_class = np.zeros(X.shape[0])
-    
+
     model = FastSURF(backend="cpu")
     model.fit(X, y_single_class)
-    
+
     assert np.all(model.feature_importances_ <= 1e-7)
-
-

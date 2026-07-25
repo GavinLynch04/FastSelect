@@ -1,9 +1,12 @@
 import time
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from fast_select.MDR import MDR as FastMDR
 from skrebate import MDR as SkrebateMDR
+
+from fast_select.MDR import MDR as FastMDR
+
 
 def run_benchmarks():
     """
@@ -36,29 +39,26 @@ def run_benchmarks():
         sk_mdr.fit(X, y)
         sk_time = time.time() - start_time
 
-        results.append({
-            'features': n_features,
-            'fast_select_time': fs_time,
-            'skrebate_time': sk_time
-        })
+        results.append({"features": n_features, "fast_select_time": fs_time, "skrebate_time": sk_time})
         print(f"{n_features:<10} | {fs_time:<18.4f} | {sk_time:<20.4f}")
 
     # Plotting results
     df = pd.DataFrame(results)
-    plt.style.use('ggplot')
+    plt.style.use("ggplot")
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(df['features'], df['fast_select_time'], marker='o', linestyle='-', label='Fast-Select MDR')
-    ax.plot(df['features'], df['skrebate_time'], marker='s', linestyle='--', label='scikit-rebate MDR')
-    ax.set_title('MDR Performance Comparison')
-    ax.set_xlabel('Number of Features')
-    ax.set_ylabel('Execution Time (seconds)')
-    ax.set_yscale('log')
+    ax.plot(df["features"], df["fast_select_time"], marker="o", linestyle="-", label="Fast-Select MDR")
+    ax.plot(df["features"], df["skrebate_time"], marker="s", linestyle="--", label="scikit-rebate MDR")
+    ax.set_title("MDR Performance Comparison")
+    ax.set_xlabel("Number of Features")
+    ax.set_ylabel("Execution Time (seconds)")
+    ax.set_yscale("log")
     ax.legend()
     ax.grid(True, which="both", ls="--")
 
     plt.tight_layout()
-    plt.savefig('mdr_benchmark.png')
+    plt.savefig("mdr_benchmark.png")
     print("\nSaved plot to mdr_benchmark.png")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_benchmarks()

@@ -16,11 +16,11 @@ from sklearn.utils.validation import (
 from .utils import ensure_cuda_context, is_cuda_ready
 
 MAX_K_FOR_KERNEL = 6
-MAX_CELLS = 3 ** MAX_K_FOR_KERNEL
+MAX_CELLS = 3**MAX_K_FOR_KERNEL
 
 
 @cuda.jit
-def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
+def mdr_kernel(X_d, y_d, k, combinations_d, results_d):  # pragma: no cover
     """CUDA kernel computing balanced accuracy for every k-locus model."""
     thread_idx = cuda.grid(1)
     n_combinations = combinations_d.shape[0]
@@ -31,7 +31,7 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
     case_counts = cuda.local.array(shape=MAX_CELLS, dtype=numba.int32)
     control_counts = cuda.local.array(shape=MAX_CELLS, dtype=numba.int32)
 
-    for i in range(3 ** k):
+    for i in range(3**k):
         case_counts[i] = 0
         control_counts[i] = 0
 
@@ -51,7 +51,7 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
         else:
             control_counts[cell_idx] += 1
 
-    for i in range(3 ** k):
+    for i in range(3**k):
         total_cases += case_counts[i]
 
     total_controls = n_samples - total_cases
@@ -65,7 +65,7 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
     tp = 0
     tn = 0
 
-    for i in range(3 ** k):
+    for i in range(3**k):
         if control_counts[i] == 0:
             is_high_risk = case_counts[i] > 0
         else:
@@ -82,14 +82,14 @@ def mdr_kernel(X_d, y_d, k, combinations_d, results_d): # pragma: no cover
 
 
 @njit(parallel=True, fastmath=True)
-def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
+def _batch_balanced_accuracy_cpu(X, y, combos, k):  # pragma: no cover
     """
     Compute balanced accuracy for *all* combinations in `combos`
     (shape = (n_combos, k)).  Returns float32 array of length n_combos.
     """
     n_combos = combos.shape[0]
     n_samples = X.shape[0]
-    n_cells = 3 ** k
+    n_cells = 3**k
     bas = np.empty(n_combos, dtype=np.float32)
 
     for c_idx in prange(n_combos):
@@ -119,9 +119,7 @@ def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
         tp = 0
         tn = 0
         for i in range(n_cells):
-            if (control[i] == 0 and case[i] > 0) or (
-                control[i] > 0 and (case[i] / control[i]) >= thr
-            ):
+            if (control[i] == 0 and case[i] > 0) or (control[i] > 0 and (case[i] / control[i]) >= thr):
                 tp += case[i]
             else:
                 tn += control[i]
@@ -133,9 +131,9 @@ def _batch_balanced_accuracy_cpu(X, y, combos, k): # pragma: no cover
     return bas
 
 
-@njit(nopython=True, fastmath=True)
-def _predict_lut(X, interaction_indices, lookup_table): # pragma: no cover
-    """Fast MDR prediction using a lookup table (Numba‐compiled)."""
+@njit(fastmath=True)
+def _predict_lut(X, interaction_indices, lookup_table):  # pragma: no cover
+    """Fast MDR prediction using a lookup table (Numba-compiled)."""
     n_samples = X.shape[0]
     k = interaction_indices.shape[0]
     y_pred = np.empty(n_samples, dtype=np.uint8)
@@ -179,7 +177,7 @@ class MDR(BaseEstimator, ClassifierMixin):
 
     def _create_lookup_table(self, X, y, interaction_indices):
         """Return 3^k binary lookup table for the given interaction."""
-        n_cells = 3 ** self.k
+        n_cells = 3**self.k
         case_counts = np.zeros(n_cells, dtype=np.int32)
         control_counts = np.zeros(n_cells, dtype=np.int32)
 
@@ -200,16 +198,13 @@ class MDR(BaseEstimator, ClassifierMixin):
             if control_counts[cell] == 0:
                 lookup[cell] = case_counts[cell] > 0
             else:
-                lookup[cell] = (
-                    case_counts[cell] / control_counts[cell]
-                ) >= threshold
+                lookup[cell] = (case_counts[cell] / control_counts[cell]) >= threshold
         return lookup
 
     def _internal_predict(self, X, interaction, lookup_table):
         """Predict labels using Numba-compiled LUT helper."""
         interaction_arr = np.asarray(interaction, dtype=np.uint32)
         return _predict_lut(X, interaction_arr, lookup_table)
-
 
     def fit(self, X, y):
         """
@@ -239,15 +234,11 @@ class MDR(BaseEstimator, ClassifierMixin):
         if self.k < 1:
             raise ValueError("k must be at least 1.")
         if self.k > MAX_K_FOR_KERNEL:
-            raise ValueError(
-                f"k={self.k} exceeds MAX_K_FOR_KERNEL={MAX_K_FOR_KERNEL}."
-            )
+            raise ValueError(f"k={self.k} exceeds MAX_K_FOR_KERNEL={MAX_K_FOR_KERNEL}.")
 
         n_samples, n_features = X.shape
         if self.k > n_features:
-            raise ValueError(
-                f"k must be ≤ n_features. Got k={self.k}, n_features={n_features}"
-            )
+            raise ValueError(f"k must be <= n_features. Got k={self.k}, n_features={n_features}")
 
         # Decide backend
         cuda_available = is_cuda_ready()
@@ -261,23 +252,16 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         # Pre-compute all k-feature combos
         feature_idx = np.arange(n_features, dtype=np.uint32)
-        all_combos = np.array(
-            list(combinations(feature_idx, self.k)), dtype=np.uint32
-        )
+        all_combos = np.array(list(combinations(feature_idx, self.k)), dtype=np.uint32)
         n_combos = len(all_combos)
 
         skf = StratifiedKFold(n_splits=self.cv, shuffle=True, random_state=42)
         fold_best_models = []
         fold_test_bas = []
         if self.verbose:
-            print(
-                f"CV with backend={'GPU' if use_gpu else 'CPU'}: "
-                f"{self.k}-way search over {n_combos} combos"
-            )
+            print(f"CV with backend={'GPU' if use_gpu else 'CPU'}: " f"{self.k}-way search over {n_combos} combos")
 
-        for fold_i, (train_idx, test_idx) in enumerate(
-            skf.split(X, y_encoded), start=1
-        ):
+        for fold_i, (train_idx, test_idx) in enumerate(skf.split(X, y_encoded), start=1):
             X_train, X_test = X[train_idx], X[test_idx]
             y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
 
@@ -292,9 +276,7 @@ class MDR(BaseEstimator, ClassifierMixin):
                 mdr_kernel[blocks, threads](X_d, y_d, self.k, combos_d, results_d)
                 train_bas = results_d.copy_to_host()
             else:
-                train_bas = _batch_balanced_accuracy_cpu(
-                    X_train, y_train, all_combos, self.k
-                )
+                train_bas = _batch_balanced_accuracy_cpu(X_train, y_train, all_combos, self.k)
 
             best_idx = int(np.argmax(train_bas))
             best_combo = tuple(all_combos[best_idx])
@@ -313,10 +295,7 @@ class MDR(BaseEstimator, ClassifierMixin):
             fold_test_bas.append(test_ba)
 
             if self.verbose:
-                print(
-                    f"  Fold {fold_i}/{self.cv}: best {best_combo}, "
-                    f"Test BA = {test_ba:.4f}"
-                )
+                print(f"  Fold {fold_i}/{self.cv}: best {best_combo}, " f"Test BA = {test_ba:.4f}")
 
         counts = Counter(fold_best_models)
         max_cvc = counts.most_common(1)[0][1]
@@ -325,11 +304,7 @@ class MDR(BaseEstimator, ClassifierMixin):
         best_model = None
         best_avg_ba = -1.0
         for model in top_models:
-            bas = [
-                fold_test_bas[i]
-                for i, m in enumerate(fold_best_models)
-                if m == model
-            ]
+            bas = [fold_test_bas[i] for i, m in enumerate(fold_best_models) if m == model]
             avg_ba = float(np.mean(bas))
             if avg_ba > best_avg_ba:
                 best_avg_ba = avg_ba
@@ -345,17 +320,13 @@ class MDR(BaseEstimator, ClassifierMixin):
             print(f"Mean testing BA: {self.best_mean_testing_ba_:.4f}")
 
         # Train final lookup table on full data
-        self.best_model_lookup_table_ = self._create_lookup_table(
-            X, y_encoded, self.best_interaction_
-        )
+        self.best_model_lookup_table_ = self._create_lookup_table(X, y_encoded, self.best_interaction_)
         return self
 
     def predict(self, X):
         check_is_fitted(self)
         X = check_array(X, dtype=np.uint8)
-        encoded = self._internal_predict(
-            X, self.best_interaction_, self.best_model_lookup_table_
-        )
+        encoded = self._internal_predict(X, self.best_interaction_, self.best_model_lookup_table_)
         return self.classes_[encoded]
 
     def transform(self, X):
@@ -367,9 +338,7 @@ class MDR(BaseEstimator, ClassifierMixin):
 
         MDR is fundamentally a hard classifier; this implementation does
         not attempt to derive calibrated probabilities.  If you need risk
-        probabilities, consider wrapping MDR in scikit-learn’s
+        probabilities, consider wrapping MDR in scikit-learn's
         `CalibratedClassifierCV` or implement cell-frequency posteriors.
         """
-        raise NotImplementedError(
-            "predict_proba is not supported in this MDR implementation."
-        )
+        raise NotImplementedError("predict_proba is not supported in this MDR implementation.")

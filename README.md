@@ -15,15 +15,17 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 
 ## **Key Features**
 
-- **Fast Performance:** Leverages **Numba** for JIT compilation, **Joblib** for multi-core parallelism, and **Numba CUDA** for GPU acceleration, providing unmatched performance while scaling with modern hardware.
+- **Fast Performance:** Leverages **Numba** for JIT compilation and thread-parallel CPU kernels, and **Numba CUDA** for GPU acceleration, scaling with modern hardware.
   
 - **ML Pipeline Integration:** Fully compatible with **Scikit-Learn**, making it easy to fit into any machine learning pipeline with a familiar `.fit()`, `.transform()`, `.fit_transform()` interface.
   
-- **Flexible Backends:** Offers dual execution modes for both CPU (`Joblib`) and GPU (`CUDA`). Automatically detects hardware with an easy-to-use `backend` parameter.
+- **Flexible Backends:** Offers dual execution modes for both CPU (Numba `prange`) and GPU (`CUDA`). Automatically detects hardware with an easy-to-use `backend` parameter.
   
 - **Feature-Rich Implementation:** Provides highly optimized implementations of ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, and TuRF, with plans to support additional feature selection algorithms in future releases.
   
-- **Lightweight & Simple:** Avoids heavy dependencies like TensorFlow or PyTorch while delivering significant speedups for feature selection workflows.
+- **Paper-Faithful:** Every algorithm is verified against independent, equation-driven tests derived from its defining paper, not from another library's output. Where an extension goes beyond the published algorithm, the docstring says so.
+  
+- **Lightweight & Simple:** Depends only on NumPy, Numba, SciPy, and scikit-learn. No TensorFlow, no PyTorch, no CuPy.
   
 <!-- end-include -->
 
@@ -36,10 +38,11 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 3. [Backend Selection](#backend-selection-cpu-vs-gpu)
 4. [Benchmarking Highlights](#benchmarking-highlights)
 5. [Algorithm Implementations](#algorithm-implementations)
-6. [Contributing](#contributing)
-7. [License](#license)
-8. [How to Cite](#how-to-cite)
-9. [Acknowledgments](#acknowledgments)
+6. [Versioning and Stability](#versioning-and-stability)
+7. [Contributing](#contributing)
+8. [License](#license)
+9. [How to Cite](#citing-fast-select)
+10. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -52,12 +55,23 @@ Install `fast-select` directly from PyPI:
 pip install fast-select
 ```
 
-For development versions (with testing and documentation dependencies):
+That single command gives you the full library, CPU backend included.
+
+**GPU support** needs no extra Python package. The CUDA kernels are compiled by
+`numba.cuda`, so all that is required is an NVIDIA GPU with a current driver and
+a CUDA toolkit that your installed Numba supports. Check that the backend is
+visible with:
+
+```bash
+python -c "from fast_select.utils import is_cuda_ready; print(is_cuda_ready())"
+```
+
+For a development checkout (tests, linters, and documentation tooling):
 
 ```bash
 git clone https://github.com/GavinLynch04/FastSelect.git
-cd fast-select
-pip install -e .[dev]
+cd FastSelect
+pip install -e ".[dev]"
 ```
 
 <!-- end-installation-section -->
@@ -116,6 +130,11 @@ You can control the computational backend with the `backend` parameter during in
   
 - **`backend='cpu'`**: Forces CPU computations, even if a GPU is available.
 
+For the mutual-information selectors (`mRMR`) the CUDA kernels support up to 32
+distinct states in the encoded data. With `backend='auto'` more states than that
+fall back to the CPU, and `backend='gpu'` raises instead of falling back. After
+`fit`, `effective_backend_` reports which backend actually ran.
+
 Example usage:
 
 ```python
@@ -165,14 +184,52 @@ Currently supported:
 - **Multifactor Dimensionality Reduction (MDR)**
 - **Minimum Redundancy Maximum Relevance (mRMR)**
 - **Chi Squared (Chi2)**
+- **Discrete mutual information** — `calculate_mi_single_pair` and `calculate_mi_matrices`, with the same CPU/GPU backend selection and a choice of bit or nat units.
+
+Each implementation is held to its defining paper. Where `fast-select` supports
+more than the paper does — multiclass targets for the SURF family, for
+instance — the docstring names it as an extension rather than presenting it as
+the original algorithm. The rules are written down in
+[`CLAUDE.md`](./CLAUDE.md) and enforced by `tests/test_algorithm_compliance.py`,
+whose oracles are computed straight from the published equations and never call
+production kernels.
 
 Future plans include additional feature selection algorithms, such as wrappers, embedded methods, and more filter-based approaches.
 
 ---
 
+## **Versioning and Stability**
+
+`fast-select` follows [Semantic Versioning](https://semver.org/). As of v1.0.0
+the public API — estimator names, constructor parameters, and fitted attributes —
+is stable, and breaking changes require a major version bump.
+
+**Upgrading from 0.2.x:** v1.0.0 corrects several algorithms that had drifted
+from their defining papers, so SURF, SURF*, MultiSURF*, CFS, MDR, and GPU mRMR
+can return different scores and different selected features than 0.2.1 did.
+`pandas` is also no longer a required dependency. See the
+[changelog](./CHANGELOG.md) for the full list before comparing new output
+against results you generated with an earlier release.
+
+---
+
 ## **Contributing**
 
-Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable. Please ensure your submissions include relevant test cases and documentation updates.
+Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable.
+
+Before opening a pull request:
+
+```bash
+pip install -e ".[dev]"
+ruff check src tests benchmarking
+black --check src tests benchmarking
+pytest
+```
+
+Algorithm changes carry an extra requirement: cite the paper and the specific
+equation or pseudocode rule you are implementing, and add an independent oracle
+test that derives the expected result from that equation rather than from
+`fast-select`'s own output. [`CLAUDE.md`](./CLAUDE.md) has the details.
 
 ---
 
@@ -186,18 +243,18 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
 
-> Gavin Lynch. (2025). GavinLynch04/FastSelect: v0.2.0 (0.2.0). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
+> Gavin Lynch. (2026). GavinLynch04/FastSelect: v1.0.0 (1.0.0). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
 
 You can use the following BibTeX entry:
 
 ```bibtex
-@software{gavin_lynch_2025,
+@software{gavin_lynch_2026,
   author       = {Gavin Lynch},
-  title        = {{GavinLynch04/FastSelect: v0.2.0}},
-  month        = aug,
-  year         = 2025,
+  title        = {{GavinLynch04/FastSelect: v1.0.0}},
+  month        = jul,
+  year         = 2026,
   publisher    = {Zenodo},
-  version      = {0.2.0},
+  version      = {1.0.0},
   doi          = {10.5281/zenodo.16285073},
   url          = {https://doi.org/10.5281/zenodo.16285073}
 }

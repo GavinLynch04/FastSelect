@@ -1,10 +1,11 @@
-import pytest
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose, assert_array_equal
-from numba import cuda
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
+
 from fast_select import MultiSURF as FastMultiSURF
+from fast_select.utils import is_cuda_ready
 
 
 @pytest.fixture
@@ -16,22 +17,26 @@ def simple_classification_data():
     - Feature 2: Highly relevant but discrete.
     - Feature 3: Irrelevant constant.
     """
-    X = np.array([
-    # Class 0
-    [1.1, 5.0, 10, 3.0],
-    [1.2, 4.0, 10, 3.0],
-    [2.3, 6.0, 10, 3.0],
-    [2.5, 5.5, 10, 3.0],
-    [1.5, 4.5, 20, 3.0],
-    # Class 1
-    [8.8, 5.0, 20, 3.0],
-    [8.9, 4.0, 20, 3.0],
-    [9.5, 6.0, 20, 3.0],
-    [10.5, 4.5, 20, 3.0],
-    [10.5, 4.5, 10, 3.0],
-    ], dtype=np.float32)
+    X = np.array(
+        [
+            # Class 0
+            [1.1, 5.0, 10, 3.0],
+            [1.2, 4.0, 10, 3.0],
+            [2.3, 6.0, 10, 3.0],
+            [2.5, 5.5, 10, 3.0],
+            [1.5, 4.5, 20, 3.0],
+            # Class 1
+            [8.8, 5.0, 20, 3.0],
+            [8.9, 4.0, 20, 3.0],
+            [9.5, 6.0, 20, 3.0],
+            [10.5, 4.5, 20, 3.0],
+            [10.5, 4.5, 10, 3.0],
+        ],
+        dtype=np.float32,
+    )
     y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int32)
     return X, y
+
 
 def test_feature_importance_ranking(simple_classification_data):
     X, y = simple_classification_data
@@ -110,14 +115,14 @@ def test_discrete_limit_parameter():
     assert_array_equal(model_disc.is_discrete_, [True, True])
 
 
-
 def test_not_fitted_error(simple_classification_data):
     """Tests that a NotFittedError is raised if transform is called before fit."""
     X, _ = simple_classification_data
     model = FastMultiSURF()
     with pytest.raises(NotFittedError):
         model.transform(X)
-        
+
+
 @pytest.mark.parametrize("bad_k_select", [-1, 0, 100])
 def test_invalid_n_features_to_select_raises_error(simple_classification_data, bad_k_select):
     """
@@ -130,8 +135,9 @@ def test_invalid_n_features_to_select_raises_error(simple_classification_data, b
     with pytest.raises(ValueError):
         FastMultiSURF(n_features_to_select=1.1).fit(X, y)
     with pytest.raises(TypeError):
-        FastMultiSURF(n_features_to_select='hi').fit(X, y)
-        
+        FastMultiSURF(n_features_to_select="hi").fit(X, y)
+
+
 def test_verbose_output(simple_classification_data, capsys):
     """Check that verbose=True prints to stdout."""
     X, y = simple_classification_data
@@ -140,40 +146,40 @@ def test_verbose_output(simple_classification_data, capsys):
 
     captured = capsys.readouterr()
     assert "Running MultiSURF" in captured.out
-    
+
     model = FastMultiSURF(verbose=True, use_star=True)
     model.fit(X, y)
 
     captured = capsys.readouterr()
     assert "Running MultiSURF*" in captured.out
-    model = FastMultiSURF(verbose=True, backend='cpu')
+    model = FastMultiSURF(verbose=True, backend="cpu")
     model.fit(X, y)
 
     captured = capsys.readouterr()
     assert "Running MultiSURF" in captured.out
-    
-    model = FastMultiSURF(verbose=True, use_star=True, backend='cpu')
+
+    model = FastMultiSURF(verbose=True, use_star=True, backend="cpu")
     model.fit(X, y)
 
     captured = capsys.readouterr()
     assert "Running MultiSURF*" in captured.out
-        
+
+
 def test_backend(simple_classification_data):
     """
     Tests that transform raises a ValueError if backend is not auto, cpu, or gpu
     """
     X, y = simple_classification_data
-        
-    with pytest.raises(ValueError):
-        transformer = FastMultiSURF(n_features_to_select=4, backend='tpu').fit(X, y)
 
-from fast_select.utils import is_cuda_ready
+    with pytest.raises(ValueError):
+        FastMultiSURF(n_features_to_select=4, backend="tpu").fit(X, y)
+
 
 def test_backend_error_handling(simple_classification_data):
     """Tests that requesting the GPU backend without a GPU raises a RuntimeError."""
     if is_cuda_ready():
         pytest.skip("Skipping GPU error test: GPU is available.")
-    
+
     X, y = simple_classification_data
     with pytest.raises(RuntimeError, match="no CUDA-enabled GPU is available"):
         model = FastMultiSURF(backend="gpu", n_features_to_select=2)
@@ -199,9 +205,9 @@ def test_single_class_input(simple_classification_data):
     """
     X, _ = simple_classification_data
     y_single_class = np.zeros(X.shape[0])
-    
+
     model = FastMultiSURF(backend="cpu", n_features_to_select=4)
     model.fit(X, y_single_class)
-    
+
     # With no misses, all feature importances should be less than zero.
     assert np.all(model.feature_importances_ <= 1e-7)

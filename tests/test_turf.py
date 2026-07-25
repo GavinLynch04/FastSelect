@@ -3,10 +3,13 @@ import pytest
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import check_estimator
+
 from fast_select.TuRF import TuRF
+
 
 class MockReliefEstimator(BaseEstimator, TransformerMixin):
     """A mock estimator that creates predictable feature importances."""
+
     def fit(self, X, y=None):
         n_features = X.shape[1]
         self.feature_importances_ = np.linspace(1, 0, n_features)
@@ -15,12 +18,14 @@ class MockReliefEstimator(BaseEstimator, TransformerMixin):
     def transform(self, X):
         return X
 
+
 @pytest.fixture
 def test_data():
     """Provides consistent test data for all tests."""
     X = np.random.rand(100, 20)
     y = np.random.randint(0, 2, 100)
     return X, y
+
 
 def test_sklearn_compatibility():
     """
@@ -29,6 +34,7 @@ def test_sklearn_compatibility():
     """
     estimator = TuRF(estimator=MockReliefEstimator(), n_features_to_select=2)
     check_estimator(estimator)
+
 
 def test_basic_fit_transform(test_data):
     """Test the basic fit and transform functionality."""
@@ -71,12 +77,7 @@ def test_attributes_after_fit(test_data):
 def test_n_iterations_parameter(test_data):
     """Test that the n_iterations parameter correctly stops the process."""
     X, y = test_data
-    turf = TuRF(
-        estimator=MockReliefEstimator(),
-        n_features_to_select=10,
-        n_iterations=1,
-        pct_remove=0.1
-    )
+    turf = TuRF(estimator=MockReliefEstimator(), n_features_to_select=10, n_iterations=1, pct_remove=0.1)
     turf.fit(X, y)
 
     assert len(turf.top_features_) == 18
@@ -86,11 +87,7 @@ def test_n_iterations_parameter(test_data):
 def test_pct_remove_edge_case_removes_at_least_one(test_data):
     """Test that at least one feature is removed even with a tiny pct_remove."""
     X, y = test_data
-    turf = TuRF(
-        estimator=MockReliefEstimator(),
-        n_features_to_select=1,
-        pct_remove=0.001
-    )
+    turf = TuRF(estimator=MockReliefEstimator(), n_features_to_select=1, pct_remove=0.001)
     turf.fit(X, y)
 
     assert len(turf.top_features_) == 1
@@ -100,11 +97,7 @@ def test_avoids_overshooting_n_features_to_select():
     """Test the logic that prevents removing too many features near the end."""
     X = np.random.rand(50, 11)
     y = np.random.randint(0, 2, 50)
-    turf = TuRF(
-        estimator=MockReliefEstimator(),
-        n_features_to_select=10,
-        pct_remove=0.2
-    )
+    turf = TuRF(estimator=MockReliefEstimator(), n_features_to_select=10, pct_remove=0.2)
     turf.fit(X, y)
 
     assert len(turf.top_features_) == 10

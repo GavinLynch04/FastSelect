@@ -1,18 +1,20 @@
 import math
+
 import numpy as np
 import pytest
 
 try:
-    from hypothesis import given, settings, strategies as st  # type: ignore
+    from hypothesis import given, settings  # type: ignore
+    from hypothesis import strategies as st
+
     HYPOTHESIS_AVAILABLE = True
 except ModuleNotFoundError:
     HYPOTHESIS_AVAILABLE = False
 
-from fast_select.MDR import MDR, MAX_K_FOR_KERNEL
+from fast_select.MDR import MAX_K_FOR_KERNEL, MDR
 from fast_select.utils import is_cuda_ready
 
 try:
-    from numba import cuda
     CUDA_AVAILABLE = is_cuda_ready()
 except Exception:
     CUDA_AVAILABLE = False
@@ -66,7 +68,6 @@ def test_predict_and_transform(simple_dataset, classifier):
     assert np.array_equal(X_new.ravel(), y_pred)
 
 
-
 @pytest.mark.parametrize(
     "bad_y",
     [
@@ -83,8 +84,8 @@ def test_fit_raises_on_invalid_y(bad_y):
 @pytest.mark.parametrize(
     "bad_X",
     [
-        np.array([[0, 1, 3]], dtype=np.uint8),   # genotype out of range
-        np.array([[-1, 0, 1]], dtype=np.int8),   # negative genotype
+        np.array([[0, 1, 3]], dtype=np.uint8),  # genotype out of range
+        np.array([[-1, 0, 1]], dtype=np.int8),  # negative genotype
     ],
 )
 def test_fit_raises_on_invalid_X(bad_X):
@@ -109,10 +110,9 @@ def test_k_parameter_constraints(simple_dataset):
         MDR(k=MAX_K_FOR_KERNEL + 1).fit(X, y)
 
 
-
 def test_backend_cpu_matches_auto(simple_dataset):
     X, y = simple_dataset
-    cpu_clf  = MDR(k=2, cv=2, backend="CPU").fit(X, y)
+    cpu_clf = MDR(k=2, cv=2, backend="CPU").fit(X, y)
     auto_clf = MDR(k=2, cv=2, backend="auto").fit(X, y)
     np.testing.assert_array_equal(cpu_clf.predict(X), auto_clf.predict(X))
 
@@ -132,8 +132,8 @@ def test_backend_gpu_raises_without_cuda(simple_dataset):
         MDR(k=2, cv=2, backend="GPU").fit(X, y)
 
 
-
 if HYPOTHESIS_AVAILABLE:
+
     @settings(max_examples=50, deadline=None)
     @given(
         n_samples=st.integers(min_value=20, max_value=60),
@@ -146,18 +146,19 @@ if HYPOTHESIS_AVAILABLE:
 
         clf = MDR(k=2, cv=3).fit(X, y)
         lut = clf.best_model_lookup_table_
-        y_public  = clf.predict(X)
+        y_public = clf.predict(X)
         y_private = clf._internal_predict(X, clf.best_interaction_, lut)
         np.testing.assert_array_equal(y_public, y_private)
-
 
 
 @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA device not available")
 def test_gpu_kernel_consistency(simple_dataset):
     """GPU kernel BA ≈ reference CPU BA for each combination."""
-    import numpy as np
     from itertools import combinations
+
+    import numpy as np
     from numba import cuda
+
     from fast_select.MDR import mdr_kernel  # import after CUDA check
 
     X, y = simple_dataset
@@ -176,7 +177,7 @@ def test_gpu_kernel_consistency(simple_dataset):
 
     # CPU reference
     def cpu_ba(combo):
-        n_cells = 3 ** k
+        n_cells = 3**k
         case = np.zeros(n_cells, dtype=int)
         control = np.zeros(n_cells, dtype=int)
         for i in range(X.shape[0]):
@@ -191,9 +192,7 @@ def test_gpu_kernel_consistency(simple_dataset):
         thr = total_case / total_ctrl
         tp = tn = 0
         for i in range(n_cells):
-            high = (control[i] == 0 and case[i] > 0) or (
-                control[i] > 0 and case[i] / control[i] >= thr
-            )
+            high = (control[i] == 0 and case[i] > 0) or (control[i] > 0 and case[i] / control[i] >= thr)
             tp += case[i] if high else 0
             tn += control[i] if not high else 0
         sens = tp / total_case

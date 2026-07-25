@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
-from numba import cuda
+
 from fast_select.CFS import CFS
 from fast_select.utils import is_cuda_ready
+
 
 @pytest.fixture(scope="module")
 def sample_data():
@@ -41,9 +42,7 @@ def sample_data():
     # feature_5: discrete with high cardinality
     feature_5 = np.random.randint(0, 40, n_samples)
 
-    X = np.vstack([
-        feature_0, feature_1, feature_2, feature_3, feature_4, feature_5
-    ]).T
+    X = np.vstack([feature_0, feature_1, feature_2, feature_3, feature_4, feature_5]).T
 
     # The canonical CFS merit slightly favors retaining feature 1 as well.
     # Earlier FastSelect releases removed it with an unpublished post-search
@@ -54,18 +53,19 @@ def sample_data():
         "X_numpy": X,
         "X_pandas": pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])]),
         "y": y,
-        "expected": expected_selection
+        "expected": expected_selection,
     }
+
 
 GPU_UNAVAILABLE = not is_cuda_ready()
 
 
 def test_initialization():
     """Tests if the estimator initializes with the correct parameters."""
-    cfs = CFS(n_bins=5, strategy='quantile', backend='cpu', n_jobs=4)
+    cfs = CFS(n_bins=5, strategy="quantile", backend="cpu", n_jobs=4)
     assert cfs.n_bins == 5
-    assert cfs.strategy == 'quantile'
-    assert cfs.backend == 'cpu'
+    assert cfs.strategy == "quantile"
+    assert cfs.backend == "cpu"
     assert cfs.n_jobs == 4
 
 
@@ -91,9 +91,9 @@ def test_fit_transform_cpu_and_auto(sample_data, backend):
     cfs.fit(X_subset, y)
 
     # Check fitted attributes
-    assert hasattr(cfs, 'selected_indices_')
-    assert hasattr(cfs, 'support_mask_')
-    assert hasattr(cfs, 'merit_')
+    assert hasattr(cfs, "selected_indices_")
+    assert hasattr(cfs, "support_mask_")
+    assert hasattr(cfs, "merit_")
     assert cfs.n_features_in_ == X_subset.shape[1]
 
     # Check selection correctness
@@ -116,11 +116,11 @@ def test_fit_transform_gpu(sample_data):
     # Exclude the high-cardinality feature which should fail in the next test
     X_subset = X[:, :5]
 
-    cfs = CFS(backend='gpu', n_bins=10)
+    cfs = CFS(backend="gpu", n_bins=10)
     cfs.fit(X_subset, y)
 
     # Check fitted attributes
-    assert hasattr(cfs, 'selected_indices_')
+    assert hasattr(cfs, "selected_indices_")
     assert cfs.n_features_in_ == X_subset.shape[1]
 
     # Check selection correctness
@@ -138,11 +138,11 @@ def test_pandas_integration(sample_data):
     X_df, y = sample_data["X_pandas"], sample_data["y"]
     X_df_subset = X_df.iloc[:, :5]
 
-    cfs = CFS(backend='cpu')
+    cfs = CFS(backend="cpu")
     cfs.fit(X_df_subset, y)
 
     # Check that feature names are stored
-    assert hasattr(cfs, 'feature_names_in_')
+    assert hasattr(cfs, "feature_names_in_")
     expected_names = [f"feature_{i}" for i in sample_data["expected"]]
 
     # Check transform output
@@ -159,7 +159,7 @@ def test_edge_case_no_features_selected(sample_data):
     )
     y = np.tile(np.array([0, 1, 0, 1], dtype=np.int32), 25)
 
-    cfs = CFS(backend='cpu')
+    cfs = CFS(backend="cpu")
     cfs.fit(X_noise, y)
 
     assert len(cfs.selected_indices_) == 0
@@ -175,7 +175,7 @@ def test_edge_case_single_feature(sample_data):
     X = sample_data["X_numpy"][:, [0]]  # The best feature
     y = sample_data["y"]
 
-    cfs = CFS(backend='cpu')
+    cfs = CFS(backend="cpu")
     cfs.fit(X, y)
 
     np.testing.assert_array_equal(cfs.selected_indices_, [0])
@@ -188,12 +188,12 @@ def test_n_jobs_parameter(sample_data):
     X, y = sample_data["X_numpy"][:, :5], sample_data["y"]
 
     # Test with a single job
-    cfs_1 = CFS(backend='cpu', n_jobs=1)
+    cfs_1 = CFS(backend="cpu", n_jobs=1)
     cfs_1.fit(X, y)
     np.testing.assert_array_equal(cfs_1.selected_indices_, sample_data["expected"])
 
     # Test with multiple jobs
-    cfs_multi = CFS(backend='cpu', n_jobs=-1)
+    cfs_multi = CFS(backend="cpu", n_jobs=-1)
     cfs_multi.fit(X, y)
     np.testing.assert_array_equal(cfs_multi.selected_indices_, sample_data["expected"])
 
@@ -202,7 +202,7 @@ def test_n_jobs_parameter(sample_data):
 def test_gpu_raises_error_if_unavailable(sample_data):
     """Checks that backend='gpu' raises a RuntimeError if no GPU is present."""
     X, y = sample_data["X_numpy"], sample_data["y"]
-    cfs = CFS(backend='gpu')
+    cfs = CFS(backend="gpu")
     with pytest.raises(RuntimeError, match="backend='gpu', but no CUDA-enabled GPU is available"):
         cfs.fit(X, y)
 
@@ -216,10 +216,9 @@ def test_gpu_state_limit_handling(sample_data):
     X_high_cardinality = np.arange(35, dtype=np.float64).reshape(35, 1).repeat(2, axis=1)
     y_high = np.random.choice([0, 1], size=35)
 
-    cfs = CFS(backend='gpu', n_bins=35)
+    cfs = CFS(backend="gpu", n_bins=35)
     # This should raise a ValueError due to the check for n_states > 32
-    with pytest.raises(ValueError,
-                       match="GPU backend supports up to 32 unique states/bins."):
+    with pytest.raises(ValueError, match="GPU backend supports up to 32 unique states/bins."):
         cfs.fit(X_high_cardinality, y_high)
 
 
