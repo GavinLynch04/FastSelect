@@ -3,15 +3,18 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from numba import config, cuda, float32, get_num_threads, get_thread_id, int32, njit, prange, set_num_threads
+from numba import cuda, float32, get_num_threads, get_thread_id, int32, njit, prange, set_num_threads
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from .utils import (
-    build_kernel_matrix,
+    check_integer_param,
     discrete_feature_mask,
     ensure_cuda_context,
     is_cuda_ready,
+    prepare_relief_matrix,
+    resolve_num_threads,
     split_discrete_last,
 )
 
@@ -24,10 +27,13 @@ SHARED_SCORE_MAX_FEATURES = 512
 
 
 @cuda.jit
-def _compute_dist_matrix_multisurf_kernel(x, recip_full, feat_idx, is_discrete, dist_matrix):  # pragma: no cover
-    """Computes each pair distance once and mirrors it into the distance matrix."""
+def _compute_dist_matrix_multisurf_kernel(x, is_discrete, dist_matrix):  # pragma: no cover
+    """Computes each pair distance once and mirrors it into the distance matrix.
+
+    ``x`` holds only the evaluated features (prepared representation).
+    """
     n_samples = x.shape[0]
-    n_kept = feat_idx.shape[0]
+    n_kept = x.shape[1]
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
@@ -36,12 +42,11 @@ def _compute_dist_matrix_multisurf_kernel(x, recip_full, feat_idx, is_discrete, 
 
     for j in range(i + 1, n_samples):
         local_dist = 0.0
-        for k in range(tid, n_kept, TPB):
-            f = feat_idx[k]
+        for f in range(tid, n_kept, TPB):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(x[i, f] - x[j, f])
             local_dist += diff
 
         sh_sum = cuda.shared.array(shape=64, dtype=float32)
@@ -62,12 +67,10 @@ def _compute_dist_matrix_multisurf_kernel(x, recip_full, feat_idx, is_discrete, 
 
 
 @cuda.jit
-def _score_multisurf_gpu_kernel(
-    x, y, dist_matrix, recip_full, feat_idx, use_star, is_discrete, scores_out
-):  # pragma: no cover
+def _score_multisurf_gpu_kernel(x, y, dist_matrix, use_star, is_discrete, scores_out):  # pragma: no cover
     """Computes MultiSURF thresholds and scores entirely on the GPU."""
     n_samples = x.shape[0]
-    n_kept = feat_idx.shape[0]
+    n_kept = x.shape[1]
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
@@ -169,20 +172,17 @@ def _score_multisurf_gpu_kernel(
 
         if weight == 0.0:
             continue
-        for k in range(tid, n_kept, TPB):
-            f = feat_idx[k]
+        for f in range(tid, n_kept, TPB):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(x[i, f] - x[j, f])
             contribution = (1.0 - diff) if use_similarity else diff
-            cuda.atomic.add(scores_out, k, weight * contribution)
+            cuda.atomic.add(scores_out, f, weight * contribution)
 
 
 @cuda.jit
-def _score_multisurf_shared_gpu_kernel(
-    x, y, dist_matrix, recip_full, feat_idx, use_star, is_discrete, scores_out
-):  # pragma: no cover
+def _score_multisurf_shared_gpu_kernel(x, y, dist_matrix, use_star, is_discrete, scores_out):  # pragma: no cover
     """MultiSURF scoring accumulated in shared memory.
 
     Identical equations to :func:`_score_multisurf_gpu_kernel`; the only
@@ -192,7 +192,7 @@ def _score_multisurf_shared_gpu_kernel(
     fit in shared memory; see ``SHARED_SCORE_MAX_FEATURES``.
     """
     n_samples = x.shape[0]
-    n_kept = feat_idx.shape[0]
+    n_kept = x.shape[1]
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
 
@@ -299,14 +299,13 @@ def _score_multisurf_shared_gpu_kernel(
 
         if weight == 0.0:
             continue
-        for k in range(tid, n_kept, TPB):
-            f = feat_idx[k]
+        for f in range(tid, n_kept, TPB):
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(x[i, f] - x[j, f])
             contribution = (1.0 - diff) if use_similarity else diff
-            sh_scores[k] += weight * contribution
+            sh_scores[f] += weight * contribution
 
     cuda.syncthreads()
     for k in range(tid, n_kept, TPB):
@@ -314,29 +313,25 @@ def _score_multisurf_shared_gpu_kernel(
             cuda.atomic.add(scores_out, k, sh_scores[k])
 
 
-def _multisurf_gpu_host_caller(x_d, y, recip_full_d, feat_idx: np.ndarray, use_star: bool, is_discrete_d) -> np.ndarray:
+def _multisurf_gpu_host_caller(x_d, y, use_star: bool, is_discrete_d) -> np.ndarray:
     """Launch GPU-only distance and scoring stages for MultiSURF."""
     ensure_cuda_context()
-    n_samples = x_d.shape[0]
-    n_kept = feat_idx.size
+    n_samples, n_kept = x_d.shape
 
-    feat_idx_d = cuda.to_device(feat_idx.astype(np.int32))
     y_d = cuda.to_device(y)
     dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
 
-    _compute_dist_matrix_multisurf_kernel[n_samples, TPB](x_d, recip_full_d, feat_idx_d, is_discrete_d, dist_matrix_d)
+    _compute_dist_matrix_multisurf_kernel[n_samples, TPB](x_d, is_discrete_d, dist_matrix_d)
 
     scores_d = cuda.device_array(n_kept, dtype=np.float32)
     scores_d[:] = 0.0
 
     if n_kept <= SHARED_SCORE_MAX_FEATURES:
         _score_multisurf_shared_gpu_kernel[n_samples, TPB, 0, n_kept * 4](
-            x_d, y_d, dist_matrix_d, recip_full_d, feat_idx_d, use_star, is_discrete_d, scores_d
+            x_d, y_d, dist_matrix_d, use_star, is_discrete_d, scores_d
         )
     else:
-        _score_multisurf_gpu_kernel[n_samples, TPB](
-            x_d, y_d, dist_matrix_d, recip_full_d, feat_idx_d, use_star, is_discrete_d, scores_d
-        )
+        _score_multisurf_gpu_kernel[n_samples, TPB](x_d, y_d, dist_matrix_d, use_star, is_discrete_d, scores_d)
 
     return scores_d.copy_to_host()
 
@@ -451,7 +446,7 @@ def _multisurf_cpu_host_caller(x, y, n_cont, use_star, n_jobs):
     """Host caller for MultiSURF CPU kernel."""
     scores = np.zeros(x.shape[1], dtype=np.float32)
 
-    num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
+    num_threads_to_set = resolve_num_threads(n_jobs)
     original_num_threads = get_num_threads()
     set_num_threads(num_threads_to_set)
 
@@ -492,6 +487,16 @@ class MultiSURF(TransformerMixin, BaseEstimator):
     The paper-defined complete-data binary-classification algorithm is used.
     Multiclass targets are supported as a pooled-miss extension; that extension
     is not presented as part of the original MultiSURF/MultiSURF* definition.
+
+    ``MultiSURF*`` sign convention: far neighbours are scored by feature
+    *similarity* (``1 - diff``), with far hits subtracting and far misses adding
+    it. This follows the worked far-hit/far-miss tables of Urbanowicz et al.
+    (2018), *Benchmarking Relief-Based Feature Selection Methods for
+    Bioinformatics Data Mining* (PMCID: PMC6299838). The prose of that paper's
+    section 2.1.4 describes the signs inconsistently with its own tables, and no
+    erratum resolving it has been identified, so unqualified identity with the
+    published ``MultiSURF*`` is not claimed. Distances are computed from the
+    evaluated features only, in float32.
     """
 
     def __init__(
@@ -517,11 +522,14 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         if n_samples < 2:
             raise ValueError(f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}")
 
+        check_integer_param(self.discrete_limit, "discrete_limit", 0)
+        resolve_num_threads(self.n_jobs)
+
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
                 raise ValueError("If n_features_to_select is a float, it must be in (0, 1].")
             n_select = max(1, int(self.n_features_to_select * n_features))
-        elif isinstance(self.n_features_to_select, int):
+        elif isinstance(self.n_features_to_select, int) and not isinstance(self.n_features_to_select, bool):
             if not 0 < self.n_features_to_select <= n_features:
                 raise ValueError(
                     f"If n_features_to_select is an int ({self.n_features_to_select}), "
@@ -533,8 +541,34 @@ class MultiSURF(TransformerMixin, BaseEstimator):
 
         return n_select
 
+    @staticmethod
+    def _check_feat_idx(feat_idx, n_features: int) -> np.ndarray:
+        """Validate a feature subset: non-empty 1-D unique in-range integer indices."""
+        idx = np.asarray(feat_idx)
+        if idx.ndim != 1 or idx.size == 0:
+            raise ValueError("feat_idx must be a non-empty 1-D array of feature indices.")
+        if idx.dtype == np.bool_ or not np.issubdtype(idx.dtype, np.integer):
+            raise TypeError("feat_idx must contain integer feature indices.")
+        if idx.min() < 0 or idx.max() >= n_features:
+            raise ValueError(f"feat_idx entries must be in [0, {n_features - 1}] for {n_features} features.")
+        if np.unique(idx).size != idx.size:
+            raise ValueError("feat_idx must not contain duplicate indices.")
+        return idx.astype(np.int32)
+
     def fit(self, X: np.ndarray, y: np.ndarray, feat_idx: np.ndarray | None = None):
-        """Fits MultiSURF model."""
+        """Fits MultiSURF model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+        y : array-like of shape (n_samples,)
+        feat_idx : array-like of int, optional
+            Restrict scoring *and* selection to these features. Distances are
+            computed from the listed features only. ``n_features_to_select``
+            then refers to this subset, ``top_features_`` contains only
+            indices from it, and ``feature_importances_`` is zero for the
+            features that were not evaluated. ``None`` evaluates every feature.
+        """
         X, y = validate_data(
             self,
             X,
@@ -543,20 +577,22 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             ensure_2d=True,
             y_numeric=True,
         )
+        check_classification_targets(y)
         self.n_features_in_ = X.shape[1]
         n_samples = X.shape[0]
-
-        n_select = self._validate_parameters(n_samples, self.n_features_in_)
 
         if feat_idx is None:
             feat_idx = np.arange(self.n_features_in_, dtype=np.int32)
         else:
-            feat_idx = np.asarray(feat_idx, dtype=np.int32)
+            feat_idx = self._check_feat_idx(feat_idx, self.n_features_in_)
+        self.evaluated_features_ = feat_idx
+
+        n_select = self._validate_parameters(n_samples, feat_idx.size)
 
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
         if len(self.classes_) < 2:
             self.feature_importances_ = np.zeros(self.n_features_in_, dtype=np.float32)
-            self.top_features_ = np.arange(n_select)
+            self.top_features_ = feat_idx[:n_select]
             self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
             return self
 
@@ -569,33 +605,32 @@ class MultiSURF(TransformerMixin, BaseEstimator):
 
         self.is_discrete_ = discrete_feature_mask(X, self.discrete_limit)
 
-        feature_ranges = X.max(axis=0) - X.min(axis=0)
-        feature_ranges[self.is_discrete_] = 1.0
-        feature_ranges[feature_ranges == 0] = 1.0
-        recip_full = (1.0 / feature_ranges).astype(np.float32)
+        # Continuous block first; only the evaluated features are materialised.
+        columns, n_cont = split_discrete_last(self.is_discrete_, feat_idx)
+        X_prepared = prepare_relief_matrix(
+            X, self.is_discrete_, columns, dtype=np.float32, discrete_limit=self.discrete_limit
+        )
 
         algo_name = "MultiSURF*" if self.use_star else "MultiSURF"
         if self.verbose:
             print(f"Running {algo_name} on the {self.effective_backend_.upper()} now...")
 
         if self.effective_backend_ == "gpu":
-            X_d = cuda.to_device(np.ascontiguousarray(X, dtype=np.float32))
-            recip_full_d = cuda.to_device(recip_full)
-            is_discrete_d = cuda.to_device(self.is_discrete_)
-            scores = _multisurf_gpu_host_caller(
-                X_d, y_encoded.astype(np.int32), recip_full_d, feat_idx, self.use_star, is_discrete_d
-            )
+            X_d = cuda.to_device(X_prepared)
+            is_discrete_d = cuda.to_device(self.is_discrete_[columns].astype(np.bool_))
+            scores = _multisurf_gpu_host_caller(X_d, y_encoded.astype(np.int32), self.use_star, is_discrete_d)
         else:
-            columns, n_cont = split_discrete_last(self.is_discrete_, feat_idx)
-            X_cpu = build_kernel_matrix(X, columns, recip_full, n_cont)
-            scores = _multisurf_cpu_host_caller(X_cpu, y_encoded.astype(np.int32), n_cont, self.use_star, self.n_jobs)
-            feat_idx = columns
+            scores = _multisurf_cpu_host_caller(
+                X_prepared, y_encoded.astype(np.int32), n_cont, self.use_star, self.n_jobs
+            )
 
         full_scores = np.zeros(self.n_features_in_, dtype=np.float32)
-        full_scores[feat_idx] = scores
-
+        full_scores[columns] = scores
         self.feature_importances_ = full_scores
-        self.top_features_ = np.argsort(full_scores)[::-1][:n_select]
+
+        # Rank only the evaluated features; unevaluated zeros must not compete.
+        subset_scores = full_scores[feat_idx]
+        self.top_features_ = feat_idx[np.argsort(subset_scores)[::-1][:n_select]]
 
         if self.verbose:
             print("Feature scoring completed.")

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import numpy as np
-from numba import config, cuda, float32, get_num_threads, get_thread_id, int32, njit, prange, set_num_threads
+from numba import cuda, float32, float64, get_num_threads, get_thread_id, int32, njit, prange, set_num_threads
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from .utils import (
-    build_kernel_matrix,
+    boundary_limits,
+    check_integer_param,
     discrete_feature_mask,
     ensure_cuda_context,
     is_cuda_ready,
+    prepare_relief_matrix,
+    resolve_num_threads,
     split_discrete_last,
 )
 
@@ -22,8 +26,12 @@ SHARED_SCORE_MAX_FEATURES = 512
 
 
 @cuda.jit
-def _compute_dist_matrix_surf_kernel(x, recip_full, is_discrete, dist_matrix):  # pragma: no cover
-    """Computes the upper triangle once and mirrors it into the distance matrix."""
+def _compute_dist_matrix_surf_kernel(x, is_discrete, dist_matrix):  # pragma: no cover
+    """Computes the upper triangle once and mirrors it into the distance matrix.
+
+    Distances are float64 so the global mean and every compared distance live in
+    the same, sufficiently precise representation (see ``BOUNDARY_RTOL``).
+    """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
@@ -37,10 +45,10 @@ def _compute_dist_matrix_surf_kernel(x, recip_full, is_discrete, dist_matrix):  
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(float64(x[i, f]) - float64(x[j, f]))
             local_dist += diff
 
-        sh_sum = cuda.shared.array(shape=64, dtype=float32)
+        sh_sum = cuda.shared.array(shape=64, dtype=float64)
         sh_sum[tid] = local_dist
         cuda.syncthreads()
 
@@ -62,13 +70,18 @@ def _score_surf_gpu_kernel(
     x,
     y,
     dist_matrix,
-    recip_full,
-    global_threshold,
+    near_limit,
+    far_limit,
     use_star,
     is_discrete,
     scores_out,
 ):  # pragma: no cover
-    """Score SURF with the single global radius defined by the algorithm."""
+    """Score SURF with the single global radius defined by the algorithm.
+
+    ``near_limit``/``far_limit`` are the global mean distance moved outward by
+    ``BOUNDARY_RTOL``, so ``dist < near_limit`` and ``dist > far_limit`` are the
+    strict near/far tests and a mathematical tie belongs to neither.
+    """
     n_samples, n_features = x.shape
     i = cuda.blockIdx.x
     tid = cuda.threadIdx.x
@@ -82,12 +95,12 @@ def _score_surf_gpu_kernel(
             continue
         dist = dist_matrix[i, j]
         is_hit = y[i] == y[j]
-        if dist < global_threshold:
+        if dist < near_limit:
             if is_hit:
                 local_near_hits += 1
             else:
                 local_near_misses += 1
-        elif use_star and dist > global_threshold:
+        elif use_star and dist > far_limit:
             if is_hit:
                 local_far_hits += 1
             else:
@@ -126,12 +139,12 @@ def _score_surf_gpu_kernel(
         is_hit = y[i] == y[j]
         dist = dist_matrix[i, j]
         weight = 0.0
-        if dist < global_threshold:
+        if dist < near_limit:
             if is_hit and n_near_hits > 0:
                 weight = -scale / n_near_hits
             elif not is_hit and n_near_misses > 0:
                 weight = scale / n_near_misses
-        elif use_star and dist > global_threshold:
+        elif use_star and dist > far_limit:
             if is_hit and n_far_hits > 0:
                 weight = scale / n_far_hits
             elif not is_hit and n_far_misses > 0:
@@ -143,7 +156,7 @@ def _score_surf_gpu_kernel(
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(float64(x[i, f]) - float64(x[j, f]))
             cuda.atomic.add(scores_out, f, weight * diff)
 
 
@@ -152,8 +165,8 @@ def _score_surf_shared_gpu_kernel(
     x,
     y,
     dist_matrix,
-    recip_full,
-    global_threshold,
+    near_limit,
+    far_limit,
     use_star,
     is_discrete,
     scores_out,
@@ -179,12 +192,12 @@ def _score_surf_shared_gpu_kernel(
             continue
         dist = dist_matrix[i, j]
         is_hit = y[i] == y[j]
-        if dist < global_threshold:
+        if dist < near_limit:
             if is_hit:
                 local_near_hits += 1
             else:
                 local_near_misses += 1
-        elif use_star and dist > global_threshold:
+        elif use_star and dist > far_limit:
             if is_hit:
                 local_far_hits += 1
             else:
@@ -228,12 +241,12 @@ def _score_surf_shared_gpu_kernel(
         is_hit = y[i] == y[j]
         dist = dist_matrix[i, j]
         weight = 0.0
-        if dist < global_threshold:
+        if dist < near_limit:
             if is_hit and n_near_hits > 0:
                 weight = -scale / n_near_hits
             elif not is_hit and n_near_misses > 0:
                 weight = scale / n_near_misses
-        elif use_star and dist > global_threshold:
+        elif use_star and dist > far_limit:
             if is_hit and n_far_hits > 0:
                 weight = scale / n_far_hits
             elif not is_hit and n_far_misses > 0:
@@ -245,7 +258,7 @@ def _score_surf_shared_gpu_kernel(
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(float64(x[i, f]) - float64(x[j, f]))
             sh_scores[f] += weight * diff
 
     cuda.syncthreads()
@@ -254,9 +267,15 @@ def _score_surf_shared_gpu_kernel(
             cuda.atomic.add(scores_out, f, sh_scores[f])
 
 
-@njit(parallel=True, fastmath=True)
-def _global_mean_distance_cpu(x, recip_full, is_discrete):  # pragma: no cover
-    """Mean Manhattan distance over all unique sample pairs without an N x N matrix."""
+@njit(parallel=True)
+def _global_mean_distance_cpu(x, is_discrete):  # pragma: no cover
+    """Mean Manhattan distance over all unique sample pairs without an N x N matrix.
+
+    ``x`` holds range-normalised continuous columns and exact discrete codes (see
+    ``prepare_relief_matrix``); ``is_discrete`` is aligned with its columns.
+    Everything is accumulated in float64 and without fast-math reassociation so
+    the mean is comparable with the float64 pair distances used for scoring.
+    """
     n_samples, n_features = x.shape
     pair_count = n_samples * (n_samples - 1) // 2
     feature_pair_sums = np.zeros(n_features, dtype=np.float64)
@@ -276,8 +295,7 @@ def _global_mean_distance_cpu(x, recip_full, is_discrete):  # pragma: no cover
             pair_sum *= 0.5
         else:
             for i in range(n_samples):
-                pair_sum += values[i] * (2 * i - n_samples + 1)
-            pair_sum *= recip_full[f]
+                pair_sum += np.float64(values[i]) * (2 * i - n_samples + 1)
         feature_pair_sums[f] = pair_sum
 
     total = 0.0
@@ -286,14 +304,14 @@ def _global_mean_distance_cpu(x, recip_full, is_discrete):  # pragma: no cover
     return total / pair_count if pair_count > 0 else 0.0
 
 
-def _surf_gpu_host_caller(x_d, y, recip_full_d, global_threshold, use_star, is_discrete_d):
+def _surf_gpu_host_caller(x_d, y, near_limit, far_limit, use_star, is_discrete_d):
     """Launch GPU-only distance and scoring stages for SURF."""
     ensure_cuda_context()
     n_samples, n_features = x_d.shape
-    dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
+    dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float64)
     y_d = cuda.to_device(y)
 
-    _compute_dist_matrix_surf_kernel[n_samples, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
+    _compute_dist_matrix_surf_kernel[n_samples, TPB](x_d, is_discrete_d, dist_matrix_d)
 
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
@@ -303,8 +321,8 @@ def _surf_gpu_host_caller(x_d, y, recip_full_d, global_threshold, use_star, is_d
             x_d,
             y_d,
             dist_matrix_d,
-            recip_full_d,
-            global_threshold,
+            near_limit,
+            far_limit,
             use_star,
             is_discrete_d,
             scores_d,
@@ -314,8 +332,8 @@ def _surf_gpu_host_caller(x_d, y, recip_full_d, global_threshold, use_star, is_d
             x_d,
             y_d,
             dist_matrix_d,
-            recip_full_d,
-            global_threshold,
+            near_limit,
+            far_limit,
             use_star,
             is_discrete_d,
             scores_d,
@@ -325,7 +343,7 @@ def _surf_gpu_host_caller(x_d, y, recip_full_d, global_threshold, use_star, is_d
 
 
 @njit(parallel=True, fastmath=True)
-def _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores_out):  # pragma: no cover
+def _surf_cpu_kernel(x, y, n_cont, near_limit, far_limit, use_star, scores_out):  # pragma: no cover
     """
     Optimized SURF/SURF* scoring for CPU with zero N x P temporary matrix allocations inside prange.
 
@@ -335,8 +353,8 @@ def _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores_out):  # p
     """
     n_samples, n_features = x.shape
     n_threads = get_num_threads()
-    thread_scores = np.zeros((n_threads, n_features), dtype=np.float32)
-    thread_dists = np.empty((n_threads, n_samples), dtype=np.float32)
+    thread_scores = np.zeros((n_threads, n_features), dtype=np.float64)
+    thread_dists = np.empty((n_threads, n_samples), dtype=np.float64)
 
     for i in prange(n_samples):
         tid = get_thread_id()
@@ -366,12 +384,12 @@ def _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores_out):  # p
                 continue
             dist_ij = dists_from_i[j]
             is_hit = y[i] == y[j]
-            if dist_ij < global_threshold:
+            if dist_ij < near_limit:
                 if is_hit:
                     near_hits += 1
                 else:
                     near_misses += 1
-            elif use_star and dist_ij > global_threshold:
+            elif use_star and dist_ij > far_limit:
                 if is_hit:
                     far_hits += 1
                 else:
@@ -390,9 +408,9 @@ def _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores_out):  # p
             dist_ij = dists_from_i[j]
             is_hit = y[i] == y[j]
             weight = 0.0
-            if dist_ij < global_threshold:
+            if dist_ij < near_limit:
                 weight = near_hit_weight if is_hit else near_miss_weight
-            elif use_star and dist_ij > global_threshold:
+            elif use_star and dist_ij > far_limit:
                 weight = far_hit_weight if is_hit else far_miss_weight
 
             if weight != 0.0:
@@ -410,18 +428,18 @@ def _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores_out):  # p
         scores_out[f] = tot
 
 
-def _surf_cpu_host_caller(x, y, n_cont, global_threshold, use_star, n_jobs):
+def _surf_cpu_host_caller(x, y, n_cont, near_limit, far_limit, use_star, n_jobs):
     """Host caller for the CPU kernel."""
     n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
 
-    num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
+    num_threads_to_set = resolve_num_threads(n_jobs)
 
     original_num_threads = get_num_threads()
     set_num_threads(num_threads_to_set)
 
     try:
-        _surf_cpu_kernel(x, y, n_cont, global_threshold, use_star, scores)
+        _surf_cpu_kernel(x, y, n_cont, near_limit, far_limit, use_star, scores)
     finally:
         set_num_threads(original_num_threads)
 
@@ -483,11 +501,14 @@ class SURF(TransformerMixin, BaseEstimator):
         if n_samples < 2:
             raise ValueError(f"SURF requires at least 2 samples, but got n_samples = {n_samples}")
 
+        check_integer_param(self.discrete_limit, "discrete_limit", 0)
+        resolve_num_threads(self.n_jobs)
+
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
                 raise ValueError("If n_features_to_select is a float, it must be in (0, 1].")
             n_select = max(1, int(self.n_features_to_select * n_features))
-        elif isinstance(self.n_features_to_select, int):
+        elif isinstance(self.n_features_to_select, int) and not isinstance(self.n_features_to_select, bool):
             if not 0 < self.n_features_to_select <= n_features:
                 raise ValueError(
                     f"If n_features_to_select is an int ({self.n_features_to_select}), "
@@ -509,6 +530,7 @@ class SURF(TransformerMixin, BaseEstimator):
             ensure_2d=True,
             y_numeric=True,
         )
+        check_classification_targets(y)
         self.n_features_in_ = X.shape[1]
         n_samples = X.shape[0]
 
@@ -530,42 +552,43 @@ class SURF(TransformerMixin, BaseEstimator):
 
         self.is_discrete_ = discrete_feature_mask(X, self.discrete_limit)
 
-        feature_ranges = X.max(axis=0) - X.min(axis=0)
-        feature_ranges[self.is_discrete_] = 1.0
-        feature_ranges[feature_ranges == 0] = 1.0
-        recip_full = (1.0 / feature_ranges).astype(np.float32)
-        X_float32 = np.ascontiguousarray(X, dtype=np.float32)
-        global_threshold = _global_mean_distance_cpu(X_float32, recip_full, self.is_discrete_)
+        # float64 working representation on both backends: the global radius is
+        # a mean of the very distances it is compared with, so both must be
+        # computed from identical, sufficiently precise values.
+        columns, n_cont = split_discrete_last(self.is_discrete_)
+        X_prepared = prepare_relief_matrix(
+            X, self.is_discrete_, columns, dtype=np.float64, discrete_limit=self.discrete_limit
+        )
+        global_threshold = _global_mean_distance_cpu(X_prepared, self.is_discrete_[columns])
+        near_limit, far_limit = boundary_limits(global_threshold)
 
         algo_name = "SURF*" if self.use_star else "SURF"
         if self.verbose:
             print(f"Running {algo_name} on the {self.effective_backend_.upper()} now...")
 
         if self.effective_backend_ == "gpu":
-            X_d = cuda.to_device(X_float32)
-            recip_full_d = cuda.to_device(recip_full)
-            is_discrete_d = cuda.to_device(self.is_discrete_)
-            scores = _surf_gpu_host_caller(
+            X_d = cuda.to_device(X_prepared)
+            is_discrete_d = cuda.to_device(self.is_discrete_[columns].astype(np.bool_))
+            permuted_scores = _surf_gpu_host_caller(
                 X_d,
                 y_encoded.astype(np.int32),
-                recip_full_d,
-                global_threshold,
+                near_limit,
+                far_limit,
                 self.use_star,
                 is_discrete_d,
             )
         else:
-            columns, n_cont = split_discrete_last(self.is_discrete_)
-            X_cpu = build_kernel_matrix(X_float32, columns, recip_full, n_cont)
             permuted_scores = _surf_cpu_host_caller(
-                X_cpu,
+                X_prepared,
                 y_encoded.astype(np.int32),
                 n_cont,
-                global_threshold,
+                near_limit,
+                far_limit,
                 self.use_star,
                 self.n_jobs,
             )
-            scores = np.zeros(self.n_features_in_, dtype=np.float32)
-            scores[columns] = permuted_scores
+        scores = np.zeros(self.n_features_in_, dtype=np.float32)
+        scores[columns] = permuted_scores
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][:n_select]

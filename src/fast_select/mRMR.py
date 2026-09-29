@@ -6,31 +6,54 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from . import mutual_information as mi
-from .utils import is_cuda_ready
+from .utils import check_integer_param, is_cuda_ready
 
 
 @njit(parallel=True, cache=True)
-def _encode_data_numba(X, y, unique_vals):  # pragma: no cover
-    """
-    Encodes X and y using a precomputed sorted array of unique values.
-    This is dramatically faster than np.vectorize.
+def _encode_columns_numba(X, out):  # pragma: no cover
+    """Write dense per-column category codes of numeric ``X`` into ``out``.
+
+    Each column is encoded independently against its own sorted distinct values
+    in the column's *own* dtype, so no two distinct symbols can collapse (mixing
+    uint64 and int64 vocabularies would promote both to float64).  Returns the
+    number of distinct symbols per column.
     """
     n_samples, n_features = X.shape
-    X_encoded = np.empty_like(X)
-    y_encoded = np.empty_like(y)
-
-    # Parallelize the encoding of X
-    for i in prange(n_features):
-        for j in range(n_samples):
-            X_encoded[j, i] = np.searchsorted(unique_vals, X[j, i])
-
-    for i in range(n_samples):
-        y_encoded[i] = np.searchsorted(unique_vals, y[i])
-
-    return X_encoded, y_encoded
+    n_states = np.empty(n_features, dtype=np.int64)
+    for j in prange(n_features):
+        column = X[:, j].copy()
+        unique_values = np.unique(column)
+        n_states[j] = unique_values.shape[0]
+        for i in range(n_samples):
+            out[i, j] = np.searchsorted(unique_values, column[i])
+    return n_states
 
 
-class mRMR(BaseEstimator, TransformerMixin):
+def _encode_categories(X, y):
+    """Encode ``X`` (2-D) and ``y`` (1-D) into dense non-negative int32 codes.
+
+    Every feature and the target are encoded independently and only by symbol
+    identity; the empirical joint distribution of any pair is preserved
+    exactly.  Float-coded categories (e.g. ``0.0`` / ``1.0``) are accepted.
+    Returns ``(X_encoded, y_encoded, n_states_x, n_states_y)``.
+    """
+    n_samples, n_features = X.shape
+    X_encoded = np.empty((n_samples, n_features), dtype=np.int32)
+    if X.dtype.kind in "biuf":
+        n_states_x = _encode_columns_numba(np.ascontiguousarray(X), X_encoded)
+    else:  # strings / objects: not representable in the compiled encoder
+        n_states_x = np.empty(n_features, dtype=np.int64)
+        for j in range(n_features):
+            uniques, inverse = np.unique(X[:, j], return_inverse=True)
+            X_encoded[:, j] = inverse.reshape(-1)
+            n_states_x[j] = uniques.shape[0]
+
+    y_uniques, y_inverse = np.unique(y, return_inverse=True)
+    y_encoded = y_inverse.reshape(-1).astype(np.int32)
+    return X_encoded, y_encoded, n_states_x, int(y_uniques.shape[0])
+
+
+class mRMR(TransformerMixin, BaseEstimator):
     """
     A scikit-learn compatible feature selector based on the mRMR algorithm.
 
@@ -107,17 +130,17 @@ class mRMR(BaseEstimator, TransformerMixin):
         )
         self.n_features_in_ = X.shape[1]
 
-        if not (0 < self.n_features_to_select <= self.n_features_in_):
+        check_integer_param(self.n_features_to_select, "n_features_to_select", 1)
+        if self.n_features_to_select > self.n_features_in_:
             raise ValueError(
-                "n_features_to_select must be a positive integer less " "than or equal to the number of features."
+                "n_features_to_select must be a positive integer less than or equal to the number of "
+                f"features (got n_features_to_select={self.n_features_to_select}, n_features={self.n_features_in_})."
             )
-        unique_vals = np.unique(np.concatenate([np.unique(X), np.unique(y)]))
-        self.unique_vals_ = unique_vals
-        X_encoded, y_encoded = _encode_data_numba(X, y, unique_vals)
+        X_encoded, y_encoded, n_states_x, n_states_y = _encode_categories(X, y)
 
         # Same max_state that calculate_mi_matrices derives, so the reported
         # backend is the one that actually runs.
-        max_state = int(max(X_encoded.max(), y_encoded.max())) + 1
+        max_state = int(max(n_states_x.max(), n_states_y))
         self.effective_backend_ = mi.resolve_backend(self.backend, max_state)
 
         relevance, redundancy = mi.calculate_mi_matrices(X_encoded, y_encoded, backend=self.backend, unit="bit")

@@ -5,7 +5,7 @@ from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from fast_select.mRMR import _encode_data_numba, mRMR
+from fast_select.mRMR import _encode_categories, mRMR
 from fast_select.mutual_information import calculate_mi_matrices
 from fast_select.utils import is_cuda_ready
 
@@ -244,18 +244,22 @@ def test_input_validation_errors(discrete_classification_data):
         model.transform(X_wrong_shape)
 
 
-def test_encode_data_numba(discrete_classification_data):
-    """Test the standalone JIT-compiled data encoder."""
+def test_encode_categories(discrete_classification_data):
+    """Each variable is encoded independently to dense int32 codes."""
     X, y = discrete_classification_data
-    unique_vals = np.unique(np.concatenate([np.unique(X), np.unique(y)]))
 
-    X_encoded, y_encoded = _encode_data_numba(X, y, unique_vals)
+    X_encoded, y_encoded, n_states_x, n_states_y = _encode_categories(X, y)
 
     assert X_encoded.shape == X.shape
     assert y_encoded.shape == y.shape
-    assert np.max(X_encoded) < len(unique_vals)
-    assert np.max(y_encoded) < len(unique_vals)
-    assert X_encoded.dtype == X.dtype
+    assert X_encoded.dtype == np.int32 and y_encoded.dtype == np.int32
+    for column in range(X.shape[1]):
+        assert X_encoded[:, column].max() == n_states_x[column] - 1
+        assert n_states_x[column] == np.unique(X[:, column]).size
+        # Encoding is a bijection on observed symbols: equality is preserved.
+        pairs = np.unique(np.column_stack([X[:, column], X_encoded[:, column]]), axis=0)
+        assert pairs.shape[0] == n_states_x[column]
+    assert n_states_y == np.unique(y).size
 
 
 @pytest.mark.skipif(not is_cuda_ready(), reason="NVIDIA GPU with CUDA not available")

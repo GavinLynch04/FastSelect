@@ -4,16 +4,12 @@ from itertools import combinations
 import numba
 import numpy as np
 from numba import cuda, njit, prange
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 from sklearn.model_selection import StratifiedKFold
-from sklearn.utils.multiclass import unique_labels
-from sklearn.utils.validation import (
-    check_array,
-    check_is_fitted,
-    check_X_y,
-)
+from sklearn.utils.multiclass import check_classification_targets, unique_labels
+from sklearn.utils.validation import check_is_fitted, validate_data
 
-from .utils import ensure_cuda_context, is_cuda_ready
+from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready
 
 MAX_K_FOR_KERNEL = 6
 MAX_CELLS = 3**MAX_K_FOR_KERNEL
@@ -147,7 +143,7 @@ def _predict_lut(X, interaction_indices, lookup_table):  # pragma: no cover
     return y_pred
 
 
-class MDR(BaseEstimator, ClassifierMixin):
+class MDR(ClassifierMixin, TransformerMixin, BaseEstimator):
     """
     Multifactor Dimensionality Reduction with GPU or CPU backend. This implementation targets the canonical
     use-case of MDR: SNP genotypes coded 0, 1, 2. All features must take exactly three discrete values (0/1/2);
@@ -162,33 +158,63 @@ class MDR(BaseEstimator, ClassifierMixin):
     cv : int, default=10
         Stratified K-folds for model selection.
 
-    backend : {'auto', 'CPU', 'GPU'}, default='auto'
-        Execution backend preference.
+    backend : {'auto', 'cpu', 'gpu'}, default='auto'
+        Execution backend preference (case-insensitive; stored unchanged and
+        normalised when fitting so the estimator can be cloned).
 
     verbose : bool, default=False
         Print progress information during training.
+
+    Attributes
+    ----------
+    best_mean_testing_ba_ : float
+        Mean testing balanced accuracy over only those cross-validation folds
+        in which the selected interaction was the fold winner. It is *not* an
+        out-of-fold estimate of that fixed interaction's performance; use an
+        outer evaluation to report predictive performance.
+
+    Notes
+    -----
+    Variant implemented: exhaustive k-way search, training balanced accuracy to
+    pick each fold's model, a cell is high risk when its case/control ratio is
+    greater than or equal to the overall case/control ratio (Ritchie et al.,
+    2001, with balanced accuracy for imbalanced data), and cross-validation
+    consistency, then mean testing balanced accuracy, to choose the final model.
+    Genotypes must be exactly 0, 1 or 2; other values are rejected, never cast.
     """
 
     def __init__(self, k: int = 2, cv: int = 10, backend: str = "auto", verbose: bool = False):
+        # Parameters are stored exactly as given (scikit-learn contract); they
+        # are normalised and validated in ``fit``.
         self.k = k
         self.cv = cv
-        self.backend = backend.lower()
+        self.backend = backend
         self.verbose = verbose
+
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        # Genotypes are 0/1/2; negative values are rejected.
+        tags.input_tags.positive_only = True
+        return tags
+
+    @staticmethod
+    def _check_genotypes(X):
+        """Validate genotypes *before* any narrowing cast and return them as uint8."""
+        if X.dtype.kind not in "biuf":
+            raise ValueError("Genotypes must be numeric and coded exactly 0, 1 or 2.")
+        if not np.isin(X, (0, 1, 2)).all():
+            raise ValueError("Genotypes must be coded exactly 0, 1 or 2 (integral, no other values).")
+        return np.ascontiguousarray(X, dtype=np.uint8)
 
     def _create_lookup_table(self, X, y, interaction_indices):
         """Return 3^k binary lookup table for the given interaction."""
         n_cells = 3**self.k
-        case_counts = np.zeros(n_cells, dtype=np.int32)
-        control_counts = np.zeros(n_cells, dtype=np.int32)
-
-        for i in range(X.shape[0]):
-            cell_idx = 0
-            for idx in interaction_indices:
-                cell_idx = cell_idx * 3 + X[i, idx]
-            if y[i] == 1:
-                case_counts[cell_idx] += 1
-            else:
-                control_counts[cell_idx] += 1
+        # Explicit int64 cell indices: uint8 genotype arithmetic wraps for k >= 5.
+        cells = np.zeros(X.shape[0], dtype=np.int64)
+        for idx in interaction_indices:
+            cells = cells * 3 + X[:, idx].astype(np.int64)
+        case_counts = np.bincount(cells[y == 1], minlength=n_cells).astype(np.int64)
+        control_counts = np.bincount(cells[y != 1], minlength=n_cells).astype(np.int64)
 
         total_cases = case_counts.sum()
         total_controls = control_counts.sum()
@@ -223,16 +249,16 @@ class MDR(BaseEstimator, ClassifierMixin):
         self : object
             Returns the instance itself.
         """
-        X, y = check_X_y(X, y, dtype=np.uint8)
+        X, y = validate_data(self, X, y, dtype="numeric")
+        check_classification_targets(y)
         self.classes_ = unique_labels(y)
 
         if len(self.classes_) != 2:
             raise ValueError("MDR only supports binary classification.")
         y_encoded = (y == self.classes_[1]).astype(np.uint8)
-        if np.max(X) > 2 or np.min(X) < 0:
-            raise ValueError("Genotypes must be coded 0/1/2.")
-        if self.k < 1:
-            raise ValueError("k must be at least 1.")
+        X = self._check_genotypes(X)
+        check_integer_param(self.k, "k", 1)
+        check_integer_param(self.cv, "cv", 2)
         if self.k > MAX_K_FOR_KERNEL:
             raise ValueError(f"k={self.k} exceeds MAX_K_FOR_KERNEL={MAX_K_FOR_KERNEL}.")
 
@@ -241,12 +267,13 @@ class MDR(BaseEstimator, ClassifierMixin):
             raise ValueError(f"k must be <= n_features. Got k={self.k}, n_features={n_features}")
 
         # Decide backend
+        backend = self.backend.lower() if isinstance(self.backend, str) else self.backend
+        if backend not in ("auto", "cpu", "gpu"):
+            raise ValueError("backend must be 'auto', 'cpu', or 'gpu' (case-insensitive).")
         cuda_available = is_cuda_ready()
-        if self.backend not in ("auto", "cpu", "gpu"):
-            raise ValueError("backend must be 'auto', 'CPU', or 'GPU'.")
-        if self.backend == "gpu" and not cuda_available:
+        if backend == "gpu" and not cuda_available:
             raise RuntimeError("backend='GPU' requested but no CUDA device found.")
-        use_gpu = (self.backend == "gpu") or (self.backend == "auto" and cuda_available)
+        use_gpu = (backend == "gpu") or (backend == "auto" and cuda_available)
         if use_gpu:
             ensure_cuda_context()
 
@@ -325,14 +352,15 @@ class MDR(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         check_is_fitted(self)
-        X = check_array(X, dtype=np.uint8)
+        X = validate_data(self, X, reset=False, dtype="numeric")
+        X = self._check_genotypes(X)
         encoded = self._internal_predict(X, self.best_interaction_, self.best_model_lookup_table_)
         return self.classes_[encoded]
 
     def transform(self, X):
         return self.predict(X).reshape(-1, 1)
 
-    def predict_proba(self, X):  # pragma: no cover
+    def predict_proba(self, X):
         """
         Not implemented.
 
@@ -341,4 +369,5 @@ class MDR(BaseEstimator, ClassifierMixin):
         probabilities, consider wrapping MDR in scikit-learn's
         `CalibratedClassifierCV` or implement cell-frequency posteriors.
         """
+        check_is_fitted(self)
         raise NotImplementedError("predict_proba is not supported in this MDR implementation.")

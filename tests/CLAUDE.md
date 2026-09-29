@@ -14,6 +14,21 @@ thresholds differ, plus threshold-equality and empty-group cases. Star variants
 must include examples that distinguish `diff` from `1 - diff` and exercise
 near, dead-band, and far observations.
 
+Boundary tests must not depend on floating-point luck: use integer-valued data
+whose radius/threshold ties are exact in rational arithmetic
+(`fractions.Fraction`) and whose column ranges are non-dyadic, so that
+`|a - b| / range` is not exactly representable. Also keep translation and
+category-relabelling invariance cases: the score must not change when a column
+is shifted by `1e8` or its category codes by `2**25`.
+
+CUDA kernels are exercised without hardware by `NUMBA_ENABLE_CUDASIM=1` (see
+`test_cuda_simulator.py`). That validates kernel logic only; it says nothing
+about drivers, races, or device rounding, and must not be reported as GPU
+verification.
+
+Every exported estimator needs a scikit-learn contract check
+(`test_estimator_contracts.py`) and a real `Pipeline`/`GridSearchCV` smoke test.
+
 Statistical algorithms need hand-calculated distributions with known results:
 perfect dependence, independence, constant variables, class imbalance, and
 label remapping. Search algorithms need a case where greedy hill climbing and

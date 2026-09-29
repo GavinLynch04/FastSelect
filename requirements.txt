@@ -3,7 +3,9 @@
 
 # Runtime
 numpy>=1.21
-numba>=0.56
+numba>=0.56; python_version < "3.13"
+numba>=0.61; python_version == "3.13"
+numba>=0.63; python_version >= "3.14"
 scikit-learn>=1.6
 scipy>=1.7
 

@@ -21,7 +21,10 @@ class TuRF(TransformerMixin, BaseEstimator):
     ----------
     estimator : estimator object
         The base estimator to use for scoring features at each iteration.
-        This object is cloned and not modified.
+        This object is cloned and not modified. Only its ``feature_importances_``
+        are used, so if it has an ``n_features_to_select`` parameter the clone is
+        set to keep every active feature at each refit; the original setting
+        could otherwise exceed the shrinking feature set.
     n_features_to_select : int, default=10
         The final number of features to select.
     pct_remove : float, default=0.1
@@ -59,6 +62,16 @@ class TuRF(TransformerMixin, BaseEstimator):
         self.n_iterations = n_iterations
         self.verbose = verbose
 
+    @staticmethod
+    def _score(base_estimator, X, y) -> np.ndarray:
+        """Fit the (cloned) base estimator on ``X`` and return its feature scores."""
+        if "n_features_to_select" in base_estimator.get_params(deep=False):
+            # Scores are all that is needed; a fixed output count chosen for the
+            # full feature set can be larger than the current active subset.
+            base_estimator.set_params(n_features_to_select=X.shape[1])
+        base_estimator.fit(X, y)
+        return np.array(base_estimator.feature_importances_, copy=True)
+
     def fit(self, X: np.ndarray, y: np.ndarray):
         """
         Fits the TuRF model.
@@ -90,8 +103,7 @@ class TuRF(TransformerMixin, BaseEstimator):
         active_feature_indices = np.arange(self.n_features_in_)
         base_estimator = clone(self.estimator)
 
-        base_estimator.fit(X, y)
-        self.feature_importances_ = base_estimator.feature_importances_.copy()
+        self.feature_importances_ = self._score(base_estimator, X, y)
 
         current_scores = self.feature_importances_.copy()
 
@@ -114,9 +126,7 @@ class TuRF(TransformerMixin, BaseEstimator):
             if self.verbose:
                 print(f"Iteration {iteration}: {len(active_feature_indices)} features remaining.")
             X_subset = X[:, active_feature_indices]
-            base_estimator.fit(X_subset, y)
-
-            current_scores = base_estimator.feature_importances_
+            current_scores = self._score(base_estimator, X_subset, y)
 
             iteration += 1
 
