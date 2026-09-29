@@ -5,6 +5,12 @@ on:
     branches: [ "main", "master", "development" ]
   pull_request:
     branches: [ "main", "master", "development" ]
+  # Reused by publish-to-pypi.yml so a release is gated on the same checks.
+  # Only the Codecov token is accepted; no other secret reaches this workflow.
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: false
 
 jobs:
   lint:
@@ -35,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Check out repository
@@ -63,7 +69,33 @@ jobs:
           flags: unittests
           name: codecov-ubuntu-py${{ matrix.python-version }}
 
-  packaging:
+  # Runs every CUDA kernel in the Numba CUDA simulator against the CPU backend
+  # and the paper oracles. This checks kernel logic (indexing, reductions,
+  # inequalities); it cannot detect driver, race, or real-device precision
+  # problems, which still need a physical NVIDIA GPU.
+  cuda-simulator:
+    runs-on: ubuntu-latest
+    env:
+      NUMBA_ENABLE_CUDASIM: "1"
+      NUMBA_NUM_THREADS: "2"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run CUDA-kernel tests in the simulator
+        run: pytest tests/test_cuda_simulator.py tests/test_exact_boundaries.py -v --no-cov
+
+  docs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -73,6 +105,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+
+      - name: Build documentation with warnings as errors
+        run: sphinx-build -W --keep-going -b html docs/source docs/_build/html
+
+  packaging:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
       - name: Build and verify distributions
         run: |

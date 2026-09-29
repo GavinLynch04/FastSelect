@@ -3,15 +3,18 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-from numba import config, cuda, float32, get_num_threads, get_thread_id, njit, prange, set_num_threads
+from numba import cuda, float32, get_num_threads, get_thread_id, njit, prange, set_num_threads
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from .utils import (
-    build_kernel_matrix,
+    check_integer_param,
     discrete_feature_mask,
     ensure_cuda_context,
     is_cuda_ready,
+    prepare_relief_matrix,
+    resolve_num_threads,
     split_discrete_last,
 )
 
@@ -19,7 +22,7 @@ TPB = 64  # Threads-per-block
 
 
 @cuda.jit
-def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix):  # pragma: no cover
+def _compute_dist_matrix_gpu_kernel(x, is_discrete, dist_matrix):  # pragma: no cover
     """
     Computes each pairwise sample distance once and mirrors the result.
     Grid: (n_samples,), Threads per block: TPB
@@ -37,7 +40,7 @@ def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix):  #
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(x[i, f] - x[j, f])
             local_dist += diff
 
         sh_sum = cuda.shared.array(shape=64, dtype=float32)
@@ -58,7 +61,7 @@ def _compute_dist_matrix_gpu_kernel(x, recip_full, is_discrete, dist_matrix):  #
 
 
 @cuda.jit
-def _accumulate_weighted_diffs_gpu_kernel(x, weights_matrix, recip_full, is_discrete, scores_out):  # pragma: no cover
+def _accumulate_weighted_diffs_gpu_kernel(x, weights_matrix, is_discrete, scores_out):  # pragma: no cover
     """
     Accumulates feature difference scores weighted by neighbor relationships on GPU.
     Grid: (n_samples,), Threads per block: TPB
@@ -76,7 +79,7 @@ def _accumulate_weighted_diffs_gpu_kernel(x, weights_matrix, recip_full, is_disc
             if is_discrete[f]:
                 diff = 1.0 if x[i, f] != x[j, f] else 0.0
             else:
-                diff = abs(x[i, f] - x[j, f]) * recip_full[f]
+                diff = abs(x[i, f] - x[j, f])
             cuda.atomic.add(scores_out, f, w * diff)
 
 
@@ -115,7 +118,6 @@ def _score_relieff_neighbors_gpu_kernel(
     y,
     neighbor_indices,
     class_probs,
-    recip_full,
     is_discrete,
     scores_out,
 ):  # pragma: no cover
@@ -136,7 +138,6 @@ def _score_relieff_neighbors_gpu_kernel(
     for f in range(tid, n_features, TPB):
         discrete_f = is_discrete[f]
         x_if = x[i, f]
-        recip_f = recip_full[f]
         acc = 0.0
 
         for c in range(n_classes):
@@ -157,7 +158,7 @@ def _score_relieff_neighbors_gpu_kernel(
                 if discrete_f:
                     diff = 1.0 if x_if != x[j, f] else 0.0
                 else:
-                    diff = abs(x_if - x[j, f]) * recip_f
+                    diff = abs(x_if - x[j, f])
                 acc += weight * diff
 
         if acc != 0.0:
@@ -232,13 +233,13 @@ def _compute_relieff_weights(dist_matrix, y_enc, class_probs, k):  # pragma: no 
     return weights
 
 
-def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_probs, k):
+def _relieff_gpu_host_caller(x_d, y_enc, is_discrete_d, class_probs, k):
     """Launch ReliefF distance, neighbor-selection, and scoring stages."""
     ensure_cuda_context()
     n_samples, n_features = x_d.shape
     dist_matrix_d = cuda.device_array((n_samples, n_samples), dtype=np.float32)
 
-    _compute_dist_matrix_gpu_kernel[n_samples, TPB](x_d, recip_full_d, is_discrete_d, dist_matrix_d)
+    _compute_dist_matrix_gpu_kernel[n_samples, TPB](x_d, is_discrete_d, dist_matrix_d)
 
     scores_d = cuda.device_array(n_features, dtype=np.float32)
     scores_d[:] = 0.0
@@ -263,7 +264,6 @@ def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_prob
             y_d,
             neighbor_indices_d,
             class_probs_d,
-            recip_full_d,
             is_discrete_d,
             scores_d,
         )
@@ -272,7 +272,7 @@ def _relieff_gpu_host_caller(x_d, y_enc, recip_full_d, is_discrete_d, class_prob
         dist_matrix = dist_matrix_d.copy_to_host()
         weights_matrix = _compute_relieff_weights(dist_matrix, y_enc, class_probs, k)
         weights_d = cuda.to_device(weights_matrix)
-        _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](x_d, weights_d, recip_full_d, is_discrete_d, scores_d)
+        _accumulate_weighted_diffs_gpu_kernel[n_samples, TPB](x_d, weights_d, is_discrete_d, scores_d)
 
     return scores_d.copy_to_host()
 
@@ -387,7 +387,7 @@ def _relieff_cpu_host_caller(x, y_enc, n_cont, k, class_probs, n_jobs):
     n_samples, n_features = x.shape
     scores = np.zeros(n_features, dtype=np.float32)
 
-    num_threads_to_set = config.NUMBA_NUM_THREADS if n_jobs == -1 else n_jobs
+    num_threads_to_set = resolve_num_threads(n_jobs)
 
     original_num_threads = get_num_threads()
     set_num_threads(num_threads_to_set)
@@ -469,17 +469,20 @@ class ReliefF(TransformerMixin, BaseEstimator):
         if n_samples < 2:
             raise ValueError(f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}")
 
-        if not (0 < self.n_neighbors < n_samples):
+        check_integer_param(self.n_neighbors, "n_neighbors", 1)
+        if self.n_neighbors >= n_samples:
             raise ValueError(
                 f"n_neighbors ({self.n_neighbors}) must be an integer "
                 f"between 1 and n_samples - 1 ({n_samples - 1})."
             )
+        check_integer_param(self.discrete_limit, "discrete_limit", 0)
+        resolve_num_threads(self.n_jobs)
 
         if isinstance(self.n_features_to_select, float):
             if not 0.0 < self.n_features_to_select <= 1.0:
                 raise ValueError("If n_features_to_select is a float, it must be in (0, 1].")
             n_select = max(1, int(self.n_features_to_select * n_features))
-        elif isinstance(self.n_features_to_select, int):
+        elif isinstance(self.n_features_to_select, int) and not isinstance(self.n_features_to_select, bool):
             if not 0 < self.n_features_to_select <= n_features:
                 raise ValueError(
                     f"If n_features_to_select is an int ({self.n_features_to_select}), "
@@ -501,6 +504,7 @@ class ReliefF(TransformerMixin, BaseEstimator):
             ensure_2d=True,
             y_numeric=True,
         )
+        check_classification_targets(y)
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
 
@@ -528,11 +532,6 @@ class ReliefF(TransformerMixin, BaseEstimator):
         class_probs = (class_counts / len(y)).astype(np.float32)
         y_enc = np.searchsorted(class_labels, y).astype(np.int32)
 
-        feature_ranges = x.max(axis=0) - x.min(axis=0)
-        feature_ranges[is_discrete] = 1.0
-        feature_ranges[feature_ranges == 0] = 1.0
-        recip_full = (1.0 / feature_ranges).astype(np.float32)
-
         if self.backend == "auto":
             self.effective_backend_ = "gpu" if is_cuda_ready() else "cpu"
         elif self.backend == "gpu" and not is_cuda_ready():
@@ -540,21 +539,26 @@ class ReliefF(TransformerMixin, BaseEstimator):
         else:
             self.effective_backend_ = self.backend
 
+        # One representation for both backends: float64-normalised continuous
+        # columns and exact category codes, narrowed to float32 only afterwards.
+        columns, n_cont = split_discrete_last(is_discrete)
+        x_prepared = prepare_relief_matrix(
+            x, is_discrete, columns, dtype=np.float32, discrete_limit=self.discrete_limit
+        )
         if self.effective_backend_ == "gpu":
-            x_d = cuda.to_device(np.ascontiguousarray(x, dtype=np.float32))
-            recip_d = cuda.to_device(recip_full)
-            is_discrete_d = cuda.to_device(is_discrete.astype(np.bool_))
+            x_d = cuda.to_device(x_prepared)
+            is_discrete_d = cuda.to_device(is_discrete[columns].astype(np.bool_))
             if self.verbose:
                 print("Running ReliefF on the GPU now...")
-            scores = _relieff_gpu_host_caller(x_d, y_enc, recip_d, is_discrete_d, class_probs, self.n_neighbors)
+            permuted_scores = _relieff_gpu_host_caller(x_d, y_enc, is_discrete_d, class_probs, self.n_neighbors)
         else:
             if self.verbose:
                 print("Running ReliefF on the CPU now...")
-            columns, n_cont = split_discrete_last(is_discrete)
-            x_cpu = build_kernel_matrix(x, columns, recip_full, n_cont)
-            permuted_scores = _relieff_cpu_host_caller(x_cpu, y_enc, n_cont, self.n_neighbors, class_probs, self.n_jobs)
-            scores = np.zeros(self.n_features_in_, dtype=np.float32)
-            scores[columns] = permuted_scores
+            permuted_scores = _relieff_cpu_host_caller(
+                x_prepared, y_enc, n_cont, self.n_neighbors, class_probs, self.n_jobs
+            )
+        scores = np.zeros(self.n_features_in_, dtype=np.float32)
+        scores[columns] = permuted_scores
 
         self.feature_importances_ = scores
         self.top_features_ = np.argsort(scores)[::-1][:n_select]

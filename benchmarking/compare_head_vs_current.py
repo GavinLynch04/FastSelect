@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
+import platform
 import statistics
 import subprocess
 import sys
@@ -25,6 +27,67 @@ from pathlib import Path
 
 DEFAULT_BASELINE_REF = "HEAD"
 RESULT_PREFIX = "RESULT_JSON="
+GPU_MEMORY_UNAVAILABLE = "unavailable: device allocations are not observable by tracemalloc"
+
+
+def _git(root: Path, *arguments: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "-c", f"safe.directory={root.as_posix()}", *arguments],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return completed.stdout.strip()
+
+
+def _provenance(source_root: Path, backend: str) -> dict:
+    """Identify exactly what was measured and on what."""
+    import numba
+    import numpy
+    import sklearn
+
+    sources = sorted((source_root / "src" / "fast_select").glob("*.py"))
+    digest = hashlib.sha256()
+    for path in sources:
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    commit = _git(source_root, "rev-parse", "HEAD")
+    dirty = bool(_git(source_root, "status", "--porcelain", "--", "src"))
+    device = platform.processor() or platform.machine()
+    if backend == "gpu":
+        try:
+            from numba import cuda
+
+            device = cuda.get_current_device().name
+            device = device.decode() if isinstance(device, bytes) else str(device)
+        except Exception:  # pragma: no cover - no CUDA device
+            device = "unavailable"
+    return {
+        "source_sha256": digest.hexdigest(),
+        "git_commit": commit,
+        "git_src_dirty": dirty,
+        "python": platform.python_version(),
+        "numpy": numpy.__version__,
+        "numba": numba.__version__,
+        "scikit_learn": sklearn.__version__,
+        "platform": platform.platform(),
+        "device": device,
+    }
+
+
+def _emit(result: dict, source_root: Path, backend: str) -> None:
+    """Attach provenance and an explicit memory method, then print the result line."""
+    result.update(_provenance(source_root, backend))
+    if backend == "gpu":
+        result["peak_traced_mb"] = None
+        result["memory_method"] = GPU_MEMORY_UNAVAILABLE
+    else:
+        result["memory_method"] = "tracemalloc host-allocation peak of one extra fit"
+    print(RESULT_PREFIX + json.dumps(result), flush=True)
 
 
 def _worker(args: argparse.Namespace) -> None:
@@ -78,7 +141,7 @@ def _worker(args: argparse.Namespace) -> None:
             "score_sum": float(memory_relevance.sum()),
             "score_l2": float(np.linalg.norm(memory_redundancy)),
         }
-        print(RESULT_PREFIX + json.dumps(result), flush=True)
+        _emit(result, source_root, args.backend)
         return
 
     from fast_select.CFS import CFS
@@ -172,7 +235,7 @@ def _worker(args: argparse.Namespace) -> None:
         "score_sum": float(scores.sum()),
         "score_l2": float(np.linalg.norm(scores)),
     }
-    print(RESULT_PREFIX + json.dumps(result), flush=True)
+    _emit(result, source_root, args.backend)
 
 
 def _run_worker(
@@ -267,6 +330,8 @@ def _parent(args: argparse.Namespace) -> None:
                     print(f"  {version}", flush=True)
                     result = _run_worker(args, source_root, version, estimator, backend)
                     result["round"] = round_index + 1
+                    if version == baseline_label:
+                        result["git_commit"] = _git(repo_root, "rev-parse", args.baseline_ref)
                     results.append(result)
                     round_results[version] = result
                     print(
@@ -287,10 +352,13 @@ def _parent(args: argparse.Namespace) -> None:
         current = [item for item in matching if item["version"] == "working-tree"]
         baseline_time = statistics.median(item["mean_seconds"] for item in baseline)
         current_time = statistics.median(item["mean_seconds"] for item in current)
-        baseline_memory = statistics.median(item["peak_traced_mb"] for item in baseline)
-        current_memory = statistics.median(item["peak_traced_mb"] for item in current)
         speedup = baseline_time / current_time
-        memory_delta = current_memory - baseline_memory
+        if any(item["peak_traced_mb"] is None for item in matching):
+            memory_text = f"{'unavailable':>14}"
+        else:
+            baseline_memory = statistics.median(item["peak_traced_mb"] for item in baseline)
+            current_memory = statistics.median(item["peak_traced_mb"] for item in current)
+            memory_text = f"{current_memory - baseline_memory:>+10.2f} MiB"
         per_round = [
             b["mean_seconds"] / c["mean_seconds"]
             for b, c in zip(
@@ -301,7 +369,7 @@ def _parent(args: argparse.Namespace) -> None:
         print(
             f"{estimator:<11} {backend:<7} {baseline_time:>11.6f} "
             f"{current_time:>11.6f} {speedup:>8.3f}x {len(per_round):>6} "
-            f"{memory_delta:>+10.2f} MiB   per-round: " + " ".join(f"{value:.2f}" for value in per_round)
+            f"{memory_text}   per-round: " + " ".join(f"{value:.2f}" for value in per_round)
         )
 
     if args.json_output:

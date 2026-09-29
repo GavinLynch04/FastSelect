@@ -8,9 +8,10 @@ from numba import cuda
 from sklearn.base import BaseEstimator
 from sklearn.feature_selection import SelectorMixin
 from sklearn.preprocessing import KBinsDiscretizer
-from sklearn.utils.validation import check_is_fitted, check_X_y
+from sklearn.utils.multiclass import check_classification_targets
+from sklearn.utils.validation import check_is_fitted, validate_data
 
-from .utils import ensure_cuda_context, is_cuda_ready
+from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready, resolve_num_threads
 
 
 @numba.njit(cache=True)
@@ -308,7 +309,7 @@ def _precompute_correlations_gpu_kernel(
             r_ff_out[j, i] = su
 
 
-class CFS(BaseEstimator, SelectorMixin):
+class CFS(SelectorMixin, BaseEstimator):
     """
     GPU and CPU-accelerated Correlation-based Feature Selection (CFS).
 
@@ -337,6 +338,15 @@ class CFS(BaseEstimator, SelectorMixin):
     max_backtracks : int, default=5
         Stop best-first search after this many consecutive expanded subsets
         fail to improve the best CFS merit, matching the canonical default.
+
+    Notes
+    -----
+    Variant: Hall (1999) CFS with symmetrical-uncertainty correlations and
+    forward best-first search. A node improves the incumbent only when its merit
+    exceeds the best merit by more than ``1e-12`` (strict improvement); nodes
+    with equal merit are expanded in ascending order of their sorted feature-index
+    tuple. Search is heuristic and is not guaranteed to find the global optimum.
+    Continuous features are discretised with ``KBinsDiscretizer`` first.
 
     Attributes
     ----------
@@ -387,15 +397,15 @@ class CFS(BaseEstimator, SelectorMixin):
         self : object
             Returns the instance itself.
         """
-        feature_names = np.asarray(X.columns) if hasattr(X, "columns") else None
-        X, y = check_X_y(X, y, dtype=None, ensure_min_samples=2)
-        self.n_features_in_ = X.shape[1]
+        # validate_data records n_features_in_ and (string) feature_names_in_,
+        # which transform later uses to reject a different schema.
+        X, y = validate_data(self, X, y, dtype=None, ensure_min_samples=2)
+        check_classification_targets(y)
         if self.backend not in ("auto", "cpu", "gpu"):
             raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
-        if self.max_backtracks < 1:
-            raise ValueError("max_backtracks must be at least 1")
-        if feature_names is not None:
-            self.feature_names_in_ = feature_names
+        check_integer_param(self.max_backtracks, "max_backtracks", 1)
+        check_integer_param(self.n_bins, "n_bins", 2)
+        n_threads = resolve_num_threads(self.n_jobs)
 
         # --- 1. Data Discretization and Encoding ---
         is_continuous = np.array([np.issubdtype(X[:, i].dtype, np.floating) for i in range(self.n_features_in_)])
@@ -446,7 +456,6 @@ class CFS(BaseEstimator, SelectorMixin):
 
         else:  # --- CPU Backend Logic ---
             original_n_threads = numba.get_num_threads()
-            n_threads = self.n_jobs if self.n_jobs != -1 else numba.config.NUMBA_DEFAULT_NUM_THREADS
             try:
                 numba.set_num_threads(n_threads)
                 r_cf_all, r_ff_matrix = _precompute_correlations_cpu(
@@ -503,8 +512,12 @@ class CFS(BaseEstimator, SelectorMixin):
         """
 
         check_is_fitted(self)
+        # Full validation (2-D, finite, feature count and, for named columns,
+        # names and order); its converted copy is discarded so that the
+        # container type is preserved below.
+        validate_data(self, X, reset=False, dtype=None)
         # Duck-typed rather than ``isinstance(X, pd.DataFrame)`` so pandas stays
         # an optional dependency; ``.iloc`` is the attribute that matters here.
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_mask_]
-        return X[:, self.support_mask_]
+        return np.asarray(X)[:, self.support_mask_]

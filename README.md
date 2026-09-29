@@ -49,6 +49,11 @@ A high-performance Python library powered by **Numba** and **CUDA**, offering ac
 ## **Installation**
 <!-- start-installation-section -->
 
+Supports standard CPython 3.9–3.14. CI runs the test suite on each of these
+versions. Python 3.13 requires Numba 0.61 or newer, and Python 3.14 requires
+Numba 0.63 or newer; pip selects these automatically. Python prereleases and
+free-threaded builds are not currently part of the supported test matrix.
+
 Install `fast-select` directly from PyPI:
 
 ```bash
@@ -200,16 +205,40 @@ Future plans include additional feature selection algorithms, such as wrappers, 
 
 ## **Versioning and Stability**
 
-`fast-select` follows [Semantic Versioning](https://semver.org/). As of v1.0.0
-the public API — estimator names, constructor parameters, and fitted attributes —
-is stable, and breaking changes require a major version bump.
+`fast-select` follows [Semantic Versioning](https://semver.org/) and is currently a
+0.x release series: estimator names, constructor parameters, and fitted
+attributes may still change between minor versions, and every change is listed
+in the [changelog](./CHANGELOG.md). A 1.0.0 release will follow once the CUDA
+backend has been verified on physical NVIDIA hardware and the support matrix is
+final.
 
-**Upgrading from 0.2.x:** v1.0.0 corrects several algorithms that had drifted
-from their defining papers, so SURF, SURF*, MultiSURF*, CFS, MDR, and GPU mRMR
-can return different scores and different selected features than 0.2.1 did.
-`pandas` is also no longer a required dependency. See the
+**Upgrading from 0.2.x:** v0.3.0 corrects several algorithms that had drifted
+from their defining papers and fixes numerical-precision and input-validation
+defects, so ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, CFS, MDR, mRMR, and GPU
+mutual information can return different scores and different selected features
+than 0.2.1 did. `pandas` is also no longer a required dependency. See the
 [changelog](./CHANGELOG.md) for the full list before comparing new output
 against results you generated with an earlier release.
+
+**Support matrix.**
+
+| Area | Verified in CI | Not verified |
+|---|---|---|
+| Python | CPython 3.9–3.14, Linux x86-64 | Free-threaded builds, prereleases, minimum-dependency pins |
+| Operating system | Linux | Windows, macOS (the Windows CUDA context workaround is untested in CI) |
+| CPU backend | Full test suite, independent equation oracles | — |
+| CUDA backend | Kernel logic in the Numba CUDA simulator, against the CPU backend and oracles | Physical NVIDIA GPUs: drivers, races, device-level rounding, performance |
+| Documentation | Strict Sphinx build (warnings are errors) | — |
+
+Reported test coverage is host-side Python line coverage only; the compiled
+numerical kernels are excluded from it and are verified by the oracle tests.
+
+**Numerical policy.** Relief-family features are range-normalised in float64
+(continuous) or replaced by exact category codes (discrete) before any narrowing
+to float32, on both the CPU and CUDA backends. SURF and SURF* compute the global
+radius and all pair distances in float64 and treat a distance within a relative
+`1e-12` of the radius as a tie, which is excluded from both the near and far
+sets; the remaining Relief-family kernels score in float32.
 
 ---
 
@@ -241,22 +270,22 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 ## Citing `fast-select`
 
-If you use `fast-select` in your research or work, please cite it using the following DOI. This helps to track the impact of the work and ensures its continued development.
+If you use `fast-select` in your research or work, please cite it and state the version you
+used (`fast_select.__version__`). The DOI below is the Zenodo *concept* DOI: it always
+resolves to the newest archived release. Each release also has its own version-specific DOI
+on the Zenodo record, which you can cite instead for exact reproducibility.
 
-> Gavin Lynch. (2026). GavinLynch04/FastSelect: v1.0.0 (1.0.0). Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
-
-You can use the following BibTeX entry:
+> Gavin Lynch. FastSelect. Zenodo. [https://doi.org/10.5281/zenodo.16285073](https://doi.org/10.5281/zenodo.16285073)
 
 ```bibtex
-@software{gavin_lynch_2026,
-  author       = {Gavin Lynch},
-  title        = {{GavinLynch04/FastSelect: v1.0.0}},
-  month        = jul,
-  year         = 2026,
-  publisher    = {Zenodo},
-  version      = {1.0.0},
-  doi          = {10.5281/zenodo.16285073},
-  url          = {https://doi.org/10.5281/zenodo.16285073}
+@software{lynch_fast_select,
+  author  = {Gavin Lynch},
+  title   = {{FastSelect}},
+  year    = {2026},
+  version = {<the version you used>},
+  publisher = {Zenodo},
+  doi     = {10.5281/zenodo.16285073},
+  url     = {https://doi.org/10.5281/zenodo.16285073}
 }
 ```
 

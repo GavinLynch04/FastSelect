@@ -18,15 +18,40 @@ except Exception:  # pragma: no cover
 
 
 def _validate_discrete(arr: np.ndarray, name: str) -> np.ndarray:
-    """Ensure *arr* is 1-D or 2-D integer array with non-negative entries."""
+    """Return *arr* as a non-negative int32 code array without aliasing symbols.
+
+    Mutual information depends only on the empirical joint distribution, so a
+    variable's symbols may be relabelled freely.  Codes that are already small
+    (below ``2 * n_samples + 32``) are used as-is.  Larger codes, including
+    values that do not fit in int32, are remapped to dense ``0..K-1`` codes per
+    column so that distinct symbols stay distinct and the joint histograms stay
+    bounded by the number of observed symbols rather than by the code magnitude.
+    """
     if not np.issubdtype(arr.dtype, np.integer):
         raise ValueError(
             f"{name} must be an integer-coded array (got {arr.dtype}). "
             "Discretise continuous data before calling this function."
         )
+    if arr.size == 0:
+        raise ValueError(f"{name} must not be empty.")
     if arr.min() < 0:
         raise ValueError(f"{name} contains negative values; expected 0..K-1 codes.")
-    return arr.astype(np.int32, copy=False)
+
+    compact_below = 2 * arr.shape[0] + 32
+    if arr.max() < compact_below:
+        return arr.astype(np.int32, copy=False)
+
+    if arr.ndim == 1:
+        return np.unique(arr, return_inverse=True)[1].reshape(-1).astype(np.int32)
+
+    out = np.empty(arr.shape, dtype=np.int32)
+    for column in range(arr.shape[1]):
+        values = arr[:, column]
+        if values.max() < compact_below:
+            out[:, column] = values
+        else:
+            out[:, column] = np.unique(values, return_inverse=True)[1].reshape(-1)
+    return out
 
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -279,7 +304,8 @@ def calculate_mi_matrices(
 
     * X.shape == (n_samples, n_features)
     * y.shape == (n_samples,)
-    * All values must be integer codes >=0.
+    * All values must be integer codes >=0. Codes need not be dense: they are
+      remapped per column when large, so distinct symbols are never merged.
     """
     if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0]:
         raise ValueError("X must be 2-D and y 1-D with matching sample size")

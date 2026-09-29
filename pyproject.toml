@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fast-select"
-version = "1.0.0"
+version = "0.3.0"
 
 authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
@@ -28,7 +28,7 @@ keywords = [
 ]
 
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
@@ -36,6 +36,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",
@@ -46,7 +48,10 @@ classifiers = [
 dependencies = [
     "numpy>=1.21",
     # numba.get_thread_id, used by the parallel CPU kernels, landed in 0.56.
-    "numba>=0.56",
+    "numba>=0.56; python_version < '3.13'",
+    # Python 3.13 and 3.14 support landed in Numba 0.61 and 0.63 respectively.
+    "numba>=0.61; python_version == '3.13'",
+    "numba>=0.63; python_version >= '3.14'",
     # sklearn.utils.validation.validate_data was added in scikit-learn 1.6.
     "scikit-learn>=1.6",
     # scipy.stats.chi2 backs the Chi2 p-values, imported via fast_select/__init__.

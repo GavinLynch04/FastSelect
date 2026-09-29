@@ -38,13 +38,13 @@ Typical omics studies now profile **10⁴–10⁶ features** across thousands of
 
 # Implementation and Architecture
 
-The package is implemented in pure Python (≥3.9) with no compiled build step; wheels are therefore platform‑independent.  Core numerical kernels are written as Numba‑typed functions [@lam2015numba] that compile to machine code at runtime, with thread‑level parallelism expressed through `numba.prange`.  When an NVIDIA GPU is detected, the distance and scoring stages are off‑loaded to `numba.cuda` kernels; the CUDA path requires only a driver and toolkit on the host, not an additional Python package.  Estimators subclass `sklearn.base.BaseEstimator` directly [@pedregosa2011sklearn], so they compose with `Pipeline`, `GridSearchCV`, and the rest of the scikit‑learn ecosystem.  Continuous integration (GitHub Actions) runs the test suite on Linux across Python 3.9–3.12, and separately enforces linting and distribution metadata checks.
+The package is implemented in pure Python (≥3.9) with no compiled build step; wheels are therefore platform‑independent.  Core numerical kernels are written as Numba‑typed functions [@lam2015numba] that compile to machine code at runtime, with thread‑level parallelism expressed through `numba.prange`.  When an NVIDIA GPU is detected, the distance and scoring stages are off‑loaded to `numba.cuda` kernels; the CUDA path requires only a driver and toolkit on the host, not an additional Python package.  Estimators subclass `sklearn.base.BaseEstimator` directly [@pedregosa2011sklearn], so they compose with `Pipeline`, `GridSearchCV`, and the rest of the scikit‑learn ecosystem.  Continuous integration (GitHub Actions) runs the test suite on Linux across Python 3.9–3.14, runs the CUDA kernels under the Numba CUDA simulator, builds the documentation with warnings treated as errors, and separately enforces linting and distribution metadata checks.  Publication to PyPI is gated on the same checks passing for the tagged commit.  Physical-GPU behaviour (driver and context handling, races, device-level accuracy) is not covered by hosted CI.
 
 # Correctness
 
 Feature‑selection implementations are easy to get subtly wrong, and a wrong implementation is difficult to detect from downstream accuracy alone.  `Fast‑Select` therefore treats the defining paper — not a reference implementation — as the semantic authority for every algorithm.  Each method is checked against an independent oracle computed directly from the published equations, which never calls the production kernel; CPU results are compared to the oracle, and GPU results to both the oracle and the CPU path.  Tests cover threshold equality, empty neighbour groups, constant features, mixed discrete/continuous inputs, class imbalance, and non‑`0/1` binary labels.
 
-This process surfaced and corrected several genuine deviations prior to the v1.0.0 release, including SURF's use of a per‑target rather than global mean pair‑distance radius, a missing dead band and far‑neighbour similarity term in MultiSURF\*, an unpublished relevance cutoff in CFS, and an exclusive rather than inclusive high‑risk threshold in MDR.  Where the library supports more than the source paper defines — multiclass targets for the SURF family, for example — this is documented as an extension rather than presented as the original algorithm.
+This process surfaced and corrected several genuine deviations prior to the v0.3.0 release, including SURF's use of a per‑target rather than global mean pair‑distance radius, a missing dead band and far‑neighbour similarity term in MultiSURF\*, an unpublished relevance cutoff in CFS, and an exclusive rather than inclusive high‑risk threshold in MDR.  Where the library supports more than the source paper defines — multiclass targets for the SURF family, for example — this is documented as an extension rather than presented as the original algorithm.
 
 # Performance
 
@@ -52,7 +52,7 @@ Benchmark scripts and machine‑readable results are included in the repository,
 
 # Quality Control
 
-* 94% line coverage via `pytest` and `coverage.py`, reported to Codecov on every push.
+* Line coverage via `pytest` and `coverage.py`, reported to Codecov on every push.  This figure covers host-side Python only: Numba-compiled numerical kernels are excluded from line coverage and are verified by the independent oracle tests instead, so coverage is not evidence of kernel correctness.
 * Independent, equation‑derived compliance tests plus CPU/GPU parity tests for each algorithm.
 * Style enforcement with `ruff` and `black`, checked in CI.
 * Distributions are built and validated with `twine check --strict` in CI, and published to PyPI on tagged releases.

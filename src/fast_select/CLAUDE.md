@@ -25,6 +25,19 @@ invariants in every CPU, CUDA, helper, and fallback path.
   `1 - normalized_diff`, discrete equality. Far hits subtract similarity and
   far misses add it, with separate hit/miss count normalization.
 - Threshold comparisons are strict (`< near`, `> far`). Equality is excluded.
+- Working representation (all Relief-family estimators, CPU and CUDA): each
+  continuous column is normalised as `(x - min) / (max - min)` in float64 and
+  only then narrowed; each discrete column is replaced by exact dense category
+  codes. Never cast raw feature values to float32 before normalising or coding
+  (large offsets or large category codes silently collapse otherwise). Both
+  backends must score the same prepared matrix (`utils.prepare_relief_matrix`).
+- SURF/SURF* compute the global radius and every pair distance in float64. A
+  distance within `utils.BOUNDARY_RTOL` (relative) of the radius is a tie and is
+  neither near nor far; the kernels keep strict `<` / `>` against the widened
+  `near_limit` / `far_limit`. Keep exact-boundary regression cases (the
+  rational-arithmetic oracle in `tests/test_exact_boundaries.py`).
+- `MultiSURF.fit(feat_idx=...)` restricts distances, scoring *and* ranking to
+  the listed features; unevaluated features must never be ranked.
 - TuRF repeatedly re-fits its Relief-family base estimator after removing the
   requested fraction of the currently lowest-scoring features. Never reuse
   scores computed for a superseded feature space.
@@ -41,7 +54,12 @@ invariants in every CPU, CUDA, helper, and fallback path.
 - mRMR relevance is `I(feature; target)` and redundancy is the mean mutual
   information with already selected features. MID subtracts redundancy; MIQ
   divides by it. Encoding may be optimized but must preserve each variable's
-  empirical joint distribution.
+  empirical joint distribution: encode every feature and the target
+  independently, by symbol identity, into an explicit integer dtype (never mix
+  vocabularies of different dtypes, which promotes to float64).
+- Discrete codes passed to the mutual-information functions are remapped to
+  dense per-column codes when large; distinct symbols must never alias through
+  a narrowing cast.
 - Mutual information is
   `sum p(x,y) * log(p(x,y)/(p(x)*p(y)))`. Count every sample exactly once.
   `unit="bit"` uses log base 2 and `unit="nat"` uses the natural logarithm on
@@ -53,7 +71,21 @@ invariants in every CPU, CUDA, helper, and fallback path.
   than or equal to the dataset case/control ratio. Empty cells are low risk.
   Encode arbitrary binary labels internally and map predictions back to the
   original labels. Model selection uses cross-validation consistency, then
-  testing balanced accuracy to break consistency ties.
+  testing balanced accuracy to break consistency ties. Genotypes must be
+  exactly 0, 1 or 2 and are validated (in `fit` and `predict`) *before* any
+  narrowing cast; cell indices are computed in int64.
+
+## scikit-learn contract
+
+- Estimators store constructor arguments unchanged; normalise and validate in
+  `fit`. Mixins precede `BaseEstimator` in the base-class list.
+- Validate feature count and names on every `transform`/`predict` through
+  `validate_data(..., reset=False)`; never index by position without it.
+- `n_jobs=-1` means the configured Numba pool (`NUMBA_NUM_THREADS`); use
+  `utils.resolve_num_threads`.
+- The package must import under `NUMBA_ENABLE_CUDASIM=1`. Use only public
+  `numba.cuda` API for context handling; the Windows-only context workaround in
+  `utils.py` must stay scoped to that platform.
 
 Keep shared semantic constants and inequalities visibly identical across CPU
 and CUDA code. If duplication is required for compilation, pair it with an

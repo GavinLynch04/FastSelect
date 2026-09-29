@@ -4,26 +4,112 @@ on:
   release:
     types: [published]
 
-jobs:
-  build-and-publish:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+jobs:
+  # The full check suite (lint, tests on every supported Python, CUDA-simulator
+  # kernels, strict docs build, packaging) runs against the exact commit that the
+  # release tag points at. Nothing below runs unless every one of those passes.
+  checks:
+    uses: ./.github/workflows/python-tests.yml
+    # Least privilege: the test workflow gets the Codecov token only, never
+    # PYPI_API_TOKEN.
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Check out the release commit
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
-          pip install build twine
+          pip install build "twine>=6.1"
 
       - name: Build package
         run: python -m build
+
+      - name: Validate distributions
+        run: twine check --strict dist/*
+
+      - name: Assert the release tag matches the package metadata
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'EOF'
+          import glob
+          import os
+          import re
+          import tomllib
+
+          tag = os.environ["TAG_NAME"]
+          expected = tag[1:] if tag.startswith("v") else tag
+
+          with open("pyproject.toml", "rb") as handle:
+              declared = tomllib.load(handle)["project"]["version"]
+          assert declared == expected, f"tag {tag!r} does not match pyproject version {declared!r}"
+
+          artifacts = sorted(glob.glob("dist/*"))
+          assert artifacts, "no distributions were built"
+          for artifact in artifacts:
+              name = os.path.basename(artifact)
+              assert f"-{expected}" in name, f"{name} does not carry version {expected}"
+
+          with open("CHANGELOG.md", encoding="utf-8") as handle:
+              assert re.search(rf"^## \[{re.escape(expected)}\]", handle.read(), re.M), (
+                  f"CHANGELOG.md has no section for {expected}"
+              )
+          print(f"tag {tag} matches version {declared}, {len(artifacts)} artifacts, changelog entry present")
+          EOF
+
+      - name: Smoke-test the built wheel outside the source tree
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          EXPECTED="${TAG_NAME#v}" "$RUNNER_TEMP/smoke/bin/python" - <<'EOF'
+          import os
+
+          import fast_select
+
+          assert fast_select.__version__ == os.environ["EXPECTED"], fast_select.__version__
+          assert "site-packages" in fast_select.__file__, fast_select.__file__
+          print("wheel imports as", fast_select.__version__)
+          EOF
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Manual approval gate. Configure required reviewers on the "pypi"
+    # environment (Settings > Environments); the job waits for them before it
+    # can read PYPI_API_TOKEN or upload anything.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/fast-select/
+    steps:
+      - name: Download the validated distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
