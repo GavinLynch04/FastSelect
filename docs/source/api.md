@@ -2,6 +2,10 @@
 
 This page provides a detailed API reference for the main classes and functions in `fast-select`.
 
+The `set_*_request` methods that scikit-learn generates on estimators for metadata
+routing are omitted: their docstrings link into the scikit-learn glossary, which is
+not part of this documentation set.
+
 ## Feature Selection Algorithms
 
 ### ReliefF
@@ -11,6 +15,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### SURF
@@ -20,6 +25,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### MultiSURF
@@ -29,6 +35,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### TuRF
@@ -38,6 +45,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### Chi2
@@ -56,6 +64,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### CFS
@@ -65,6 +74,7 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
 ### MDR
@@ -74,4 +84,18 @@ This page provides a detailed API reference for the main classes and functions i
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+## Mutual Information
+
+Discrete mutual information with the same CPU/CUDA backend selection as the
+estimators. These back the mRMR criterion and are exported for direct use.
+
+```{eval-rst}
+.. autofunction:: fast_select.mutual_information.calculate_mi_single_pair
+```
+
+```{eval-rst}
+.. autofunction:: fast_select.mutual_information.calculate_mi_matrices
 ```

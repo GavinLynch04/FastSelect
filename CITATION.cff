@@ -1,11 +1,14 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+message: "If you use this software, please cite it, giving the version you used (fast_select.__version__)."
 title: "FastSelect"
-version: "0.2.0"
+# doi is the Zenodo *concept* DOI: it resolves to the newest archived release and
+# never changes, so it does not need updating per release. version and
+# date-released are deliberately omitted (per-release values that drift); a
+# version-specific DOI can be taken from the release's own Zenodo record.
 doi: "10.5281/zenodo.16285073"
-date-released: "2025-08-01"
-url: "https://doi.org/10.5281/zenodo.16285073"
+url: "https://github.com/GavinLynch04/FastSelect"
 repository-code: "https://github.com/GavinLynch04/FastSelect"
+license: MIT
 authors:
   - family-names: "Lynch"
     given-names: "Gavin"

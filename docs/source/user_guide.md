@@ -93,7 +93,7 @@ It uses a "merit" score to evaluate a subset, which is conceptually:
 
 `Merit(S) = (Avg. Feature-Target Correlation) / sqrt(Avg. Feature-Feature Correlation)`
 
-The algorithm searches for the subset with the highest merit. Since an exhaustive search is impossible, a heuristic search strategy like *best-first* or *forward selection* is typically used.
+The algorithm searches for the subset with the highest merit. Since an exhaustive search is impossible, a heuristic search is used; `fast-select` implements Hall's **forward best-first** search with the canonical consecutive-non-improvement stopping rule (`max_backtracks`, default 5).
 
 ### When to Use CFS
 
@@ -142,7 +142,7 @@ MDR is a highly specialized, non-parametric method explicitly designed to **dete
 Unlike other methods that select original features, MDR is a **feature construction** method. For a given set of `n` features (e.g., two features, `f1` and `f2`):
 1.  It creates a discrete space of all possible multi-locus genotypes (e.g., all combinations of values for `f1` and `f2`).
 2.  For each combination, it calculates the ratio of cases (affected) to controls (unaffected).
-3.  It labels each combination as "high-risk" if the ratio exceeds a threshold, and "low-risk" otherwise.
+3.  It labels each combination as "high-risk" if its case/control ratio **meets or exceeds** the dataset-wide case/control ratio, and "low-risk" otherwise. Empty cells are low-risk.
 4.  This process collapses the `n`-dimensional space into a new single one-dimensional feature with two values: "high-risk" and "low-risk".
 5.  The quality of this new feature is then evaluated using a classifier (e.g., cross-validated accuracy).
 
