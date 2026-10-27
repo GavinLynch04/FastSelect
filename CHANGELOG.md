@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `CONTRIBUTING.md` and a `CODE_OF_CONDUCT.md` (Contributor Covenant 3.0).
+- A GitHub Actions workflow that builds the JOSS draft PDF of `paper.md`.
 - `py.typed` marker (PEP 561), so type checkers and editors use the package's
   inline annotations.
 - README section on switching from scikit-rebate or scikit-learn, with a
