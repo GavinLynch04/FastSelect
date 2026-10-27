@@ -3,7 +3,10 @@
 ## Scope and baseline
 
 Local `development` was fast-forwarded from `bce53d1` to released `main`
-`eafab5f17eda7ec4a75e7517e144d119ac112d8b` (`v0.3.0`) before retaining changes.
+at `v0.3.0` before retaining changes. The raw JSON files record that commit as
+`eafab5f17eda7ec4a75e7517e144d119ac112d8b`; on 2026-10-27 the history was
+rewritten to edit commit messages only, and the same source tree is now
+`bb29886c7342c64e05c3ad344bee047e093a3582` (tag `v0.3.0`).
 The older development tip predates confirmed numerical/API fixes; optimizing it
 and later merging it would not be an acceptable correctness strategy. No new
 commit, push, release, or merge into `main` was performed.
@@ -95,7 +98,8 @@ statistics, lookup tables, and predictions.
 
 All commands use `python benchmarking/compare_head_vs_current.py`, `--backends
 cpu --threads 8 --rounds 5`. Corrected-release commands additionally use
-`--baseline-ref eafab5f17eda7ec4a75e7517e144d119ac112d8b --rtol 1e-12 --atol 1e-13`.
+`--baseline-ref v0.3.0 --rtol 1e-12 --atol 1e-13` (recorded in the JSON as the
+pre-rewrite hash `eafab5f`, which has the same source tree).
 
 | Artifact | Additional arguments | Outcome |
 |---|---|---|

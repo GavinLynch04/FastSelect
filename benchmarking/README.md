@@ -28,7 +28,7 @@ Work on `development`. Before optimizing, incorporate the released fixes from
 fastest correct implementation, including retained local optimizations, as the
 performance baseline. Freeze its revision or source snapshot and record its
 source hash before making further changes. The earlier October 2026 experiments
-used `eafab5f` (release `v0.3.0`); that historical choice does not make it the
+used release `v0.3.0` (recorded as its pre-rewrite hash `eafab5f`); that historical choice does not make it the
 baseline for future work. Nothing in this workflow pushes, merges, publishes,
 or changes branch protection.
 
