@@ -1,0 +1,306 @@
+[
+  {
+    "case": "regmi_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      0.5733202920528129,
+      0.5873125829966739,
+      0.6317626250674948
+    ],
+    "median_seconds": 0.5873125829966739
+  },
+  {
+    "case": "regmi_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.2033282920019701,
+      0.20284737506881356,
+      0.2110619170125574
+    ],
+    "median_seconds": 0.2033282920019701
+  },
+  {
+    "case": "regmi_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.20027541695162654,
+      0.2686508330516517,
+      0.1982865830650553
+    ],
+    "median_seconds": 0.20027541695162654
+  },
+  {
+    "case": "regmi_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.17228300007991493,
+      0.1803031669696793,
+      0.17584845807868987
+    ],
+    "median_seconds": 0.17584845807868987
+  },
+  {
+    "case": "regmi_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.12399750004988164,
+      0.15588629199191928,
+      0.12559249997138977
+    ],
+    "median_seconds": 0.12559249997138977
+  },
+  {
+    "case": "regmi_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      2.4359910000348464,
+      2.433890165993944,
+      2.3793504169443622
+    ],
+    "median_seconds": 2.433890165993944
+  },
+  {
+    "case": "regmi_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.6915495420107618,
+      0.7996561659965664,
+      0.6977192920166999
+    ],
+    "median_seconds": 0.6977192920166999
+  },
+  {
+    "case": "regmi_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.6439162919996306,
+      0.6482283340301365,
+      0.6753307080361992
+    ],
+    "median_seconds": 0.6482283340301365
+  },
+  {
+    "case": "regmi_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.7173548750579357,
+      0.6723371249390766,
+      0.7025462919846177
+    ],
+    "median_seconds": 0.7025462919846177
+  },
+  {
+    "case": "regmi_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.4815961249405518,
+      0.5021373750641942,
+      0.44640995899681
+    ],
+    "median_seconds": 0.4815961249405518
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      0.048288249992765486,
+      0.04594604205340147,
+      0.04941400000825524
+    ],
+    "median_seconds": 0.048288249992765486
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.07293958298396319,
+      0.06506141694262624,
+      0.07658487500157207
+    ],
+    "median_seconds": 0.07293958298396319
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.08101766707841307,
+      0.0767372080590576,
+      0.08073266700375825
+    ],
+    "median_seconds": 0.08073266700375825
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.025605374947190285,
+      0.024972749990411103,
+      0.03622633288614452
+    ],
+    "median_seconds": 0.025605374947190285
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.07197124999947846,
+      0.0786863339599222,
+      0.03496233304031193
+    ],
+    "median_seconds": 0.07197124999947846
+  },
+  {
+    "case": "gini_medium",
+    "configuration": {
+      "implementation": "skfeature",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      3.094938833033666
+    ],
+    "median_seconds": 3.094938833033666
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      0.14055091689806432,
+      0.12353624997194856,
+      0.13787208299618214
+    ],
+    "median_seconds": 0.13787208299618214
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.14828637498430908,
+      0.1588045839453116,
+      0.16605037497356534
+    ],
+    "median_seconds": 0.1588045839453116
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "threading",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.15404579194728285,
+      0.15310320898424834,
+      0.15319033397827297
+    ],
+    "median_seconds": 0.15319033397827297
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 4
+    },
+    "seconds": [
+      0.05883141700178385,
+      0.05805320793297142,
+      0.060043166973628104
+    ],
+    "median_seconds": 0.05883141700178385
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "sklearn",
+      "parallel_backend": "loky",
+      "n_jobs": 8
+    },
+    "seconds": [
+      0.07810833305120468,
+      0.0757774580270052,
+      0.06857966596726328
+    ],
+    "median_seconds": 0.0757774580270052
+  },
+  {
+    "case": "gini_large",
+    "configuration": {
+      "implementation": "skfeature",
+      "parallel_backend": "loky",
+      "n_jobs": 1
+    },
+    "seconds": [
+      21.43958454206586
+    ],
+    "median_seconds": 21.43958454206586
+  }
+]

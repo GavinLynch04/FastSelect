@@ -70,16 +70,17 @@ class mRMR(TransformerMixin, BaseEstimator):
         - 'MID' (Mutual Information Difference): f_score = I(f; y) - mean(I(f; S))
         - 'MIQ' (Mutual Information Quotient): f_score = I(f; y) / mean(I(f; S))
 
-    backend : {'auto', 'cpu', 'gpu'}, default='auto'
-        The computational backend to use. 'auto' runs on the GPU when a usable
-        CUDA device is present and the encoded data has at most 32 distinct
-        states, and falls back to the CPU otherwise. 'gpu' requires a compatible
-        NVIDIA GPU and raises rather than falling back.
+    backend : {'auto', 'cpu', 'gpu', 'metal'}, default='auto'
+        'auto' prefers CUDA (up to 32 encoded states), then optional Metal
+        (up to 64 states), then CPU. 'gpu' explicitly requests CUDA; 'metal'
+        explicitly requests MLX/Metal. Explicit GPU requests raise when the
+        device or input is unsupported. Metal uses exact GPU joint counts and
+        host precision for mutual information and the selection search.
 
     Attributes
     ----------
     effective_backend_ : str
-        The backend that actually ran during `fit`, 'cpu' or 'gpu'.
+        The backend that actually ran during `fit`: 'cpu', 'gpu', or 'metal'.
 
     """
 
@@ -95,8 +96,8 @@ class mRMR(TransformerMixin, BaseEstimator):
         """Validate constructor parameters. Called from fit, never from __init__."""
         if self.method not in ["MID", "MIQ"]:
             raise ValueError("Method must be either 'MID' or 'MIQ'.")
-        if self.backend not in ["auto", "cpu", "gpu"]:
-            raise ValueError("Backend must be 'auto', 'cpu', or 'gpu'.")
+        if self.backend not in ["auto", "cpu", "gpu", "metal"]:
+            raise ValueError("Backend must be 'auto', 'cpu', 'gpu', or 'metal'.")
         if self.backend == "gpu" and not is_cuda_ready():
             raise RuntimeError(
                 "GPU backend was selected, but Numba could not find a usable CUDA installation. "

@@ -14,6 +14,7 @@ from .utils import (
     ensure_cuda_context,
     is_cuda_ready,
     prepare_relief_matrix,
+    resolve_compute_backend,
     resolve_num_threads,
     split_discrete_last,
 )
@@ -466,8 +467,8 @@ class MultiSURF(TransformerMixin, BaseEstimator):
     n_features_to_select : int or float, default=0.2
         The number of top features to select.
 
-    backend : {'auto', 'gpu', 'cpu'}, default='auto'
-        The compute backend to use.
+    backend : {'auto', 'gpu', 'cpu', 'metal'}, default='auto'
+        The compute backend. 'auto' prefers CUDA, then optional Metal, then CPU.
 
     use_star : bool, default=False
         If True, runs MultiSURF*: near and far thresholds surround a dead
@@ -516,8 +517,8 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         self.verbose = verbose
 
     def _validate_parameters(self, n_samples: int, n_features: int) -> int:
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        if self.backend not in ["auto", "gpu", "cpu", "metal"]:
+            raise ValueError("backend must be one of 'auto', 'gpu', 'cpu', or 'metal'")
 
         if n_samples < 2:
             raise ValueError(f"MultiSURF requires at least 2 samples, but got n_samples = {n_samples}")
@@ -596,12 +597,11 @@ class MultiSURF(TransformerMixin, BaseEstimator):
             self.effective_backend_ = "cpu" if self.backend != "gpu" else "gpu"
             return self
 
-        if self.backend == "auto":
-            self.effective_backend_ = "gpu" if is_cuda_ready() else "cpu"
-        elif self.backend == "gpu" and not is_cuda_ready():
-            raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
-        else:
-            self.effective_backend_ = self.backend
+        self.effective_backend_ = resolve_compute_backend(
+            self.backend,
+            cuda_available=is_cuda_ready() if self.backend in ("auto", "gpu") else False,
+            metal_supported=True,
+        )
 
         self.is_discrete_ = discrete_feature_mask(X, self.discrete_limit)
 
@@ -615,7 +615,17 @@ class MultiSURF(TransformerMixin, BaseEstimator):
         if self.verbose:
             print(f"Running {algo_name} on the {self.effective_backend_.upper()} now...")
 
-        if self.effective_backend_ == "gpu":
+        if self.effective_backend_ == "metal":
+            from ._neighbors_metal import threshold_neighbors_metal
+
+            scores, self.metal_diagnostics_ = threshold_neighbors_metal(
+                X_prepared,
+                y_encoded.astype(np.int32),
+                n_cont,
+                self.use_star,
+                multisurf=True,
+            )
+        elif self.effective_backend_ == "gpu":
             X_d = cuda.to_device(X_prepared)
             is_discrete_d = cuda.to_device(self.is_discrete_[columns].astype(np.bool_))
             scores = _multisurf_gpu_host_caller(X_d, y_encoded.astype(np.int32), self.use_star, is_discrete_d)

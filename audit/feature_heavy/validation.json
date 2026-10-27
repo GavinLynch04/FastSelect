@@ -1,0 +1,18 @@
+{
+  "physical_metal_oracle_tests": 12,
+  "cuda_simulator_oracle_tests": 12,
+  "cuda_timing_guard": "passed: simulator timing rejected",
+  "cuda_hardware_available": false,
+  "cuda_native_compilation_and_performance": "unverified: no NVIDIA host",
+  "runtime_sources": "unchanged from frozen retained CPU manifest",
+  "thread_retests": "excluded because separate heavy CPU workload disrupted measurements",
+  "observed_load_average_1min": 88.6,
+  "original_run_load_history": "not captured; clean confirmation required before production admission",
+  "full_suite": {
+    "passed": 829,
+    "skipped": 76,
+    "seconds": 30.07
+  },
+  "load_guard": "passed: busy-start threshold rejected",
+  "excluded_thread_retests": "all 30 retest workers retained separately; none substituted into main results"
+}

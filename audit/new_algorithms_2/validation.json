@@ -1,0 +1,22 @@
+{
+  "full_suite": {
+    "passed": 829,
+    "skipped": 76,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 26.094
+  },
+  "candidate_and_rejected_prototype_checks": "38 passed before promotion",
+  "source_identity": "all three winning modules promoted byte-for-byte; prior algorithm modules unchanged",
+  "wheel_build": "passed",
+  "sdist_build": "passed",
+  "wheel_optional_dependency_blocking_smoke": "passed",
+  "documentation_build": "passed with warnings treated as errors",
+  "no_reference_or_rejected_prototype_in_distributions": true,
+  "packaged_runtime_sha256_matches_measurement": true,
+  "artifact_sha256": {
+    "fast_select-0.3.0-py3-none-any.whl": "2a688568c2524944dfeeb34d5ca4ccd65eaea244e2ccae7b61b6dadf2bad7218",
+    "fast_select-0.3.0.tar.gz": "c1d552eb551f4cce593d1eefcc093007c37035c8a5a355220b27fa3266923ef4"
+  },
+  "cuda_simulator_package_import": "passed; CPU exports available, not GPU performance validation"
+}

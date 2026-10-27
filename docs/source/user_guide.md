@@ -4,6 +4,108 @@ This guide provides a high-level overview of the different feature selection alg
 
 For detailed instructions on class parameters and usage, please refer to the [API Reference](./api.md).
 
+## Backend selection
+
+`backend="auto"` prefers a supported NVIDIA/CUDA backend, then optional
+Apple Silicon Metal, then CPU. Install Metal support with
+`pip install "fast-select[metal]"` (Python 3.10+, arm64 macOS). Use
+`backend="metal"` or `backend="cpu"` to force either; `backend="gpu"`
+explicitly means CUDA. TuRF inherits the preference from its wrapped selector
+on every refit.
+
+Metal is available for Relief-family methods, discrete MI, mRMR, CFS, MDR and
+Chi2 (which has no CUDA path). Chi2 and CFS run on Metal only when requested
+with `backend="metal"`: their Metal paths were slower than CPU in sustained
+benchmarks, so `auto` keeps them on CPU. ReliefF supports up to 64 neighbors on
+Metal; information/CFS kernels support up to 64 encoded state slots.
+Unsupported inputs fall through to CPU under `auto`; explicit Metal requests
+raise. CPU is faster for small inputs and for continuous-feature MultiSURF.
+
+JMI, CMIM, FCBF and LaplacianScore currently retain only their parallel Numba
+CPU backends: `auto` selects CPU and explicit GPU requests raise. The dense
+continuous MI function `mutual_info_classif` is CPU-only as well. Their Metal
+experiments did not consistently improve on these new CPU implementations.
+
+## Additional selectors admitted against external baselines
+
+`JMI(n_features_to_select=10)` balances relevance, redundancy and within-class
+dependence. `CMIM(n_features_to_select=10)` maximizes minimum conditional MI.
+Both take categorical features and classification targets, use empirical
+entropies in bits, and select a fixed number of features. Their categorical
+encoding preserves symbol identity; it does not discretize continuous data.
+The general categorical CMIM formulation is an extension of the original
+binary algorithm. CMIM follows Fleuret's Eq. (2) (as do Brown et al.), the
+minimum over selected features only; his Algorithm 1 pseudocode also caps each
+score at the candidate's marginal MI, which can choose differently when the
+candidate is synergistic with every selected feature. `feature_importances_` is marginal target MI;
+`selection_scores_` records the greedy criterion and `top_features_` its order.
+
+`FCBF(delta=0.0)` keeps target SU strictly above `delta`, then removes redundant
+peers with pairwise SU greater than or equal to their target SU. Its selected
+count is determined by the filter and may be zero. Importances and selection
+scores are SU values.
+
+`LaplacianScore(n_features_to_select=0.2, n_neighbors=5)` ranks unsupervised
+local structure. It builds an undirected Euclidean binary kNN graph including
+self edges; use `weight_mode="heat_kernel"` with `bandwidth`, or supply a
+symmetric nonnegative graph through `fit(X, W=W)`. Its complete fit includes
+graph construction. Raw `laplacian_scores_` are lower-is-better and importances
+are their negatives. Undefined zero weighted-variance features score infinity
+and rank last. Graph construction still uses quadratic memory in sample count.
+
+`mutual_info_classif(X, y, random_state=0)` estimates continuous/discrete MI in
+nats using Ross's nearest-neighbor estimator. It accepts dense numeric inputs, optional
+discrete column masks/indices, and can be passed to `SelectKBest`. It preserves
+scikit-learn's public scaling, jitter and negative-estimate clipping conventions;
+set `random_state` for repeatability. Exact float64 sorted distances avoid the
+small-class distance-cancellation issue recorded in the benchmark audit.
+
+All five passed independent paper-equation oracles and complete-call external
+baseline comparisons before entering the package. Workload-specific timings
+and limitations are in the repository's new-algorithm benchmark report.
+
+## Second batch of admitted selectors
+
+`GiniIndex(n_features_to_select=10)` ranks numeric classification features by
+the minimum weighted child Gini impurity over every distinct-value split,
+including the no-split parent. It sorts each feature once and sweeps exact
+class counts. Binary and multiclass targets are supported; arbitrary class
+labels are encoded by identity. Raw `gini_scores_` is lower-is-better and
+`feature_importances_` negates it. This is a univariate split criterion, not
+whole-tree normalized feature importance. Unlike scikit-learn CART input
+conversion, the implementation preserves float64 near-ties and uint64 ordering.
+
+`DISR`, `CIFE` and `MIFS` take categorical classification inputs and select a
+fixed `n_features_to_select` (default 10), with no implicit discretization.
+They initialize with maximum marginal target MI. DISR sums joint MI divided
+by joint entropy, with zero-entropy contributions explicitly defined as zero.
+CIFE subtracts summed redundancy and adds summed within-class dependence.
+MIFS subtracts `beta` times summed redundancy, default 0.5. It has no
+conditional-dependence term or subset-size averaging. These are different
+criteria from JMI/CMIM/mRMR; they can choose different subsets. Importances are
+marginal MI in bits, while `selection_scores_` and `top_features_` record the
+greedy criterion and order. Negative MIFS/CIFE objective values are retained.
+
+`mutual_info_regression(X, y, random_state=0)` uses KSG estimator 1 with exact
+Chebyshev neighbors for continuous columns; explicit discrete columns use
+Ross's estimator. It accepts dense numeric inputs, returns nats, preserves the
+public scikit-learn scaling/jitter convention and clips negative estimates to
+zero. Working feature and target values are float64, including float32 inputs;
+this preserves jitter that an in-place float32 target would round away. It
+supports `SelectKBest` and requires `n_neighbors < n_samples`.
+Singleton categories are excluded for discrete columns; all-singleton columns
+raise. The sorted lower-bound search is exact, but can approach quadratic
+work on adversarial data or large neighbor counts. Set `random_state` for
+repeatability and use a regression estimator downstream.
+
+All five additions use Numba CPU kernels; the estimators accept CPU/auto and
+reject explicit GPU backends. No GPU performance claim is made for this batch.
+The ANOVA F prototype failed the external performance comparison and was left
+outside the installable package. Baselines were tuned across serial, threaded
+and process settings; Gini was compared to the faster compiled scikit-learn
+CART alternative as well as original scikit-feature. See the repository's
+second algorithm-admission report for raw timings and scope.
+
 ---
 
 ## 1. Relief-Based Algorithms

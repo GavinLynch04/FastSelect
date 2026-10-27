@@ -5,6 +5,8 @@ from numba import njit, prange
 from scipy.stats import chi2 as chi2_dist
 from sklearn.utils.validation import check_array, check_X_y
 
+from .utils import resolve_compute_backend
+
 
 @njit(fastmath=True)
 def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes):  # pragma: no cover
@@ -50,7 +52,7 @@ def _chi2_core(observed, class_freqs, feature_counts, n_samples):  # pragma: no 
     return chi2_stats
 
 
-def chi2(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def chi2(X: np.ndarray, y: np.ndarray, *, backend="auto") -> tuple[np.ndarray, np.ndarray]:
     """
     Computes Chi-squared statistics between each feature and the target vector.
 
@@ -62,6 +64,10 @@ def chi2(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         X (np.ndarray): The input sample matrix of shape (n_samples, n_features).
                         Must contain non-negative, count-based feature values.
         y (np.ndarray): The target vector of class labels, shape (n_samples,).
+        backend (str): 'auto' and 'cpu' run on the CPU. 'metal' explicitly
+                       requests MLX; it was slower than CPU in sustained
+                       benchmarks, so 'auto' does not select it. This
+                       statistic has no CUDA implementation.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: A tuple containing:
@@ -76,6 +82,7 @@ def chi2(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         raise ValueError("Input matrix X must contain non-negative values.")
 
     n_samples, n_features = X.shape
+    effective_backend = resolve_compute_backend(backend, cuda_available=False, auto_metal=False)
     labels, y_mapped = np.unique(y, return_inverse=True)
     n_classes = len(labels)
 
@@ -84,7 +91,12 @@ def chi2(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     class_freqs = np.bincount(y_mapped).astype(np.float64)
 
-    observed, feature_counts = _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes)
+    if effective_backend == "metal":
+        from ._chi2_metal import chi2_counts_metal
+
+        observed, feature_counts = chi2_counts_metal(X, y_mapped, n_classes)
+    else:
+        observed, feature_counts = _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes)
 
     chi2_stats = _chi2_core(observed, class_freqs, feature_counts, n_samples)
 

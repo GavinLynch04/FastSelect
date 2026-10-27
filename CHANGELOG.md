@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-27
+
+Ten new selectors and score functions, an optional Apple Silicon GPU backend,
+and faster CPU kernels. No existing algorithm's definition changed: on the CPU
+backend, scores and selections match 0.3.0 exactly, apart from last-bit
+floating-point reordering (below 1e-15) in mutual-information matrices.
+
+### Added
+
+- **Information-theoretic selectors** for categorical classification, with
+  empirical entropies in bits, no automatic binning, and lower-index tie-breaks:
+  `JMI` (Yang & Moody 1999), `CMIM` (Fleuret 2004, Eq. 2; categorical
+  extension), `FCBF` (Yu & Liu 2003/2004), `MIFS` (Battiti 1994), `CIFE`
+  (Lin & Tang 2006) and `DISR` (Meyer & Bontempi 2006).
+- **`GiniIndex`**: per-feature minimum weighted CART Gini impurity over every
+  distinct numeric split (Breiman et al. 1984), exact in float64.
+- **`LaplacianScore`**: unsupervised He, Cai & Niyogi (2005) score on a binary
+  or heat-kernel kNN graph (self edges included), or a user-supplied symmetric
+  affinity via `fit(X, W=...)`.
+- **`mutual_info_classif`**: Ross (2014) continuous/discrete MI in nats, and
+  **`mutual_info_regression`**: Kraskov et al. (2004) estimator 1, with Ross for
+  explicitly discrete columns. Both are drop-in `SelectKBest` score functions
+  that keep scikit-learn's scaling, jitter and clipping conventions while using
+  exact float64 neighbor predicates.
+- **Optional Metal (Apple Silicon GPU) backend** through MLX for ReliefF,
+  SURF/SURF\*, MultiSURF/MultiSURF\*, TuRF (via its base selector), discrete
+  mutual information, mRMR, CFS, MDR and Chi2. Install with
+  `pip install "fast-select[metal]"` (Python 3.10+, arm64 macOS) and request it
+  with `backend="metal"`. Precision-sensitive neighbor and boundary decisions
+  are certified on the GPU or recomputed on the CPU in float64, so results match
+  the CPU backend. All new selectors above are CPU-only.
+- `chi2(..., backend=...)` keyword; `TuRF.estimator_` and
+  `TuRF.effective_backend_` record the last refitted base selector;
+  `effective_backend_` on MDR and CFS.
+
+### Changed
+
+- **`backend="auto"` uses Metal when MLX is installed and CUDA is unavailable**
+  for ReliefF, the SURF/MultiSURF family, discrete MI, mRMR and MDR. Chi2 and CFS
+  stay on CPU under `auto` because their Metal paths were slower than CPU in
+  sustained benchmarks on both tall and wide inputs; request them with
+  `backend="metal"` if you want them. Continuous-feature MultiSURF is also
+  slower on Metal; pass `backend="cpu"` for it. Without MLX, `auto` behaves
+  exactly as in 0.3.0.
+- Faster CPU kernels for CFS and mutual-information matrices (entropy reuse,
+  contiguous column access, balanced pair scheduling) and bounded-memory
+  exhaustive MDR search on CPU. Selection order and tie rules are unchanged.
+
+### Not verified
+
+- The Metal backend was measured on one Apple M1 Pro; CI does not run it.
+  CUDA remains verified only in the Numba simulator.
+
 ## [0.3.0] - 2026-09-28
 
 The first release since 0.2.1 (the last version on PyPI). It was briefly

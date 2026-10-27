@@ -11,7 +11,7 @@ from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data
 
-from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready, resolve_num_threads
+from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready, resolve_compute_backend, resolve_num_threads
 
 
 @numba.njit(cache=True)
@@ -93,17 +93,31 @@ def _precompute_correlations_cpu(X_columns, y_encoded, n_states_features, n_stat
     of the original design matrix is contiguous in the counting loops.
     """
     n_features = X_columns.shape[0]
+    entropies = np.empty(n_features, dtype=np.float64)
+    target_entropy = _entropy(y_encoded, n_states_y)
+    for feature in numba.prange(n_features):
+        entropies[feature] = _entropy(X_columns[feature], n_states_features[feature])
 
     # Feature-class correlations (r_cf)
     r_cf_all = np.zeros(n_features, dtype=np.float32)
     for i in numba.prange(n_features):
-        r_cf_all[i] = _symmetrical_uncertainty(X_columns[i], y_encoded, n_states_features[i], n_states_y)
+        entropy_sum = entropies[i] + target_entropy
+        if entropy_sum >= 1e-12:
+            mutual_information = _mutual_information(X_columns[i], y_encoded, n_states_features[i], n_states_y)
+            r_cf_all[i] = 2.0 * mutual_information / entropy_sum
 
     # Feature-feature correlations (r_ff)
     r_ff_matrix = np.zeros((n_features, n_features), dtype=np.float32)
-    for i in numba.prange(n_features):
+    for task in numba.prange(n_features):
+        i = task // 2 if task % 2 == 0 else n_features - 1 - task // 2
         for j in range(i + 1, n_features):
-            corr = _symmetrical_uncertainty(X_columns[i], X_columns[j], n_states_features[i], n_states_features[j])
+            entropy_sum = entropies[i] + entropies[j]
+            corr = 0.0
+            if entropy_sum >= 1e-12:
+                mutual_information = _mutual_information(
+                    X_columns[i], X_columns[j], n_states_features[i], n_states_features[j]
+                )
+                corr = 2.0 * mutual_information / entropy_sum
             r_ff_matrix[i, j] = corr
             r_ff_matrix[j, i] = corr
 
@@ -329,8 +343,10 @@ class CFS(SelectorMixin, BaseEstimator):
     strategy : {'uniform', 'quantile', 'kmeans'}, default='uniform'
         Strategy for binning continuous features.
 
-    backend : {'auto', 'gpu', 'cpu'}, default='auto'
-        The compute backend. 'auto' uses GPU if available.
+    backend : {'auto', 'gpu', 'cpu', 'metal'}, default='auto'
+        The compute backend. 'auto' uses CUDA when available, otherwise CPU.
+        'metal' must be requested explicitly: its speedup over CPU was not
+        consistent in sustained benchmarks, so 'auto' does not select it.
 
     n_jobs : int, default=-1
         Number of CPU threads to use. Ignored for the 'gpu' backend.
@@ -401,8 +417,8 @@ class CFS(SelectorMixin, BaseEstimator):
         # which transform later uses to reject a different schema.
         X, y = validate_data(self, X, y, dtype=None, ensure_min_samples=2)
         check_classification_targets(y)
-        if self.backend not in ("auto", "cpu", "gpu"):
-            raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+        if self.backend not in ("auto", "cpu", "gpu", "metal"):
+            raise ValueError("backend must be 'auto', 'cpu', 'gpu', or 'metal'")
         check_integer_param(self.max_backtracks, "max_backtracks", 1)
         check_integer_param(self.n_bins, "n_bins", 2)
         n_threads = resolve_num_threads(self.n_jobs)
@@ -429,10 +445,14 @@ class CFS(SelectorMixin, BaseEstimator):
         X_columns = np.ascontiguousarray(X_encoded.T)
 
         # --- 2. Backend Selection and Correlation Calculation ---
-        if self.backend == "auto":
-            effective_backend = "gpu" if is_cuda_ready() else "cpu"
-        else:
-            effective_backend = self.backend
+        max_states = int(max(n_states_features.max(), n_states_y))
+        effective_backend = resolve_compute_backend(
+            self.backend,
+            cuda_available=is_cuda_ready() and (self.backend == "gpu" or max_states <= 32),
+            metal_supported=max_states <= 64,
+            auto_metal=False,
+        )
+        self.effective_backend_ = effective_backend
 
         if effective_backend == "gpu":
             if not is_cuda_ready():
@@ -454,6 +474,15 @@ class CFS(SelectorMixin, BaseEstimator):
             r_cf_all = r_cf_d.copy_to_host()
             r_ff_matrix = r_ff_d.copy_to_host()
 
+        elif effective_backend == "metal":
+            from ._information_metal import information_metal
+
+            r_cf_all, r_ff_matrix = information_metal(
+                X_encoded,
+                y_encoded,
+                cfs=True,
+                state_counts=np.append(n_states_features, n_states_y),
+            )
         else:  # --- CPU Backend Logic ---
             original_n_threads = numba.get_num_threads()
             try:
