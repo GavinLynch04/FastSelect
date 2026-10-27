@@ -277,3 +277,28 @@ def test_second_batch_errors_and_threads():
         mutual_info_regression(X, y, n_neighbors=10)
     mutual_info_regression(X, y, n_jobs=1, random_state=7)
     assert numba.get_num_threads() == previous
+
+
+def test_second_batch_parameter_errors():
+    X = np.random.default_rng(0).integers(0, 3, (20, 4))
+    y = np.arange(20) % 2
+    for cls in (GiniIndex, DISR, CIFE, MIFS):
+        with pytest.raises(ValueError, match="must not exceed"):
+            cls(n_features_to_select=5).fit(X, y)
+
+
+def test_regression_mi_discrete_feature_specifications():
+    rng = np.random.default_rng(3)
+    X = np.column_stack([rng.standard_normal(40), rng.integers(0, 3, 40), rng.standard_normal(40)])
+    y = X[:, 1] + 0.1 * rng.standard_normal(40)
+    by_mask = mutual_info_regression(X, y, discrete_features=np.array([False, True, False]), random_state=0)
+    by_index = mutual_info_regression(X, y, discrete_features=[1], random_state=0)
+    np.testing.assert_array_equal(by_index, by_mask)
+    with pytest.raises(ValueError, match="discrete_features"):
+        mutual_info_regression(X, y, discrete_features="all")
+    with pytest.raises(ValueError, match="mask must match"):
+        mutual_info_regression(X, y, discrete_features=np.array([True, False]))
+    # A discrete column whose every category is a singleton has no Ross neighbors.
+    X[:, 1] = np.arange(40)
+    with pytest.raises(ValueError, match="multiple samples"):
+        mutual_info_regression(X, y, discrete_features=[1], random_state=0)

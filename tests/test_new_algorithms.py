@@ -332,3 +332,42 @@ def test_unadmitted_gpu_backends_are_not_exposed(cls):
     for backend in ("metal", "gpu"):
         with pytest.raises(ValueError, match="No GPU backend was retained"):
             cls(backend=backend, **kwargs).fit(X, y)
+
+
+def test_new_selector_parameter_errors():
+    X = np.random.default_rng(0).integers(0, 3, (20, 4))
+    y = np.arange(20) % 2
+    for cls in (JMI, CMIM):
+        with pytest.raises(ValueError, match="must not exceed"):
+            cls(5).fit(X, y)
+    for delta in (-0.1, 1.5, float("nan"), True, "0.1"):
+        with pytest.raises(ValueError, match="delta"):
+            FCBF(delta=delta).fit(X, y)
+    with pytest.raises(ValueError, match="backend"):
+        JMI(2, backend=None).fit(X, y)
+
+
+def test_laplacian_parameter_errors_and_fractional_count():
+    X = np.random.default_rng(1).standard_normal((30, 10))
+    with pytest.raises(ValueError, match="weight_mode"):
+        LaplacianScore(weight_mode="cosine").fit(X)
+    for bandwidth in (0, -1.0, np.inf, "1"):
+        with pytest.raises(ValueError, match="bandwidth"):
+            LaplacianScore(bandwidth=bandwidth).fit(X)
+    for fraction in (0.0, 1.5):
+        with pytest.raises(ValueError, match="fractional"):
+            LaplacianScore(n_features_to_select=fraction).fit(X)
+    with pytest.raises(ValueError, match="must not exceed"):
+        LaplacianScore(n_features_to_select=11).fit(X)
+    # The default 0.2 keeps int(0.2 * 10) = 2 features; tiny fractions keep one.
+    assert LaplacianScore().fit(X).top_features_.size == 2
+    assert LaplacianScore(n_features_to_select=0.01).fit(X).top_features_.size == 1
+
+
+def test_mutual_info_classif_discrete_feature_errors():
+    X = np.random.default_rng(2).standard_normal((20, 3))
+    y = np.arange(20) % 2
+    with pytest.raises(ValueError, match="discrete_features"):
+        mutual_info_classif(X, y, discrete_features="all")
+    with pytest.raises(ValueError, match="mask must match"):
+        mutual_info_classif(X, y, discrete_features=np.array([True, False]))

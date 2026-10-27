@@ -12,7 +12,7 @@ authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
 ]
 
-description = "A Sci-Kit Learn compatible Numba and CUDA-accelerated implementation of various feature selection algorithms."
+description = "Fast, scikit-learn-compatible feature selection (ReliefF, MultiSURF, mRMR, JMI, CMIM, FCBF, CFS, MDR, mutual information) on CPU, NVIDIA CUDA and Apple Silicon GPUs."
 
 readme = "README.md"
 
@@ -23,8 +23,10 @@ license-files = ["LICENSE"]
 
 keywords = [
   "bioinformatics", "feature selection", "relief", "reliefF", "machine learning",
-  "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
-  "mRMR", "chi2", "CFS", "MDR", "mutual information"
+  "scikit-learn", "sklearn", "skrebate", "numba", "cuda", "gpu", "metal", "mlx",
+  "apple silicon", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
+  "mRMR", "chi2", "CFS", "MDR", "mutual information", "JMI", "CMIM", "FCBF",
+  "MIFS", "CIFE", "DISR", "gini index", "laplacian score", "epistasis", "GWAS"
 ]
 
 classifiers = [
@@ -104,6 +106,10 @@ dev = [
 [tool.setuptools.packages]
 find = { where = ["src"] }
 
+[tool.setuptools.package-data]
+# PEP 561 marker so type checkers and editors use the inline annotations.
+fast_select = ["py.typed"]
+
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -113,6 +119,14 @@ markers = [
     "slow: test takes a long time to run",
     "gpu: test requires a CUDA-capable GPU",
 ]
+
+
+[tool.coverage.run]
+# The Metal backend modules need MLX and an Apple Silicon GPU, so they can never
+# execute on the Linux CI runners and would only report as 0%. They are tested
+# locally on Apple Silicon (tests/test_metal_algorithms.py,
+# tests/test_relieff_metal.py) against the CPU backend and equation oracles.
+omit = ["*/fast_select/_*metal.py"]
 
 
 [tool.black]

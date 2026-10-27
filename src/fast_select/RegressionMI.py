@@ -19,7 +19,7 @@ from fast_select.utils import check_integer_param, resolve_num_threads
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _ksg(columns, target, k, psi):
+def _ksg(columns, target, k, psi):  # pragma: no cover
     p, n = columns.shape
     target_sorted = np.sort(target)
     result = np.empty(p)
