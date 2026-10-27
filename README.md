@@ -35,14 +35,15 @@ A high-performance Python library powered by **Numba**, **CUDA**, and optional *
 
 1. [Installation](#installation)
 2. [Quickstart](#quickstart)
-3. [Backend Selection](#backend-selection-cpu-vs-gpu)
-4. [Benchmarking Highlights](#benchmarking-highlights)
-5. [Algorithm Implementations](#algorithm-implementations)
-6. [Versioning and Stability](#versioning-and-stability)
-7. [Contributing](#contributing)
-8. [License](#license)
-9. [How to Cite](#citing-fast-select)
-10. [Acknowledgments](#acknowledgments)
+3. [Switching from scikit-rebate or scikit-learn](#switching-from-scikit-rebate-or-scikit-learn)
+4. [Backend Selection](#backend-selection-cpu-vs-gpu)
+5. [Benchmarking Highlights](#benchmarking-highlights)
+6. [Algorithm Implementations](#algorithm-implementations)
+7. [Versioning and Stability](#versioning-and-stability)
+8. [Contributing](#contributing)
+9. [License](#license)
+10. [How to Cite](#citing-fast-select)
+11. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -129,6 +130,50 @@ pipeline = Pipeline([
 # pipeline.fit(X, y)
 ```
 <!-- end-quickstart-section -->
+
+---
+
+## **Switching from scikit-rebate or scikit-learn**
+
+**From scikit-rebate.** The Relief estimators use the same fitted attributes
+(`feature_importances_`, `top_features_`) and the same scikit-learn interface,
+but some parameter names and defaults differ:
+
+| scikit-rebate | fast-select | Note |
+|---|---|---|
+| `ReliefF`, `SURF`, `MultiSURF` | `ReliefF`, `SURF`, `MultiSURF` | Same names. |
+| `SURFstar`, `MultiSURFstar` | `SURF(use_star=True)`, `MultiSURF(use_star=True)` | One class per method with a `use_star` switch. |
+| `categorical_threshold=10` | `discrete_limit=10` | Same rule: a feature with at most this many distinct values is discrete. |
+| `n_neighbors=100` (default) | `n_neighbors=3` (default) | Pass `n_neighbors=100` to keep the scikit-rebate setting. |
+| `n_features_to_select=10` (default) | `n_features_to_select=0.2` (default) | An int is a count; a float is a fraction of features. |
+| `n_jobs=1` (default) | `n_jobs=-1` (default) | `-1` uses every Numba thread. |
+| `skrebate.turf.TURF(relief_object, pct=0.5, num_scores_to_return=100)` | `TuRF(estimator, pct_remove=0.5, n_features_to_select=100)` | Both remove a fraction of features per iteration; the fast-select default is `pct_remove=0.1`. An integer `pct` has no equivalent. |
+| `multiclass_threshold`, `weight_final_scores`, `rank_absolute`, `label_type` | — | No equivalent. |
+
+```python
+# Before: from skrebate import ReliefF
+from fast_select import ReliefF
+
+selector = ReliefF(n_features_to_select=10, n_neighbors=100, discrete_limit=10)
+```
+
+fast-select implements each method from its defining paper, so scores can
+differ slightly from scikit-rebate where the two implementations differ.
+
+**From scikit-learn.** `fast_select.mutual_info_classif` and
+`fast_select.mutual_info_regression` take the same arguments as their
+`sklearn.feature_selection` namesakes and work with `SelectKBest`; only the
+`n_jobs` default differs (`-1` instead of `None`). scikit-learn has no
+greedy relevance–redundancy selectors; for those, use `mRMR`, `JMI`, `CMIM`,
+`FCBF`, `MIFS`, `CIFE`, `DISR` or `CFS` directly.
+
+```python
+# Before: from sklearn.feature_selection import mutual_info_classif
+from fast_select import mutual_info_classif
+from sklearn.feature_selection import SelectKBest
+
+selector = SelectKBest(mutual_info_classif, k=10)
+```
 
 ---
 

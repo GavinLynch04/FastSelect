@@ -12,7 +12,7 @@ authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
 ]
 
-description = "A Sci-Kit Learn compatible Numba and CUDA-accelerated implementation of various feature selection algorithms."
+description = "Fast, scikit-learn-compatible feature selection (ReliefF, MultiSURF, mRMR, JMI, CMIM, FCBF, CFS, MDR, mutual information) on CPU, NVIDIA CUDA and Apple Silicon GPUs."
 
 readme = "README.md"
 
@@ -23,8 +23,10 @@ license-files = ["LICENSE"]
 
 keywords = [
   "bioinformatics", "feature selection", "relief", "reliefF", "machine learning",
-  "numba", "cuda", "gpu", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
-  "mRMR", "chi2", "CFS", "MDR", "mutual information"
+  "scikit-learn", "sklearn", "skrebate", "numba", "cuda", "gpu", "metal", "mlx",
+  "apple silicon", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
+  "mRMR", "chi2", "CFS", "MDR", "mutual information", "JMI", "CMIM", "FCBF",
+  "MIFS", "CIFE", "DISR", "gini index", "laplacian score", "epistasis", "GWAS"
 ]
 
 classifiers = [
@@ -103,6 +105,10 @@ dev = [
 
 [tool.setuptools.packages]
 find = { where = ["src"] }
+
+[tool.setuptools.package-data]
+# PEP 561 marker so type checkers and editors use the inline annotations.
+fast_select = ["py.typed"]
 
 
 [tool.pytest.ini_options]

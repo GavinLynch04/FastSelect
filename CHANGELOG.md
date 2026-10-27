@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `py.typed` marker (PEP 561), so type checkers and editors use the package's
+  inline annotations.
+- README section on switching from scikit-rebate or scikit-learn, with a
+  parameter mapping table.
+
 ### Fixed
 
 - `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
@@ -15,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- PyPI summary and keywords now name the algorithms and the Apple Silicon
+  backend.
 - Coverage reporting: the Numba-compiled kernels added in 0.4.0 are marked
   `# pragma: no cover` like the existing ones, and the Metal modules are omitted
   from the Linux CI coverage report (they cannot run there). Added tests for the
