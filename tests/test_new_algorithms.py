@@ -125,7 +125,13 @@ def laplacian_oracle(X, W):
     laplacian = np.diag(degree) - W
     scores = []
     for f in X.T:
-        centered = f - np.dot(f, degree) / degree.sum() if degree.sum() else np.zeros_like(f)
+        # A constant feature has exactly zero weighted variance. Center it
+        # exactly: f - dot(f, d)/sum(d) leaves a BLAS-order rounding residual
+        # (OpenBLAS on Linux) that turns the undefined score into ~1e-18.
+        if not degree.sum() or np.ptp(f) == 0:
+            centered = np.zeros_like(f)
+        else:
+            centered = f - np.dot(f, degree) / degree.sum()
         denominator = centered @ np.diag(degree) @ centered
         scores.append(centered @ laplacian @ centered / denominator if denominator > 0 else np.inf)
     return np.array(scores)
