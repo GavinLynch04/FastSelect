@@ -1,0 +1,27 @@
+{
+  "ReliefF_False": {
+    "cases": 120,
+    "worst_abs_error": 1.4901161210501002e-07,
+    "failures": []
+  },
+  "SURF_False": {
+    "cases": 120,
+    "worst_abs_error": 2.5563769889824783e-07,
+    "failures": []
+  },
+  "SURF_True": {
+    "cases": 120,
+    "worst_abs_error": 3.099441530651781e-07,
+    "failures": []
+  },
+  "MultiSURF_False": {
+    "cases": 120,
+    "worst_abs_error": 7.947285962650597e-08,
+    "failures": []
+  },
+  "MultiSURF_True": {
+    "cases": 120,
+    "worst_abs_error": 1.3153204878046942e-07,
+    "failures": []
+  }
+}

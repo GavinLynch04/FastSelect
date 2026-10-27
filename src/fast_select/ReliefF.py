@@ -14,6 +14,7 @@ from .utils import (
     ensure_cuda_context,
     is_cuda_ready,
     prepare_relief_matrix,
+    resolve_compute_backend,
     resolve_num_threads,
     split_discrete_last,
 )
@@ -404,7 +405,7 @@ class ReliefF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the ReliefF algorithm.
 
     This estimator provides a unified API for running ReliefF on either
-    a CPU (using Numba's parallel JIT) or a GPU (using Numba CUDA).
+    a CPU (Numba), NVIDIA GPU (CUDA), or Apple Silicon GPU (Metal).
 
     Parameters
     ----------
@@ -418,8 +419,10 @@ class ReliefF(TransformerMixin, BaseEstimator):
     n_neighbors : int, default=3
         The number of nearest neighbors to use for score calculation.
 
-    backend : {'auto', 'gpu', 'cpu'}, default='auto'
-        The compute backend to use.
+    backend : {'auto', 'gpu', 'cpu', 'metal'}, default='auto'
+        The compute backend. ``'auto'`` prefers CUDA, then optional Metal, then
+        CPU. ``'metal'`` is the Apple Silicon GPU backend and requires
+        ``fast-select[metal]``; it supports ``n_neighbors <= 64``.
 
     verbose : bool, default=False
         Controls whether progress updates are printed during the fit.
@@ -436,7 +439,8 @@ class ReliefF(TransformerMixin, BaseEstimator):
         The calculated importance scores for each feature.
 
     effective_backend_ : str
-        The backend that was actually used during `fit` ('gpu' or 'cpu').
+        The backend that was actually used during `fit` ('gpu', 'cpu', or
+        'metal'). Metal resolves numerically ambiguous neighbors on the CPU.
 
     Notes
     -----
@@ -463,13 +467,15 @@ class ReliefF(TransformerMixin, BaseEstimator):
 
     def _validate_parameters(self, n_samples, n_features):
         """Validate all user-provided parameters."""
-        if self.backend not in ["auto", "gpu", "cpu"]:
-            raise ValueError("backend must be one of 'auto', 'gpu', or 'cpu'")
+        if self.backend not in ["auto", "gpu", "cpu", "metal"]:
+            raise ValueError("backend must be one of 'auto', 'gpu', 'cpu', or 'metal'")
 
         if n_samples < 2:
             raise ValueError(f"ReliefF requires at least 2 samples, but got n_samples = {n_samples}")
 
         check_integer_param(self.n_neighbors, "n_neighbors", 1)
+        if self.backend == "metal" and self.n_neighbors > 64:
+            raise ValueError("Experimental Metal ReliefF supports n_neighbors <= 64; use backend='cpu' for larger k")
         if self.n_neighbors >= n_samples:
             raise ValueError(
                 f"n_neighbors ({self.n_neighbors}) must be an integer "
@@ -532,12 +538,11 @@ class ReliefF(TransformerMixin, BaseEstimator):
         class_probs = (class_counts / len(y)).astype(np.float32)
         y_enc = np.searchsorted(class_labels, y).astype(np.int32)
 
-        if self.backend == "auto":
-            self.effective_backend_ = "gpu" if is_cuda_ready() else "cpu"
-        elif self.backend == "gpu" and not is_cuda_ready():
-            raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
-        else:
-            self.effective_backend_ = self.backend
+        self.effective_backend_ = resolve_compute_backend(
+            self.backend,
+            cuda_available=is_cuda_ready() if self.backend in ("auto", "gpu") else False,
+            metal_supported=self.n_neighbors <= 64,
+        )
 
         # One representation for both backends: float64-normalised continuous
         # columns and exact category codes, narrowed to float32 only afterwards.
@@ -545,7 +550,15 @@ class ReliefF(TransformerMixin, BaseEstimator):
         x_prepared = prepare_relief_matrix(
             x, is_discrete, columns, dtype=np.float32, discrete_limit=self.discrete_limit
         )
-        if self.effective_backend_ == "gpu":
+        if self.effective_backend_ == "metal":
+            from ._relieff_metal import relieff_metal
+
+            if self.verbose:
+                print("Running ReliefF on the Metal GPU now...")
+            permuted_scores, self.metal_diagnostics_ = relieff_metal(
+                x_prepared, y_enc, n_cont, self.n_neighbors, class_probs
+            )
+        elif self.effective_backend_ == "gpu":
             x_d = cuda.to_device(x_prepared)
             is_discrete_d = cuda.to_device(is_discrete[columns].astype(np.bool_))
             if self.verbose:

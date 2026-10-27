@@ -1,0 +1,58 @@
+Running Sphinx v9.1.0
+loading translations [en]... done
+making output directory... done
+WARNING: html_static_path entry '_static' does not exist
+myst v5.1.0: MdParserConfig(commonmark_only=False, gfm_only=False, enable_extensions=set(), disable_syntax=[], all_links_external=False, links_external_new_tab=False, url_schemes=('http', 'https', 'mailto', 'ftp'), ref_domains=None, fence_as_directive=set(), number_code_blocks=[], title_to_header=False, heading_anchors=0, heading_slug_func=None, html_meta={}, footnote_sort=True, footnote_transition=True, words_per_minute=200, substitutions={}, linkify_fuzzy_links=True, dmath_allow_labels=True, dmath_allow_space=True, dmath_allow_digits=True, dmath_double_inline=False, update_mathjax=True, mathjax_classes='tex2jax_process|mathjax_process|math|output_area', enable_checkboxes=False, strikethrough_single_tilde=False, colon_fence_exact_match=False, suppress_warnings=[], highlight_code_blocks=True)
+building [mo]: targets for 0 po files that are out of date
+writing output... 
+building [html]: targets for 5 source files that are out of date
+updating environment: [new config] 5 added, 0 changed, 0 removed
+reading sources... [ 20%] api
+reading sources... [ 40%] index
+reading sources... [ 60%] installation
+reading sources... [ 80%] quickstart
+reading sources... [100%] user_guide
+
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... done
+preparing documents... done
+copying assets... 
+copying static files... 
+Writing evaluated template result to /private/tmp/fastselect-docs-audit/_static/basic.css
+Writing evaluated template result to /private/tmp/fastselect-docs-audit/_static/language_data.js
+Writing evaluated template result to /private/tmp/fastselect-docs-audit/_static/documentation_options.js
+Writing evaluated template result to /private/tmp/fastselect-docs-audit/_static/copybutton.js
+copying static files: done
+copying extra files... 
+copying extra files: done
+copying assets: done
+writing output... [ 20%] api
+writing output... [ 40%] index
+writing output... [ 60%] installation
+writing output... [ 80%] quickstart
+writing output... [100%] user_guide
+
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/ReliefF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: term not in glossary: 'meta-estimator' [ref.term]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/ReliefF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: undefined label: 'metadata_routing' [ref.ref]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/ReliefF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: term not in glossary: 'meta-estimator' [ref.term]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/ReliefF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: undefined label: 'metadata_routing' [ref.ref]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/MultiSURF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: term not in glossary: 'meta-estimator' [ref.term]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/MultiSURF.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: undefined label: 'metadata_routing' [ref.ref]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/MDR.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: term not in glossary: 'meta-estimator' [ref.term]
+/private/tmp/fastselect-py313/lib/python3.13/site-packages/fast_select/MDR.py:docstring of sklearn.utils._metadata_requests.RequestMethod.__get__.<locals>.func:3: WARNING: undefined label: 'metadata_routing' [ref.ref]
+generating indices... genindex done
+highlighting module code... [ 11%] fast_select.CFS
+highlighting module code... [ 22%] fast_select.Chi2
+highlighting module code... [ 33%] fast_select.MDR
+highlighting module code... [ 44%] fast_select.MultiSURF
+highlighting module code... [ 56%] fast_select.ReliefF
+highlighting module code... [ 67%] fast_select.SURF
+highlighting module code... [ 78%] fast_select.TuRF
+highlighting module code... [ 89%] fast_select.mRMR
+highlighting module code... [100%] fast_select.mutual_information
+
+writing additional pages... search done
+dumping search index in English (code: en)... done
+dumping object inventory... done
+build finished with problems, 9 warnings (with warnings treated as errors).

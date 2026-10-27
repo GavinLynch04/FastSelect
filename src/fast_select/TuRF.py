@@ -130,6 +130,9 @@ class TuRF(TransformerMixin, BaseEstimator):
 
             iteration += 1
 
+        self.estimator_ = base_estimator
+        if hasattr(base_estimator, "effective_backend_"):
+            self.effective_backend_ = base_estimator.effective_backend_
         sorted_indices_in_subset = np.argsort(current_scores)[::-1]
         self.top_features_ = active_feature_indices[sorted_indices_in_subset]
         self.top_features_ = np.sort(self.top_features_)

@@ -7,7 +7,7 @@ import numba
 import numpy as np
 from numba import njit, prange
 
-from .utils import is_cuda_ready
+from .utils import is_cuda_ready, is_metal_ready
 
 try:
     from numba import cuda
@@ -61,35 +61,39 @@ def _mi_pair_cpu(x1: np.ndarray, x2: np.ndarray, log_base: float) -> float:  # p
     k2 = int(x2.max()) + 1
 
     table = np.zeros((k1, k2), dtype=np.float64)
-    for i in range(n):
-        table[x1[i], x2[i]] += 1.0
-
-    table /= n  # joint probabilities
-    p1 = table.sum(axis=1)
-    p2 = table.sum(axis=0)
+    counts1 = np.zeros(k1, dtype=np.float64)
+    counts2 = np.zeros(k2, dtype=np.float64)
+    for sample in range(n):
+        state1 = x1[sample]
+        state2 = x2[sample]
+        table[state1, state2] += 1.0
+        counts1[state1] += 1.0
+        counts2[state2] += 1.0
 
     mi = 0.0
     eps = 1e-12
     for i in range(k1):
         for j in range(k2):
-            pxy = table[i, j]
+            pxy = table[i, j] / n
             if pxy > eps:
-                mi += pxy * math.log(pxy / (p1[i] * p2[j]))
+                mi += pxy * math.log(pxy / ((counts1[i] / n) * (counts2[j] / n)))
     return mi / log_base
 
 
 @njit(parallel=True, cache=True, fastmath=True)
 def _batch_mi_cpu(X: np.ndarray, y: np.ndarray, log_base: float) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
     n_samples, n_features = X.shape
+    columns = np.ascontiguousarray(X.T)
     relevance = np.empty(n_features, dtype=np.float64)
     redundancy = np.zeros((n_features, n_features), dtype=np.float64)
 
     for f in prange(n_features):
-        relevance[f] = _mi_pair_cpu(X[:, f], y, log_base)
+        relevance[f] = _mi_pair_cpu(columns[f], y, log_base)
 
-    for i in prange(n_features):
+    for task in prange(n_features):
+        i = task // 2 if task % 2 == 0 else n_features - 1 - task // 2
         for j in range(i + 1, n_features):
-            mi = _mi_pair_cpu(X[:, i], X[:, j], log_base)
+            mi = _mi_pair_cpu(columns[i], columns[j], log_base)
             redundancy[i, j] = mi
             redundancy[j, i] = mi
     return relevance, redundancy
@@ -100,18 +104,13 @@ _THREADS_PER_BLOCK = (16, 16)
 
 
 def resolve_backend(backend: str, max_state: int) -> str:
-    """Return the backend that will actually run: ``'cpu'`` or ``'gpu'``.
+    """Prefer supported CUDA (32 states), then Metal (64 states), then CPU.
 
-    ``'auto'`` prefers the GPU but falls back to the CPU when CUDA is
-    unavailable or the data has more distinct states than the GPU kernels
-    support.  An explicit ``'gpu'`` raises instead of falling back, so a caller
-    that asked for the GPU never silently gets the CPU.
-
-    This is the single decision point for the backend; callers that need to
-    report which backend ran should use it rather than re-deriving the rule.
+    Explicit ``gpu`` retains its NVIDIA/CUDA meaning. Explicit ``metal``
+    requires MLX and a physical Apple GPU; it raises on unsupported input.
     """
-    if backend not in ("auto", "cpu", "gpu"):
-        raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+    if backend not in ("auto", "cpu", "gpu", "metal"):
+        raise ValueError("backend must be 'auto', 'cpu', 'gpu', or 'metal'")
 
     if backend == "cpu":
         return "cpu"
@@ -125,8 +124,16 @@ def resolve_backend(backend: str, max_state: int) -> str:
             )
         return "gpu"
 
+    if backend == "metal":
+        if max_state > 64:
+            raise ValueError("Metal backend supports at most 64 states; try backend='cpu'")
+        if not is_metal_ready():
+            raise RuntimeError("backend='metal' requires MLX and an available Metal GPU")
+        return "metal"
     if _CUDA_AVAILABLE and max_state <= _MAX_STATES_GPU:
         return "gpu"
+    if max_state <= 64 and is_metal_ready():
+        return "metal"
     return "cpu"
 
 
@@ -263,7 +270,7 @@ def calculate_mi_single_pair(
     x1: np.ndarray,
     x2: np.ndarray,
     *,
-    backend: Literal["auto", "cpu", "gpu"] = "auto",
+    backend: Literal["auto", "cpu", "gpu", "metal"] = "auto",
     unit: Literal["bit", "nat"] = "bit",
 ) -> float:  # pragma: no cover
     """Mutual information I(x1; x2) for *discrete* 1-D arrays.
@@ -273,8 +280,8 @@ def calculate_mi_single_pair(
     if x1.ndim != 1 or x2.ndim != 1 or x1.shape != x2.shape:
         raise ValueError("x1 and x2 must be 1-D arrays of equal length")
 
-    if backend not in ("auto", "cpu", "gpu"):
-        raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+    if backend not in ("auto", "cpu", "gpu", "metal"):
+        raise ValueError("backend must be 'auto', 'cpu', 'gpu', or 'metal'")
     if unit not in ("bit", "nat"):
         raise ValueError("unit must be 'bit' or 'nat'")
 
@@ -285,7 +292,13 @@ def calculate_mi_single_pair(
 
     max_state = int(max(x1_d.max(), x2_d.max())) + 1
 
-    if resolve_backend(backend, max_state) == "gpu":
+    effective_backend = resolve_backend(backend, max_state)
+    if effective_backend == "metal":
+        from ._information_metal import information_metal
+
+        relevance, _ = information_metal(x1_d.reshape(-1, 1), x2_d, log_base)
+        return float(relevance[0])
+    if effective_backend == "gpu":
         out = cuda.device_array(1, dtype=np.float32)
         _mi_pair_gpu_kernel[1, _THREADS_PER_BLOCK](x1_d.reshape(-1, 1), x2_d, out, max_state, log_base)
         return float(out.copy_to_host()[0])
@@ -297,7 +310,7 @@ def calculate_mi_matrices(
     X: np.ndarray,
     y: np.ndarray,
     *,
-    backend: Literal["auto", "cpu", "gpu"] = "auto",
+    backend: Literal["auto", "cpu", "gpu", "metal"] = "auto",
     unit: Literal["bit", "nat"] = "bit",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (relevance, redundancy) using discrete data only.
@@ -310,8 +323,8 @@ def calculate_mi_matrices(
     if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0]:
         raise ValueError("X must be 2-D and y 1-D with matching sample size")
 
-    if backend not in ("auto", "cpu", "gpu"):
-        raise ValueError("backend must be 'auto', 'cpu', or 'gpu'")
+    if backend not in ("auto", "cpu", "gpu", "metal"):
+        raise ValueError("backend must be 'auto', 'cpu', 'gpu', or 'metal'")
     if unit not in ("bit", "nat"):
         raise ValueError("unit must be 'bit' or 'nat'")
 
@@ -321,7 +334,12 @@ def calculate_mi_matrices(
     max_state = int(max(X_d.max(), y_d.max())) + 1
     log_base = math.log(2.0) if unit == "bit" else 1.0
 
-    if resolve_backend(backend, max_state) == "gpu":
+    effective_backend = resolve_backend(backend, max_state)
+    if effective_backend == "metal":
+        from ._information_metal import information_metal
+
+        return information_metal(X_d, y_d, log_base)
+    if effective_backend == "gpu":
         n_samples, n_features = X_d.shape
         X_gpu = cuda.to_device(X_d)
         y_gpu = cuda.to_device(y_d)

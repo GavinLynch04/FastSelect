@@ -1,5 +1,6 @@
 from collections import Counter
-from itertools import combinations
+from itertools import chain, combinations, islice
+from math import comb
 
 import numba
 import numpy as np
@@ -9,10 +10,22 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.multiclass import check_classification_targets, unique_labels
 from sklearn.utils.validation import check_is_fitted, validate_data
 
-from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready
+from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready, resolve_compute_backend
 
 MAX_K_FOR_KERNEL = 6
 MAX_CELLS = 3**MAX_K_FOR_KERNEL
+_COMBINATION_BATCH_SIZE = 4096
+
+
+def _combination_batches(n_features, interaction_order, batch_size=None):
+    """Yield bounded, lexicographically ordered batches for exhaustive CPU search."""
+    iterator = combinations(range(n_features), interaction_order)
+    while True:
+        count = _COMBINATION_BATCH_SIZE if batch_size is None else batch_size
+        batch = np.fromiter(chain.from_iterable(islice(iterator, count)), dtype=np.uint32)
+        if batch.size == 0:
+            return
+        yield batch.reshape(-1, interaction_order)
 
 
 @cuda.jit
@@ -158,7 +171,7 @@ class MDR(ClassifierMixin, TransformerMixin, BaseEstimator):
     cv : int, default=10
         Stratified K-folds for model selection.
 
-    backend : {'auto', 'cpu', 'gpu'}, default='auto'
+    backend : {'auto', 'cpu', 'gpu', 'metal'}, default='auto'
         Execution backend preference (case-insensitive; stored unchanged and
         normalised when fitting so the estimator can be cloned).
 
@@ -268,25 +281,25 @@ class MDR(ClassifierMixin, TransformerMixin, BaseEstimator):
 
         # Decide backend
         backend = self.backend.lower() if isinstance(self.backend, str) else self.backend
-        if backend not in ("auto", "cpu", "gpu"):
-            raise ValueError("backend must be 'auto', 'cpu', or 'gpu' (case-insensitive).")
-        cuda_available = is_cuda_ready()
-        if backend == "gpu" and not cuda_available:
-            raise RuntimeError("backend='GPU' requested but no CUDA device found.")
-        use_gpu = (backend == "gpu") or (backend == "auto" and cuda_available)
+        self.effective_backend_ = resolve_compute_backend(backend, cuda_available=is_cuda_ready())
+        use_gpu = self.effective_backend_ == "gpu"
         if use_gpu:
             ensure_cuda_context()
 
         # Pre-compute all k-feature combos
-        feature_idx = np.arange(n_features, dtype=np.uint32)
-        all_combos = np.array(list(combinations(feature_idx, self.k)), dtype=np.uint32)
-        n_combos = len(all_combos)
+        n_combos = comb(n_features, self.k)
+        all_combos = None
+        if use_gpu:
+            feature_idx = np.arange(n_features, dtype=np.uint32)
+            all_combos = np.array(list(combinations(feature_idx, self.k)), dtype=np.uint32)
+        elif n_combos <= _COMBINATION_BATCH_SIZE:
+            all_combos = next(_combination_batches(n_features, self.k))
 
         skf = StratifiedKFold(n_splits=self.cv, shuffle=True, random_state=42)
         fold_best_models = []
         fold_test_bas = []
         if self.verbose:
-            print(f"CV with backend={'GPU' if use_gpu else 'CPU'}: " f"{self.k}-way search over {n_combos} combos")
+            print(f"CV with backend={self.effective_backend_.upper()}: " f"{self.k}-way search over {n_combos} combos")
 
         for fold_i, (train_idx, test_idx) in enumerate(skf.split(X, y_encoded), start=1):
             X_train, X_test = X[train_idx], X[test_idx]
@@ -302,11 +315,25 @@ class MDR(ClassifierMixin, TransformerMixin, BaseEstimator):
                 blocks = (n_combos + threads - 1) // threads
                 mdr_kernel[blocks, threads](X_d, y_d, self.k, combos_d, results_d)
                 train_bas = results_d.copy_to_host()
+                best_idx = int(np.argmax(train_bas))
+                best_combo = tuple(all_combos[best_idx])
             else:
-                train_bas = _batch_balanced_accuracy_cpu(X_train, y_train, all_combos, self.k)
+                if self.effective_backend_ == "metal":
+                    from ._mdr_metal import make_mdr_scorer
 
-            best_idx = int(np.argmax(train_bas))
-            best_combo = tuple(all_combos[best_idx])
+                    score_batch = make_mdr_scorer(X_train, y_train, self.k)
+                    batches = _combination_batches(n_features, self.k, batch_size=65536)
+                else:
+                    score_batch = lambda batch: _batch_balanced_accuracy_cpu(X_train, y_train, batch, self.k)
+                    batches = (all_combos,) if all_combos is not None else _combination_batches(n_features, self.k)
+                best_training_score = -np.inf
+                for batch in batches:
+                    train_bas = score_batch(batch)
+                    batch_best = int(np.argmax(train_bas))
+                    if train_bas[batch_best] > best_training_score:
+                        best_training_score = train_bas[batch_best]
+                        best_combo = tuple(batch[batch_best])
+
             fold_best_models.append(best_combo)
 
             lookup = self._create_lookup_table(X_train, y_train, best_combo)

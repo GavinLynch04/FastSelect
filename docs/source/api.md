@@ -99,3 +99,64 @@ estimators. These back the mRMR criterion and are exported for direct use.
 ```{eval-rst}
 .. autofunction:: fast_select.mutual_information.calculate_mi_matrices
 ```
+
+## Additional CPU selectors
+
+These selectors support `backend="auto"` and `backend="cpu"`; GPU experiments
+were not admitted. See the user guide for categorical-input and score semantics.
+
+```{eval-rst}
+.. autoclass:: fast_select.InformationSelectors.JMI
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autoclass:: fast_select.InformationSelectors.CMIM
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autoclass:: fast_select.InformationSelectors.FCBF
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autoclass:: fast_select.LaplacianScore.LaplacianScore
+   :members: fit, transform
+   :undoc-members:
+   :exclude-members: set_fit_request, set_transform_request
+
+.. autofunction:: fast_select.ContinuousMI.mutual_info_classif
+```
+
+## Second admission batch: CPU selectors and regression MI
+
+```{eval-rst}
+.. autoclass:: fast_select.GiniIndex.GiniIndex
+   :members: fit, transform
+   :undoc-members:
+   :exclude-members: set_fit_request, set_transform_request
+
+.. autoclass:: fast_select.JointInformation.DISR
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autoclass:: fast_select.JointInformation.CIFE
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autoclass:: fast_select.JointInformation.MIFS
+   :members: fit, transform
+   :undoc-members:
+   :inherited-members:
+   :exclude-members: set_fit_request, set_transform_request, get_metadata_routing, set_output
+
+.. autofunction:: fast_select.RegressionMI.mutual_info_regression
+```

@@ -1,0 +1,28 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "Apple M1 Pro, 8 CPU cores, 16 GiB",
+  "cpu_sha256": {
+    "RegressionMI.py": "7dbcb379527a313d88219707bc83f8c223a20655b1419256567a13acc80a7066",
+    "GiniIndex.py": "e51fe741b25c62a13b2a62fe2f8feee06cdc5fd4ff6c8ed73a814b6f122d369e",
+    "JointInformation.py": "ee4988d9c98f82ed1f648e07ad3c59126c4d8e15b7c8f6fcc3195120306c299f",
+    "InformationSelectors.py": "cbe207169c4125614cefc5b61b1d0dd81f59b0fa8b04ccffb8fd886f0ef793a2",
+    "ContinuousMI.py": "d3158664d524a2bb7f5a393ab3ff06201bc8a5df46193b7bc4f18c4813932de2",
+    "_cpu_backend.py": "12d1b843e14218067f9d06ae9c5b236e9705f7dc77ba4b622e0eaea1eb6679d2"
+  },
+  "shapes": [
+    [
+      64,
+      1024
+    ],
+    [
+      128,
+      4096
+    ],
+    [
+      256,
+      8192
+    ]
+  ],
+  "cuda_hardware_available": false,
+  "cuda_plan": "User confirmed no NVIDIA host; prepare local kernels, validate simulator logic, no CUDA timing claim."
+}

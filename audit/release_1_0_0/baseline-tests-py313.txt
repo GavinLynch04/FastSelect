@@ -1,0 +1,68 @@
+..............s.....s.................sssssssssssssssssssssss........s.s [ 50%]
+.......ss....ss...............................ss......................   [100%]
+=============================== warnings summary ===============================
+tests/test_cfs.py::test_fit_transform_cpu_and_auto[cpu]
+tests/test_cfs.py::test_fit_transform_cpu_and_auto[auto]
+tests/test_cfs.py::test_pandas_integration
+tests/test_cfs.py::test_n_jobs_parameter
+tests/test_cfs.py::test_n_jobs_parameter
+tests/test_cfs.py::test_gpu_raises_error_if_unavailable
+tests/test_cfs.py::test_transform_bug_fix
+  /private/tmp/fastselect-py313/lib/python3.13/site-packages/sklearn/preprocessing/_discretization.py:331: UserWarning: Feature 4 is constant and will be replaced with 0.
+    warnings.warn(
+
+tests/test_multisurf.py::test_sklearn_api_compliance
+  /private/tmp/fastselect-py313/lib/python3.13/site-packages/sklearn/utils/estimator_checks.py:919: SkipTestWarning: Skipping check check_array_api_input for MultiSURF because it raised SkipTest: SCIPY_ARRAY_API is not set: not checking array_api input
+    warnings.warn(
+
+tests/test_relieff.py::test_sklearn_api_compliance
+  /private/tmp/fastselect-py313/lib/python3.13/site-packages/sklearn/utils/estimator_checks.py:919: SkipTestWarning: Skipping check check_array_api_input for ReliefF because it raised SkipTest: SCIPY_ARRAY_API is not set: not checking array_api input
+    warnings.warn(
+
+tests/test_relieff.py::test_verbose_output
+tests/test_relieff.py::test_verbose_output
+  /Users/gavinlynch/Desktop/FastSelect/src/fast_select/ReliefF.py:518: UserWarning: n_neighbors (3) is greater than or equal to the smallest class size (3).
+    warnings.warn(
+
+tests/test_surf.py::test_sklearn_api_compliance
+  /private/tmp/fastselect-py313/lib/python3.13/site-packages/sklearn/utils/estimator_checks.py:919: SkipTestWarning: Skipping check check_array_api_input for SURF because it raised SkipTest: SCIPY_ARRAY_API is not set: not checking array_api input
+    warnings.warn(
+
+tests/test_turf.py::test_sklearn_compatibility
+  /private/tmp/fastselect-py313/lib/python3.13/site-packages/sklearn/utils/estimator_checks.py:919: SkipTestWarning: Skipping check check_array_api_input for TuRF because it raised SkipTest: SCIPY_ARRAY_API is not set: not checking array_api input
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.13.15-final-0 _______________
+
+Name                                    Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------
+src/fast_select/CFS.py                    105     18    83%   120, 125, 394, 396, 430-445, 488
+src/fast_select/Chi2.py                    21      0   100%
+src/fast_select/MDR.py                    128     18    86%   233, 235, 246, 251, 262, 269-277, 298, 317-320
+src/fast_select/MultiSURF.py              105     18    83%   319-341, 554, 582-585
+src/fast_select/ReliefF.py                117     28    76%   237-277, 539, 544-549
+src/fast_select/SURF.py                   101     15    85%   291-324, 545-548
+src/fast_select/TuRF.py                    50      0   100%
+src/fast_select/__init__.py                14      0   100%
+src/fast_select/mRMR.py                    64      0   100%
+src/fast_select/mutual_information.py      58     24    59%   23, 28, 89, 95-101, 104, 285, 288, 290, 299-314
+src/fast_select/utils.py                   51     20    61%   10-23, 37-45, 96
+---------------------------------------------------------------------
+TOTAL                                     814    141    83%
+Coverage JSON written to file /private/tmp/fastselect-audit-coverage.json
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_cfs.py:112: CUDA GPU not available for testing.
+SKIPPED [1] tests/test_cfs.py:210: CUDA GPU not available for testing.
+SKIPPED [15] tests/test_gpu_cpu_parity.py:47: NVIDIA GPU with CUDA environment required for GPU tests.
+SKIPPED [1] tests/test_gpu_cpu_parity.py:70: NVIDIA GPU with CUDA environment required for GPU tests.
+SKIPPED [1] tests/test_gpu_cpu_parity.py:83: NVIDIA GPU with CUDA environment required for GPU tests.
+SKIPPED [4] tests/test_gpu_cpu_parity.py:96: NVIDIA GPU with CUDA environment required for GPU tests.
+SKIPPED [2] tests/test_gpu_cpu_parity.py:131: NVIDIA GPU with CUDA environment required for GPU tests.
+SKIPPED [1] tests/test_mdr.py:120: CUDA device not available
+SKIPPED [1] tests/test_mdr.py:154: CUDA device not available
+SKIPPED [2] tests/test_mrmr.py:142: NVIDIA GPU with CUDA not available
+SKIPPED [2] tests/test_mrmr.py:261: NVIDIA GPU with CUDA not available
+SKIPPED [2] tests/test_surf.py:64: Skipping CPU/GPU consistency test: No CUDA-enabled GPU found.
+109 passed, 33 skipped, 13 warnings in 12.91s

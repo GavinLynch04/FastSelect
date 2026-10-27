@@ -1,0 +1,265 @@
+........................................................................ [ 69%]
+........FFFFFFFFFFFFFFFFFFFFFFFF                                         [100%]
+=================================== FAILURES ===================================
+____________ test_continuous_translation_invariance[ReliefF-extra0] ____________
+audit/release_1_0_0/test_release_review.py:199: in test_continuous_translation_invariance
+    assert_allclose(translated, original, atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 3 / 3 (100%)
+E   Mismatch at indices:
+E    [0]: 0.0 (ACTUAL), 0.3108951449394226 (DESIRED)
+E    [1]: 0.0 (ACTUAL), 0.05323166772723198 (DESIRED)
+E    [2]: 0.0 (ACTUAL), 0.012080103158950806 (DESIRED)
+E   Max absolute difference among violations: 0.31089514
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0., 0., 0.], dtype=float32)
+E    DESIRED: array([0.310895, 0.053232, 0.01208 ], dtype=float32)
+_____________ test_continuous_translation_invariance[SURF-extra1] ______________
+audit/release_1_0_0/test_release_review.py:199: in test_continuous_translation_invariance
+    assert_allclose(translated, original, atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 3 / 3 (100%)
+E   Mismatch at indices:
+E    [0]: 0.0 (ACTUAL), 0.297250896692276 (DESIRED)
+E    [1]: 0.0 (ACTUAL), -0.07135733217000961 (DESIRED)
+E    [2]: 0.0 (ACTUAL), -0.050196945667266846 (DESIRED)
+E   Max absolute difference among violations: 0.2972509
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0., 0., 0.], dtype=float32)
+E    DESIRED: array([ 0.297251, -0.071357, -0.050197], dtype=float32)
+_____________ test_continuous_translation_invariance[SURF-extra2] ______________
+audit/release_1_0_0/test_release_review.py:199: in test_continuous_translation_invariance
+    assert_allclose(translated, original, atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 3 / 3 (100%)
+E   Mismatch at indices:
+E    [0]: 0.0 (ACTUAL), -0.03431817516684532 (DESIRED)
+E    [1]: 0.0 (ACTUAL), 0.028332484886050224 (DESIRED)
+E    [2]: 0.0 (ACTUAL), 0.041290465742349625 (DESIRED)
+E   Max absolute difference among violations: 0.04129047
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0., 0., 0.], dtype=float32)
+E    DESIRED: array([-0.034318,  0.028332,  0.04129 ], dtype=float32)
+___________ test_continuous_translation_invariance[MultiSURF-extra3] ___________
+audit/release_1_0_0/test_release_review.py:199: in test_continuous_translation_invariance
+    assert_allclose(translated, original, atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 3 / 3 (100%)
+E   Mismatch at indices:
+E    [0]: 0.0 (ACTUAL), 0.2651364803314209 (DESIRED)
+E    [1]: 0.0 (ACTUAL), -0.052406832575798035 (DESIRED)
+E    [2]: 0.0 (ACTUAL), -0.042833082377910614 (DESIRED)
+E   Max absolute difference among violations: 0.26513648
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0., 0., 0.], dtype=float32)
+E    DESIRED: array([ 0.265136, -0.052407, -0.042833], dtype=float32)
+___________ test_continuous_translation_invariance[MultiSURF-extra4] ___________
+audit/release_1_0_0/test_release_review.py:199: in test_continuous_translation_invariance
+    assert_allclose(translated, original, atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 3 / 3 (100%)
+E   Mismatch at indices:
+E    [0]: 0.0 (ACTUAL), -0.056250154972076416 (DESIRED)
+E    [1]: 0.0 (ACTUAL), 0.07047028094530106 (DESIRED)
+E    [2]: 0.0 (ACTUAL), 0.07204534113407135 (DESIRED)
+E   Max absolute difference among violations: 0.07204534
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0., 0., 0.], dtype=float32)
+E    DESIRED: array([-0.05625 ,  0.07047 ,  0.072045], dtype=float32)
+__ test_surf_exact_global_threshold_excludes_ties[False--0.2222222222222222] ___
+audit/release_1_0_0/test_release_review.py:207: in test_surf_exact_global_threshold_excludes_ties
+    assert_allclose(model.feature_importances_, [expected], atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Mismatch at index:
+E    [0]: 0.2222221940755844 (ACTUAL), -0.2222222222222222 (DESIRED)
+E   Max absolute difference among violations: 0.44444442
+E   Max relative difference among violations: 1.99999987
+E    ACTUAL: array([0.222222], dtype=float32)
+E    DESIRED: array([-0.222222])
+___ test_surf_exact_global_threshold_excludes_ties[True--0.8888888888888888] ___
+audit/release_1_0_0/test_release_review.py:207: in test_surf_exact_global_threshold_excludes_ties
+    assert_allclose(model.feature_importances_, [expected], atol=1e-6)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-06
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Mismatch at index:
+E    [0]: -0.444444477558136 (ACTUAL), -0.8888888888888888 (DESIRED)
+E   Max absolute difference among violations: 0.44444441
+E   Max relative difference among violations: 0.49999996
+E    ACTUAL: array([-0.444444], dtype=float32)
+E    DESIRED: array([-0.888889])
+_______________ test_mrmr_accepts_float_coded_discrete_values[X] _______________
+audit/release_1_0_0/test_release_review.py:217: in test_mrmr_accepts_float_coded_discrete_values
+    .fit(X.astype(float) if float_input == "X" else X, y.astype(float) if float_input == "y" else y)
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mRMR.py:123: in fit
+    relevance, redundancy = mi.calculate_mi_matrices(X_encoded, y_encoded, backend=self.backend, unit="bit")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mutual_information.py:292: in calculate_mi_matrices
+    X_d = _validate_discrete(X, "X")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mutual_information.py:23: in _validate_discrete
+    raise ValueError(
+E   ValueError: X must be an integer-coded array (got float64). Discretise continuous data before calling this function.
+_______________ test_mrmr_accepts_float_coded_discrete_values[y] _______________
+audit/release_1_0_0/test_release_review.py:217: in test_mrmr_accepts_float_coded_discrete_values
+    .fit(X.astype(float) if float_input == "X" else X, y.astype(float) if float_input == "y" else y)
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mRMR.py:123: in fit
+    relevance, redundancy = mi.calculate_mi_matrices(X_encoded, y_encoded, backend=self.backend, unit="bit")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mutual_information.py:293: in calculate_mi_matrices
+    y_d = _validate_discrete(y, "y")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/mutual_information.py:23: in _validate_discrete
+    raise ValueError(
+E   ValueError: y must be an integer-coded array (got float64). Discretise continuous data before calling this function.
+_________ test_mrmr_category_encoding_preserves_distinct_uint64_values _________
+audit/release_1_0_0/test_release_review.py:226: in test_mrmr_category_encoding_preserves_distinct_uint64_values
+    assert_allclose(model.relevance_scores_, [1.0])
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Mismatch at index:
+E    [0]: 0.0 (ACTUAL), 1.0 (DESIRED)
+E   Max absolute difference among violations: 1.
+E   Max relative difference among violations: 1.
+E    ACTUAL: array([0.])
+E    DESIRED: array([1.])
+_______________ test_mi_integer_conversion_does_not_alias_states _______________
+audit/release_1_0_0/test_release_review.py:236: in test_mi_integer_conversion_does_not_alias_states
+    assert_allclose(actual, 1.0)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Max absolute difference among violations: 1.
+E   Max relative difference among violations: 1.
+E    ACTUAL: array(0.)
+E    DESIRED: array(1.)
+____________ test_mdr_rejects_invalid_genotypes_before_casting[0.5] ____________
+audit/release_1_0_0/test_release_review.py:241: in test_mdr_rejects_invalid_genotypes_before_casting
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+____________ test_mdr_rejects_invalid_genotypes_before_casting[256] ____________
+audit/release_1_0_0/test_release_review.py:241: in test_mdr_rejects_invalid_genotypes_before_casting
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+____________ test_mdr_rejects_invalid_genotypes_before_casting[257] ____________
+audit/release_1_0_0/test_release_review.py:241: in test_mdr_rejects_invalid_genotypes_before_casting
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+___________ test_mdr_rejects_invalid_genotypes_before_casting[-256] ____________
+audit/release_1_0_0/test_release_review.py:241: in test_mdr_rejects_invalid_genotypes_before_casting
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+____________________________ test_mdr_is_cloneable _____________________________
+audit/release_1_0_0/test_release_review.py:246: in test_mdr_is_cloneable
+    assert clone(MDR(backend="cpu")).get_params() == MDR(backend="cpu").get_params()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/fastselect-release-review.gT8lxI/.venv/lib/python3.14/site-packages/sklearn/base.py:96: in clone
+    return estimator.__sklearn_clone__()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/fastselect-release-review.gT8lxI/.venv/lib/python3.14/site-packages/sklearn/base.py:445: in __sklearn_clone__
+    return _clone_parametrized(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/fastselect-release-review.gT8lxI/.venv/lib/python3.14/site-packages/sklearn/base.py:151: in _clone_parametrized
+    raise RuntimeError(
+E   RuntimeError: Cannot clone object MDR(backend='cpu'), as the constructor either does not set or modifies parameter backend
+_____________________ test_mdr_is_recognized_as_classifier _____________________
+audit/release_1_0_0/test_release_review.py:250: in test_mdr_is_recognized_as_classifier
+    assert is_classifier(MDR())
+E   assert False
+E    +  where False = is_classifier(MDR())
+E    +    where MDR() = MDR()
+____________ test_selectors_expose_sklearn_transformer_tags[model0] ____________
+audit/release_1_0_0/test_release_review.py:255: in test_selectors_expose_sklearn_transformer_tags
+    assert get_tags(model).transformer_tags is not None
+E   AssertionError: assert None is not None
+E    +  where None = Tags(estimator_type=None, target_tags=TargetTags(required=False, one_d_labels=False, two_d_labels=False, positive_only...alse, sparse=False, categorical=False, string=False, dict=False, positive_only=False, allow_nan=False, pairwise=False)).transformer_tags
+E    +    where Tags(estimator_type=None, target_tags=TargetTags(required=False, one_d_labels=False, two_d_labels=False, positive_only...alse, sparse=False, categorical=False, string=False, dict=False, positive_only=False, allow_nan=False, pairwise=False)) = get_tags(CFS(backend='cpu', n_jobs=1))
+____________ test_selectors_expose_sklearn_transformer_tags[model1] ____________
+audit/release_1_0_0/test_release_review.py:255: in test_selectors_expose_sklearn_transformer_tags
+    assert get_tags(model).transformer_tags is not None
+E   AssertionError: assert None is not None
+E    +  where None = Tags(estimator_type=None, target_tags=TargetTags(required=False, one_d_labels=False, two_d_labels=False, positive_only...alse, sparse=False, categorical=False, string=False, dict=False, positive_only=False, allow_nan=False, pairwise=False)).transformer_tags
+E    +    where Tags(estimator_type=None, target_tags=TargetTags(required=False, one_d_labels=False, two_d_labels=False, positive_only...alse, sparse=False, categorical=False, string=False, dict=False, positive_only=False, allow_nan=False, pairwise=False)) = get_tags(mRMR(backend='cpu', n_features_to_select=1))
+________________ test_mdr_predict_rejects_fractional_genotypes _________________
+audit/release_1_0_0/test_release_review.py:261: in test_mdr_predict_rejects_fractional_genotypes
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_______________ test_mdr_predict_rejects_feature_count_mismatch ________________
+audit/release_1_0_0/test_release_review.py:268: in test_mdr_predict_rejects_feature_count_mismatch
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_________________ test_cfs_rejects_reordered_dataframe_columns _________________
+audit/release_1_0_0/test_release_review.py:275: in test_cfs_rejects_reordered_dataframe_columns
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_______________ test_turf_works_with_real_relief_base_estimator ________________
+audit/release_1_0_0/test_release_review.py:282: in test_turf_works_with_real_relief_base_estimator
+    model = TuRF(base, n_features_to_select=1).fit(X, [0, 0, 1, 1] * 2)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/TuRF.py:117: in fit
+    base_estimator.fit(X_subset, y)
+src/fast_select/ReliefF.py:507: in fit
+    n_select = self._validate_parameters(n_samples, self.n_features_in_)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/fast_select/ReliefF.py:484: in _validate_parameters
+    raise ValueError(
+E   ValueError: If n_features_to_select is an int (2), it must be > 0 and <= n_features (1).
+__________ test_multisurf_selects_only_from_requested_feature_subset ___________
+audit/release_1_0_0/test_release_review.py:291: in test_multisurf_selects_only_from_requested_feature_subset
+    assert set(model.top_features_) <= {0, 1}
+E   assert {np.int64(3)} <= {0, 1}
+E     
+E     Extra items in the left set:
+E     np.int64(3)
+=========================== short test summary info ============================
+FAILED audit/release_1_0_0/test_release_review.py::test_continuous_translation_invariance[ReliefF-extra0]
+FAILED audit/release_1_0_0/test_release_review.py::test_continuous_translation_invariance[SURF-extra1]
+FAILED audit/release_1_0_0/test_release_review.py::test_continuous_translation_invariance[SURF-extra2]
+FAILED audit/release_1_0_0/test_release_review.py::test_continuous_translation_invariance[MultiSURF-extra3]
+FAILED audit/release_1_0_0/test_release_review.py::test_continuous_translation_invariance[MultiSURF-extra4]
+FAILED audit/release_1_0_0/test_release_review.py::test_surf_exact_global_threshold_excludes_ties[False--0.2222222222222222]
+FAILED audit/release_1_0_0/test_release_review.py::test_surf_exact_global_threshold_excludes_ties[True--0.8888888888888888]
+FAILED audit/release_1_0_0/test_release_review.py::test_mrmr_accepts_float_coded_discrete_values[X]
+FAILED audit/release_1_0_0/test_release_review.py::test_mrmr_accepts_float_coded_discrete_values[y]
+FAILED audit/release_1_0_0/test_release_review.py::test_mrmr_category_encoding_preserves_distinct_uint64_values
+FAILED audit/release_1_0_0/test_release_review.py::test_mi_integer_conversion_does_not_alias_states
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_rejects_invalid_genotypes_before_casting[0.5]
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_rejects_invalid_genotypes_before_casting[256]
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_rejects_invalid_genotypes_before_casting[257]
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_rejects_invalid_genotypes_before_casting[-256]
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_is_cloneable - Ru...
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_is_recognized_as_classifier
+FAILED audit/release_1_0_0/test_release_review.py::test_selectors_expose_sklearn_transformer_tags[model0]
+FAILED audit/release_1_0_0/test_release_review.py::test_selectors_expose_sklearn_transformer_tags[model1]
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_predict_rejects_fractional_genotypes
+FAILED audit/release_1_0_0/test_release_review.py::test_mdr_predict_rejects_feature_count_mismatch
+FAILED audit/release_1_0_0/test_release_review.py::test_cfs_rejects_reordered_dataframe_columns
+FAILED audit/release_1_0_0/test_release_review.py::test_turf_works_with_real_relief_base_estimator
+FAILED audit/release_1_0_0/test_release_review.py::test_multisurf_selects_only_from_requested_feature_subset
+24 failed, 80 passed in 8.77s

@@ -8,6 +8,7 @@ The oracles below are deliberately self-contained (plain ``collections`` /
 """
 
 import heapq
+import importlib
 import math
 from collections import Counter
 from itertools import combinations
@@ -152,7 +153,9 @@ def balanced_accuracy(y, predictions):
 
 
 @pytest.mark.parametrize("seed", range(20))
-def test_mdr_against_independent_contingency_and_fold_oracle(seed):
+@pytest.mark.parametrize("batch_size", [1, 4, 4096])
+def test_mdr_against_independent_contingency_and_fold_oracle(seed, batch_size, monkeypatch):
+    monkeypatch.setattr(importlib.import_module("fast_select.MDR"), "_COMBINATION_BATCH_SIZE", batch_size)
     rng = np.random.default_rng(seed)
     X = rng.integers(0, 3, (36, 4))
     y = np.array([0] * 18 + [1] * 18)

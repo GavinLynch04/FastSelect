@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fast-select"
-version = "0.3.0"
+version = "0.4.0"
 
 authors = [
   { name="Gavin Lynch", email="gavinlynch04@gmail.com" },
@@ -72,6 +72,9 @@ dependencies = [
 # fast_select imports CuPy, so this extra is intentionally empty and kept only so
 # existing `pip install fast-select[gpu]` commands keep working.
 gpu = []
+
+# Optional Apple Silicon GPU backends; auto uses Metal when installed and CUDA is unavailable.
+metal = ["mlx>=0.32.4; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 
 test = [
     "pytest>=7.0",

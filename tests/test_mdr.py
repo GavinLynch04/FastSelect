@@ -1,4 +1,5 @@
 import math
+from itertools import combinations
 
 import numpy as np
 import pytest
@@ -11,13 +12,31 @@ try:
 except ModuleNotFoundError:
     HYPOTHESIS_AVAILABLE = False
 
-from fast_select.MDR import MAX_K_FOR_KERNEL, MDR
+from fast_select.MDR import MAX_K_FOR_KERNEL, MDR, _combination_batches
 from fast_select.utils import is_cuda_ready
 
 try:
     CUDA_AVAILABLE = is_cuda_ready()
 except Exception:
     CUDA_AVAILABLE = False
+
+
+@pytest.mark.parametrize("interaction_order", [1, 2, 3, 6])
+def test_combination_batches_preserve_exhaustive_order(interaction_order):
+    expected = np.array(list(combinations(range(7), interaction_order)), dtype=np.uint32)
+    actual = np.concatenate(list(_combination_batches(7, interaction_order)))
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_combination_batch_ties_keep_first_model(monkeypatch):
+    import importlib
+
+    monkeypatch.setattr(importlib.import_module("fast_select.MDR"), "_COMBINATION_BATCH_SIZE", 2)
+    features = np.zeros((12, 6), dtype=np.uint8)
+    target = np.array([0, 1] * 6)
+    model = MDR(k=2, cv=3, backend="cpu").fit(features, target)
+    assert tuple(model.best_interaction_) == (0, 1)
+    assert model.best_cvc_ == 3
 
 
 @pytest.fixture(scope="module")

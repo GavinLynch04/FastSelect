@@ -51,7 +51,7 @@ def test_parameter_validation_happens_in_fit(discrete_classification_data):
 
     bad_backend = mRMR(n_features_to_select=5, backend="tpu")
     assert bad_backend.get_params()["backend"] == "tpu"
-    with pytest.raises(ValueError, match="Backend must be 'auto', 'cpu', or 'gpu'"):
+    with pytest.raises(ValueError, match="Backend must be 'auto', 'cpu', 'gpu', or 'metal'"):
         bad_backend.fit(X, y)
 
 
@@ -61,8 +61,11 @@ def test_default_backend_is_auto_and_matches_explicit_backends(discrete_classifi
     assert mRMR(n_features_to_select=5).get_params()["backend"] == "auto"
 
     auto = mRMR(n_features_to_select=5).fit(X, y)
-    assert auto.effective_backend_ in ("cpu", "gpu")
-    assert auto.effective_backend_ == ("gpu" if is_cuda_ready() else "cpu")
+    from fast_select.utils import is_metal_ready
+
+    assert auto.effective_backend_ in ("cpu", "gpu", "metal")
+    expected = "gpu" if is_cuda_ready() else "metal" if is_metal_ready() else "cpu"
+    assert auto.effective_backend_ == expected
 
     explicit = mRMR(n_features_to_select=5, backend=auto.effective_backend_).fit(X, y)
     np.testing.assert_array_equal(auto.top_features_, explicit.top_features_)
@@ -70,7 +73,7 @@ def test_default_backend_is_auto_and_matches_explicit_backends(discrete_classifi
 
 
 def test_auto_backend_falls_back_to_cpu_when_states_exceed_gpu_limit():
-    """More than 32 distinct states must fall back rather than raise."""
+    """Exceeding CUDA's limit tries Metal next, then CPU."""
     from fast_select.mutual_information import _MAX_STATES_GPU
 
     rng = np.random.default_rng(11)
@@ -78,7 +81,9 @@ def test_auto_backend_falls_back_to_cpu_when_states_exceed_gpu_limit():
     y = rng.integers(0, 3, size=120, dtype=np.int64)
 
     model = mRMR(n_features_to_select=3, backend="auto").fit(X, y)
-    assert model.effective_backend_ == "cpu"
+    from fast_select.utils import is_metal_ready
+
+    assert model.effective_backend_ == ("metal" if is_metal_ready() else "cpu")
 
     # An explicit 'gpu' must refuse instead of silently falling back.
     if is_cuda_ready():

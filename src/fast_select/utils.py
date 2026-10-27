@@ -124,6 +124,45 @@ def is_cuda_ready() -> bool:
     return ensure_cuda_context()
 
 
+def is_metal_ready() -> bool:
+    """Probe optional Metal lazily; unavailable MLX must not break CPU imports."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        from ._metal import get_mx
+
+        get_mx()
+        return True
+    except (ImportError, RuntimeError, OSError):
+        return False
+
+
+def resolve_compute_backend(backend, *, cuda_available=None, metal_supported=True, auto_metal=True):
+    """Prefer CUDA, then optional Metal, then CPU. ``gpu`` retains CUDA meaning.
+
+    ``auto_metal=False`` keeps ``auto`` off Metal for algorithms whose Metal path
+    did not show a sustained speedup over CPU; explicit ``metal`` still works.
+    """
+    if backend not in ("auto", "cpu", "gpu", "metal"):
+        raise ValueError("backend must be 'auto', 'cpu', 'gpu', or 'metal'")
+    if backend == "cpu":
+        return "cpu"
+    if backend == "metal":
+        if not metal_supported:
+            raise ValueError("Input exceeds this algorithm's Metal backend limits; use backend='cpu'")
+        if not is_metal_ready():
+            raise RuntimeError("backend='metal' requires MLX and an available Metal GPU; install fast-select[metal]")
+        return "metal"
+    available = is_cuda_ready() if cuda_available is None else cuda_available
+    if backend == "gpu":
+        if not available:
+            raise RuntimeError("backend='gpu', but no CUDA-enabled GPU is available.")
+        return "gpu"
+    if available:
+        return "gpu"
+    return "metal" if auto_metal and metal_supported and is_metal_ready() else "cpu"
+
+
 @njit(parallel=True, cache=True, nogil=True)
 def _discrete_mask_kernel(x, limit):  # pragma: no cover
     """Per-column test for ``np.unique(column).size <= limit``.

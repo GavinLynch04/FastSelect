@@ -4,8 +4,10 @@ Follow the repository policy and keep three distinct test layers:
 
 1. **Equation oracle:** a tiny NumPy/Python calculation derived directly from
    the paper. It must not import private production helpers.
-2. **Backend conformance:** compare CPU and CUDA results to the oracle, then to
-   each other with a tolerance justified by reduction order and precision.
+2. **Backend conformance:** compare CPU, CUDA and Metal results to the oracle
+   on available hardware, then to each other with a tolerance justified by
+   reduction order and precision. Metal's certified boundary decisions need
+   exact-boundary tests that exercise float64 repair, not just random parity.
 3. **Behavior/API:** validate fitted attributes, transformations, errors, and
    scikit-learn compatibility separately from mathematical correctness.
 
