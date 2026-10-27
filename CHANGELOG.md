@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The repository's algorithm, verification and performance rules are now
+  published as `docs/development/algorithm-policy.md`; the `CLAUDE.md` files
+  that held them are no longer tracked.
 - PyPI summary and keywords now name the algorithms and the Apple Silicon
   backend.
 - Coverage reporting: the Numba-compiled kernels added in 0.4.0 are marked

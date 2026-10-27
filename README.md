@@ -334,8 +334,8 @@ large neighbor counts. No new GPU backend is claimed by this second batch.
 Each implementation is held to its defining paper. Where `fast-select` supports
 more than the paper does — multiclass targets for the SURF family, for
 instance — the docstring names it as an extension rather than presenting it as
-the original algorithm. The rules are written down in
-[`CLAUDE.md`](./CLAUDE.md) and enforced by `tests/test_algorithm_compliance.py`,
+the original algorithm. The rules are written down in the
+[algorithm policy](./docs/development/algorithm-policy.md) and enforced by `tests/test_algorithm_compliance.py`,
 whose oracles are computed straight from the published equations and never call
 production kernels.
 

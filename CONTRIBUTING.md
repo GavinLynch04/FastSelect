@@ -60,9 +60,9 @@ On Apple Silicon, add the Metal backend with `pip install -e ".[dev,metal]"`.
 ## Algorithm changes
 
 fast-select treats each algorithm's **defining paper** as the authority on what
-it computes. The full rules are in [`CLAUDE.md`](CLAUDE.md),
-[`src/fast_select/CLAUDE.md`](src/fast_select/CLAUDE.md) (per-algorithm
-invariants) and [`tests/CLAUDE.md`](tests/CLAUDE.md) (test standards). In short:
+it computes. The full rules, including the per-algorithm invariants and the test
+standards, are in the
+[algorithm policy](docs/development/algorithm-policy.md). In short:
 
 - **Cite the source.** Name the paper and the equation or pseudocode rule you
   implement, the problem types supported, and any limitation. Author errata or

@@ -35,8 +35,8 @@ or changes branch protection.
 ## Iterate and retain only demonstrated gains
 
 1. Identify a bottleneck and change one allocation, data layout, or kernel at a
-   time. Preserve the equations and tie rules documented in `../CLAUDE.md` and
-   `../src/fast_select/CLAUDE.md`.
+   time. Preserve the equations and tie rules documented in the
+   [algorithm policy](../docs/development/algorithm-policy.md).
 2. Add independent equation-oracle tests and relevant adversarial inputs. CPU
    agreement with an old version is not sufficient: both can share a bug.
 3. Run correctness checks, then benchmark without other CPU-intensive work:
