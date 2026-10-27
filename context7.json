@@ -1,0 +1,16 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "fast-select (Python feature selection)",
+  "description": "Scikit-learn-compatible feature selection: the Relief family (ReliefF, SURF, MultiSURF, TuRF), mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS, MDR, Chi2, Gini index, Laplacian Score and mutual-information estimators, accelerated with Numba on CPU, NVIDIA CUDA and Apple Silicon (Metal) GPUs.",
+  "folders": ["docs/source"],
+  "excludeFolders": ["audit", "benchmarking", "tests", "build", "src"],
+  "excludeFiles": ["CLAUDE.md"],
+  "rules": [
+    "Install with `pip install fast-select`; add the `[metal]` extra (`pip install \"fast-select[metal]\"`) for the Apple Silicon GPU backend.",
+    "Every estimator takes `backend`: 'auto' (CUDA, then Metal where enabled, then CPU), 'cpu', 'gpu' (CUDA only) or 'metal'. Explicit 'gpu' or 'metal' raises if unavailable instead of falling back.",
+    "For Relief-family estimators, an integer `n_features_to_select` is a count and a float is a fraction of features.",
+    "JMI, CMIM, FCBF, MIFS, CIFE, DISR and mRMR expect categorical (discrete) features and do not bin continuous data; discretize continuous features first, or use `mutual_info_classif` / `mutual_info_regression` with `SelectKBest`.",
+    "`mutual_info_classif` and `mutual_info_regression` match the scikit-learn signatures and return nats; set `random_state` for reproducible results.",
+    "When migrating from scikit-rebate, rename `categorical_threshold` to `discrete_limit` and note that the default `n_neighbors` is 3 (scikit-rebate uses 100)."
+  ]
+}
