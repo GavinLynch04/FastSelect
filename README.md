@@ -334,8 +334,8 @@ large neighbor counts. No new GPU backend is claimed by this second batch.
 Each implementation is held to its defining paper. Where `fast-select` supports
 more than the paper does — multiclass targets for the SURF family, for
 instance — the docstring names it as an extension rather than presenting it as
-the original algorithm. The rules are written down in
-[`CLAUDE.md`](./CLAUDE.md) and enforced by `tests/test_algorithm_compliance.py`,
+the original algorithm. The rules are written down in the
+[algorithm policy](./docs/development/algorithm-policy.md) and enforced by `tests/test_algorithm_compliance.py`,
 whose oracles are computed straight from the published equations and never call
 production kernels.
 
@@ -400,25 +400,7 @@ makes the same decisions as the CPU backend.
 
 Contributions are highly encouraged. Whether you're fixing bugs, improving performance, or proposing new algorithms, your work is invaluable.
 
-Before opening a pull request:
-
-```bash
-pip install -e ".[dev]"
-ruff check src tests benchmarking
-black --check src tests benchmarking
-pytest
-```
-
-Algorithm changes carry an extra requirement: cite the paper and the specific
-equation or pseudocode rule you are implementing, and add an independent oracle
-test that derives the expected result from that equation rather than from
-`fast-select`'s own output. [`CLAUDE.md`](./CLAUDE.md) has the details.
-
-Performance changes also need sustained, machine-readable evidence of a runtime
-or memory improvement. The [optimization loop](./benchmarking/README.md) documents
-clean-process comparisons, complete-output checks, and the `--gate` command that
-rejects unrepeatable improvements. A benchmark win does not replace equation
-oracles or physical-GPU conformance checks.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the development setup, the checks to run, and the extra requirements for algorithm and performance changes: every algorithm change cites its defining paper and adds an independent equation-derived oracle test, and every performance change needs sustained, machine-readable benchmark evidence. Everyone taking part is expected to follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ---
 

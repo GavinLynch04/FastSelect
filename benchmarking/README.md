@@ -28,15 +28,15 @@ Work on `development`. Before optimizing, incorporate the released fixes from
 fastest correct implementation, including retained local optimizations, as the
 performance baseline. Freeze its revision or source snapshot and record its
 source hash before making further changes. The earlier October 2026 experiments
-used `eafab5f` (release `v0.3.0`); that historical choice does not make it the
+used release `v0.3.0` (recorded as its pre-rewrite hash `eafab5f`); that historical choice does not make it the
 baseline for future work. Nothing in this workflow pushes, merges, publishes,
 or changes branch protection.
 
 ## Iterate and retain only demonstrated gains
 
 1. Identify a bottleneck and change one allocation, data layout, or kernel at a
-   time. Preserve the equations and tie rules documented in `../CLAUDE.md` and
-   `../src/fast_select/CLAUDE.md`.
+   time. Preserve the equations and tie rules documented in the
+   [algorithm policy](../docs/development/algorithm-policy.md).
 2. Add independent equation-oracle tests and relevant adversarial inputs. CPU
    agreement with an old version is not sufficient: both can share a bug.
 3. Run correctness checks, then benchmark without other CPU-intensive work:

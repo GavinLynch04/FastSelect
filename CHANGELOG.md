@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `CONTRIBUTING.md` and a `CODE_OF_CONDUCT.md` (Contributor Covenant 3.0).
+- A GitHub Actions workflow that builds the JOSS draft PDF of `paper.md`.
 - `py.typed` marker (PEP 561), so type checkers and editors use the package's
   inline annotations.
 - README section on switching from scikit-rebate or scikit-learn, with a
@@ -22,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The repository's algorithm, verification and performance rules are now
+  published as `docs/development/algorithm-policy.md`; the `CLAUDE.md` files
+  that held them are no longer tracked.
 - PyPI summary and keywords now name the algorithms and the Apple Silicon
   backend.
 - Coverage reporting: the Numba-compiled kernels added in 0.4.0 are marked

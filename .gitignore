@@ -221,3 +221,7 @@ audit/feature_heavy/screen.json
 audit/feature_heavy/sustained.json
 audit/feature_heavy/sustained_threads8.json
 audit/feature_heavy/cpu_thread_tuning_fresh.json
+
+# Local coding-agent instructions; the public rules live in
+# docs/development/algorithm-policy.md.
+CLAUDE.md
