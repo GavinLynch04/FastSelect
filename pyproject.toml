@@ -115,6 +115,14 @@ markers = [
 ]
 
 
+[tool.coverage.run]
+# The Metal backend modules need MLX and an Apple Silicon GPU, so they can never
+# execute on the Linux CI runners and would only report as 0%. They are tested
+# locally on Apple Silicon (tests/test_metal_algorithms.py,
+# tests/test_relieff_metal.py) against the CPU backend and equation oracles.
+omit = ["*/fast_select/_*metal.py"]
+
+
 [tool.black]
 line-length = 120
 

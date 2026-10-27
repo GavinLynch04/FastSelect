@@ -59,7 +59,7 @@ def _affinity(X, neighbors, mode, bandwidth):
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _columns_and_statistics(X, degree):
+def _columns_and_statistics(X, degree):  # pragma: no cover
     n, p = X.shape
     columns = np.empty((p, n), dtype=np.float64)
     means = np.zeros(p)
@@ -91,7 +91,7 @@ def _columns_and_statistics(X, degree):
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _edge_energy(columns, indptr, indices, data, features):
+def _edge_energy(columns, indptr, indices, data, features):  # pragma: no cover
     result = np.empty(len(features))
     for t in prange(len(features)):
         f = features[t]
@@ -132,7 +132,9 @@ class LaplacianScore(TransformerMixin, BaseEstimator):
         check_integer_param(self.n_neighbors, "n_neighbors", 1)
         if self.weight_mode not in ("binary", "heat_kernel"):
             raise ValueError("weight_mode must be 'binary' or 'heat_kernel'")
-        if not np.isscalar(self.bandwidth) or not np.isfinite(self.bandwidth) or self.bandwidth <= 0:
+        if isinstance(self.bandwidth, (bool, np.bool_)) or not isinstance(self.bandwidth, (int, float, np.number)):
+            raise ValueError("bandwidth must be positive and finite")
+        if not np.isfinite(self.bandwidth) or self.bandwidth <= 0:
             raise ValueError("bandwidth must be positive and finite")
         value = self.n_features_to_select
         if isinstance(value, (float, np.floating)):

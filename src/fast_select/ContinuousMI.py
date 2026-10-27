@@ -29,7 +29,7 @@ def _psi_table(n):
 
 
 @njit(cache=True, nogil=True)
-def _radius_count(ordered, value, radius):
+def _radius_count(ordered, value, radius):  # pragma: no cover
     # Compare actual differences, not rounded value +/- radius endpoints.
     lo, hi = 0, len(ordered)
     while lo < hi:
@@ -50,7 +50,7 @@ def _radius_count(ordered, value, radius):
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _continuous_mi(columns, labels, members, starts, k, psi):
+def _continuous_mi(columns, labels, members, starts, k, psi):  # pragma: no cover
     p, n = columns.shape
     result = np.empty(p, dtype=np.float64)
     sizes = starts[1:] - starts[:-1]

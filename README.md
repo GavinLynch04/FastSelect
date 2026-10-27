@@ -191,6 +191,8 @@ limit is exceeded, `auto` tries Metal (up to 64), then CPU.
 Example usage:
 
 ```python
+from fast_select import MultiSURF
+
 # Force CPU usage
 cpu_selector = MultiSURF(n_features_to_select=10, backend='cpu')
 
@@ -207,6 +209,13 @@ Numba and CUDA kernels. CPU and GPU paths are checked against independent,
 equation-driven algorithm tests rather than assuming an external implementation
 is authoritative. Sustained comparison scripts and raw results are available in
 the [benchmarking directory](./benchmarking).
+
+The two plots below are the Relief-family comparisons from the v0.2.1 release
+and have not been regenerated since. Current measurements are in the
+[Metal backend report](benchmarking/results/METAL_BACKENDS.md), the
+[ReliefF Metal report](benchmarking/results/RELIEFF_METAL.md), and the
+[first](benchmarking/results/NEW_ALGORITHMS.md) and
+[second](benchmarking/results/NEW_ALGORITHMS_2.md) new-algorithm reports.
 
 #### Runtime vs. Number of Samples (n >> p)
 
@@ -322,15 +331,23 @@ against results you generated with an earlier release.
 | Metal backend | Not in CI. Full suite and oracle/parity tests run locally on an Apple M1 Pro | Other Apple GPUs, CI coverage |
 | Documentation | Strict Sphinx build (warnings are errors) | — |
 
-Reported test coverage is host-side Python line coverage only; the compiled
-numerical kernels are excluded from it and are verified by the oracle tests.
+Reported test coverage is host-side Python line coverage from the Linux CI
+runners only. Numba-compiled kernels (marked `# pragma: no cover`) cannot be
+traced by coverage tools and are verified by the equation-oracle tests instead.
+The Metal modules (`fast_select/_*metal.py`) are omitted from the report
+because the Linux runners have no Apple GPU; they are tested locally on Apple
+Silicon against the CPU backend and the oracles. CUDA-only and Metal-only
+branches in the estimators still count as uncovered.
 
 **Numerical policy.** Relief-family features are range-normalised in float64
 (continuous) or replaced by exact category codes (discrete) before any narrowing
-to float32, on both the CPU and CUDA backends. SURF and SURF* compute the global
+to float32, on the CPU, CUDA and Metal backends. SURF and SURF* compute the global
 radius and all pair distances in float64 and treat a distance within a relative
 `1e-12` of the radius as a tie, which is excluded from both the near and far
-sets; the remaining Relief-family kernels score in float32.
+sets; the remaining Relief-family kernels score in float32. Metal computes
+distances in float32 with a conservative error bound and recomputes any
+neighbor or threshold decision inside that bound on the CPU in float64, so it
+makes the same decisions as the CPU backend.
 
 ---
 

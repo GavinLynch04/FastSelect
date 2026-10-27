@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
+  value such as a string now raise the documented `ValueError` instead of a
+  NumPy `TypeError`.
+
+### Changed
+
+- Coverage reporting: the Numba-compiled kernels added in 0.4.0 are marked
+  `# pragma: no cover` like the existing ones, and the Metal modules are omitted
+  from the Linux CI coverage report (they cannot run there). Added tests for the
+  previously untested parameter-validation and `discrete_features` branches.
+
 ## [0.4.0] - 2026-10-27
 
 Ten new selectors and score functions, an optional Apple Silicon GPU backend,

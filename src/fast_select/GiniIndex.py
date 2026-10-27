@@ -13,7 +13,7 @@ from fast_select.utils import check_integer_param, resolve_num_threads
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _gini(columns, labels, counts):
+def _gini(columns, labels, counts):  # pragma: no cover
     p, n = columns.shape
     scores = np.empty(p)
     total_squares = np.sum(counts * counts)

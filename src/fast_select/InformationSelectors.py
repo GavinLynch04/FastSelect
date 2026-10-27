@@ -28,7 +28,7 @@ _TRIPLE_KEY = types.UniTuple(types.int64, 3)
 
 
 @njit(cache=True, nogil=True)
-def _entropy_one(x, states):
+def _entropy_one(x, states):  # pragma: no cover
     counts = np.zeros(states, dtype=np.int64)
     for value in x:
         counts[value] += 1
@@ -41,7 +41,7 @@ def _entropy_one(x, states):
 
 
 @njit(cache=True, nogil=True)
-def _entropy_pair(a, b, sa, sb):
+def _entropy_pair(a, b, sa, sb):  # pragma: no cover
     total = 0.0
     if sa * sb <= 1_000_000:
         counts = np.zeros(sa * sb, dtype=np.int64)
@@ -68,7 +68,7 @@ def _entropy_pair(a, b, sa, sb):
 
 
 @njit(cache=True, nogil=True)
-def _entropy_three(a, b, c, sa, sb, sc):
+def _entropy_three(a, b, c, sa, sb, sc):  # pragma: no cover
     total = 0.0
     if sa * sb * sc <= 1_000_000:
         counts = np.zeros(sa * sb * sc, dtype=np.int64)
@@ -95,7 +95,7 @@ def _entropy_three(a, b, c, sa, sb, sc):
 
 
 @njit(cache=True, nogil=True)
-def _first_codes(x):
+def _first_codes(x):  # pragma: no cover
     mapping = np.full(int(x.max()) + 1, -1, dtype=np.int32)
     result = np.empty(len(x), dtype=np.int32)
     next_code = 0
@@ -109,7 +109,7 @@ def _first_codes(x):
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _initial(columns, target, counts, sy):
+def _initial(columns, target, counts, sy):  # pragma: no cover
     p = len(columns)
     entropy = np.empty(p, dtype=np.float64)
     joint = np.empty(p, dtype=np.float64)
@@ -122,7 +122,7 @@ def _initial(columns, target, counts, sy):
 
 
 @njit(parallel=True, cache=True, nogil=True)
-def _step_cpu(columns, target, counts, sy, selected, active, conditional):
+def _step_cpu(columns, target, counts, sy, selected, active, conditional):  # pragma: no cover
     p = len(columns)
     pair = np.zeros(p, dtype=np.float64)
     triple = np.zeros(p, dtype=np.float64)
@@ -157,7 +157,11 @@ class _InformationSelector(TransformerMixin, BaseEstimator):
             check_integer_param(self.n_features_to_select, "n_features_to_select", 1)
             if self.n_features_to_select > X.shape[1]:
                 raise ValueError("n_features_to_select must not exceed the feature count")
-        elif isinstance(self.delta, (bool, np.bool_)) or not np.isscalar(self.delta) or not 0 <= self.delta <= 1:
+        elif (
+            isinstance(self.delta, (bool, np.bool_))
+            or not isinstance(self.delta, (int, float, np.number))
+            or not 0 <= self.delta <= 1
+        ):
             raise ValueError("delta must be a finite number in [0, 1]")
         encoded, labels, counts, sy = _encode_categories(X, y)
         labels = _first_codes(labels)
