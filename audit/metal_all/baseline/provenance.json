@@ -1,0 +1,4 @@
+{
+  "source_sha256": "154863aca34a39448efefc76eb19e11e650340bbda5c9b26d9a8bb7563f3801d",
+  "description": "Frozen current optimized source before all-algorithm Metal changes; includes retained local optimizations"
+}

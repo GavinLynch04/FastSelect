@@ -1,0 +1,9 @@
+{
+  "repository": "jundongl/scikit-feature",
+  "commit": "48cffad4e88ff4b9d2f1c7baffb314d1b3303792",
+  "archive_sha256": "bcc6d151ce7ab7aea89b06fa085a3a54a88e8cb72f3768b20bda3f02cb9e42bd",
+  "source_directory": "/Users/gavinlynch/Desktop/FastSelect/audit/new_algorithms/vendor/jundongl-scikit-feature-48cffad",
+  "scikit_learn_version": "1.9.1",
+  "skfeature_chappers_inspected_version": "1.2.1",
+  "reference_notes": "Use original upstream JMI/CMIM/Laplacian/FCBF. Latest fork JMI ignores adaptive coefficients; FCBF truncates scores. Original FCBF requires the mechanical NumPy keyword fix dtypes -> dtype; no mathematical changes."
+}

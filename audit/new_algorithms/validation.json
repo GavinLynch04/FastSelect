@@ -1,0 +1,19 @@
+{
+  "full_suite": {
+    "passed": 784,
+    "skipped": 76,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 31.842
+  },
+  "wheel_build": "passed",
+  "sdist_build": "passed",
+  "wheel_optional_dependency_blocking_smoke": "passed: MLX and skfeature imports blocked",
+  "no_reference_or_prototype_source_in_distributions": true,
+  "documentation_build": "passed with warnings treated as errors",
+  "artifact_sha256": {
+    "fast_select-0.3.0-py3-none-any.whl": "0d27f7c426fffd888d56978be8b112eb39fd53b0eeb5bf23f1a1424cc317e807",
+    "fast_select-0.3.0.tar.gz": "28dd873749ea422c3684882b51cbfd36e280c158348285ad94ac5aba8c134395"
+  },
+  "packaged_modules_match_measured_sha256": true
+}

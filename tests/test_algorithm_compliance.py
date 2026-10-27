@@ -234,6 +234,24 @@ MIXED_Y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
 MIXED_DISCRETE = np.array([False, True])
 
 
+@pytest.mark.parametrize("use_star", [False, True])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("layout", ["c", "fortran", "strided"])
+def test_surf_input_layout_matches_equation_oracle(use_star, dtype, layout):
+    features = MIXED_X.astype(dtype)
+    if layout == "fortran":
+        features = np.asfortranarray(features)
+    elif layout == "strided":
+        backing = np.zeros((len(features) * 2, features.shape[1] * 2), dtype=dtype)
+        backing[::2, ::2] = features
+        features = backing[::2, ::2]
+    original = features.copy()
+    expected = _surf_reference(features, MIXED_Y, MIXED_DISCRETE, use_star)
+    model = SURF(backend="cpu", discrete_limit=3, n_features_to_select=1, use_star=use_star).fit(features, MIXED_Y)
+    assert_allclose(model.feature_importances_, expected, rtol=1e-5, atol=1e-7)
+    assert_array_equal(features, original)
+
+
 def test_surf_matches_global_radius_and_count_normalization():
     for use_star in (False, True):
         expected = _surf_reference(MIXED_X, MIXED_Y, MIXED_DISCRETE, use_star)

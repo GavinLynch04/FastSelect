@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-27",
+  "popularity_proxy": "GitHub stars among reviewed implementations; not an installation census",
+  "reviewed_projects": [
+    {"url": "https://github.com/scikit-learn/scikit-learn", "stars_displayed": "67.9k", "baseline_for": ["mutual_info_regression", "GiniIndex via exact per-feature CART stumps"]},
+    {"url": "https://github.com/jundongl/scikit-feature", "stars_displayed": "1.6k", "baseline_for": ["DISR", "CIFE", "MIFS"], "also_timed": "GiniIndex; much slower than compiled CART"},
+    {"url": "https://github.com/ctlab/ITMO_FS", "stars_displayed": "148"},
+    {"url": "https://github.com/danielhomola/mifs", "stars_displayed": "286", "note": "Package name is mifs, but it implements other continuous MI selector criteria; not Battiti MIFS"},
+    {"url": "https://github.com/riken-aip/pyHSICLasso", "stars_displayed": "197", "note": "Reviewed; solver and kernel conventions add substantial implementation/correctness scope"}
+  ],
+  "initial_shortlist_rejections": {
+    "ICAP": "Original scikit-feature uses a running maximum rather than the paper's sum of clipped interaction penalties; a different criterion. Do not use it as a same-algorithm speed baseline.",
+    "TraceRatio": "Original scikit-feature truncates all candidate features to the first k before the iterative search. Do not copy this search-space change.",
+    "FisherScore": "Equivalent ordering to ANOVA F; not counted as another independent algorithm alongside ANOVA.",
+    "SPEC": "Default complete-spectrum centered score overlaps the already retained Laplacian criterion; not selected for this batch.",
+    "f_classif": "Mathematically correct Numba prototype lost to official scikit-learn on all screened shapes and thread counts; excluded from package. Replaced by MIFS."
+  },
+  "fork_inspection": "skfeature-chappers 1.2.1 inspected: DISR switches to a different formula after its first step; CIFE/MIFS wrappers consume LCSI ranks as though they were selected indices. Use pinned original upstream, with no source shims needed for this batch.",
+  "primary_sources": {
+    "KSG": "https://arxiv.org/abs/cond-mat/0305641",
+    "Ross_discrete_columns": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0087357",
+    "CART_gini": "https://scikit-learn.org/stable/modules/tree.html#classification-criteria",
+    "CIFE": "https://mmlab.ie.cuhk.edu.hk/2006/39510068.pdf",
+    "DISR": "https://orbi.uliege.be/handle/2268/163912",
+    "MIFS": "https://iris.unitn.it/handle/11572/53878",
+    "information_criteria_identities": "https://www.jmlr.org/papers/v13/brown12a.html",
+    "rejected_ANOVA": "https://itl.nist.gov/div898/handbook/prc/section4/prc433.htm"
+  }
+}

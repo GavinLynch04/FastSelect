@@ -1,0 +1,2 @@
+CFS RuntimeError Estimator CFS seems to be a Transformer, but the `transformer_tags` tag is not set. Either set the tag manually or inherit from the TransformerMixin. Note that the order of inheritance matters, the TransformerMixin should come before BaseEstimator.
+mRMR RuntimeError Estimator mRMR seems to be a Transformer, but the `transformer_tags` tag is not set. Either set the tag manually or inherit from the TransformerMixin. Note that the order of inheritance matters, the TransformerMixin should come before BaseEstimator.

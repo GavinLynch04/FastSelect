@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-28",
+  "branch": "codex/python-313-314-support",
+  "base_commit": "bce53d13933a26e6b4a6659337efbab3fec9500b",
+  "source_sha256": {
+    "src/fast_select/CFS.py": "6d283d0a8ff8273e6dcbe65812edad27b8f7174d53cab2bb046674440ee70466",
+    "src/fast_select/Chi2.py": "1ef79462a2c0649fb6ad5e25eaba3155baf45eee4bfa69784a2e9d97af512f25",
+    "src/fast_select/MDR.py": "7f04b3ad0900b55784bf05f33ec75c24e96cd132ae353e5623292a74ea36fe21",
+    "src/fast_select/MultiSURF.py": "434bf8454281190b4f6cb7cb735dae83cc11c052867d87c70cae68382975a405",
+    "src/fast_select/ReliefF.py": "c06154129d8347f4a731d89a61bb04e80c8aafc001ea4ba522ef1d0174153354",
+    "src/fast_select/SURF.py": "251cf4143f09dc4a416d2375fb036f8be89ceeb56ca5ce519662008bd3c52207",
+    "src/fast_select/TuRF.py": "888de0f338896a63bb4fcd9e0d90fb864d4570cdb7dc3c9a9569def02d1472b4",
+    "src/fast_select/__init__.py": "f6efceb3bcb1a95c1776f342a289b9906962a20419aa17b38da332ac9a5e5979",
+    "src/fast_select/mRMR.py": "dd5c4ababe7964e39ba4fe20bfd912827f0cb632432d8d3e8bd18ac6bda6eaef",
+    "src/fast_select/mutual_information.py": "a2f921c5d6fe13ba22cbb24f503e5f86f24ac54780bd1e1d49723f43daf8cec6",
+    "src/fast_select/utils.py": "5f1a158724c9867ea89a1d3cf8e83c4a9742af436c5c72755ff80d7ceb94cbe9"
+  },
+  "baseline": {
+    "python": "3.13.15",
+    "passed": 109,
+    "skipped": 33
+  },
+  "additional_audit": {
+    "python_versions": [
+      "3.13.15",
+      "3.14.7"
+    ],
+    "passed_each": 80,
+    "failed_each": 24
+  },
+  "relief_oracles": {
+    "cases": 600,
+    "failures": 0
+  },
+  "coverage_totals": {
+    "covered_lines": 673,
+    "num_statements": 814,
+    "percent_covered": 82.67813267813268,
+    "percent_covered_display": "83",
+    "missing_lines": 141,
+    "excluded_lines": 1712,
+    "percent_statements_covered": 82.67813267813268,
+    "percent_statements_covered_display": "83"
+  },
+  "cuda": "simulated with test-only runtime import/availability shim; no NVIDIA device tested",
+  "docs": "9 warnings; strict build failed",
+  "lint": "ruff and black passed on maintained source/tests/benchmarks",
+  "packaging": "wheel and sdist built and twine check --strict passed on Python 3.13 and 3.14 in preceding turn; production code unchanged"
+}

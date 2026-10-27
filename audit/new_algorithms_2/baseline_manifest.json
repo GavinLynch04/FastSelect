@@ -1,0 +1,54 @@
+{
+  "baseline_scikit_learn_version": "1.9.1",
+  "scikit_feature": {
+    "repository": "jundongl/scikit-feature",
+    "commit": "48cffad4e88ff4b9d2f1c7baffb314d1b3303792",
+    "archive_sha256": "bcc6d151ce7ab7aea89b06fa085a3a54a88e8cb72f3768b20bda3f02cb9e42bd",
+    "source_directory": "/Users/gavinlynch/Desktop/FastSelect/audit/new_algorithms/vendor/jundongl-scikit-feature-48cffad",
+    "scikit_learn_version": "1.9.1",
+    "skfeature_chappers_inspected_version": "1.2.1",
+    "reference_notes": "Use original upstream JMI/CMIM/Laplacian/FCBF. Latest fork JMI ignores adaptive coefficients; FCBF truncates scores. Original FCBF requires the mechanical NumPy keyword fix dtypes -> dtype; no mathematical changes."
+  },
+  "retained_prior_source_sha256": {
+    "CFS.py": "155bbfea0b342d1c198f06b4484cb24eaa5524133d9e3869117182b708b8b2eb",
+    "Chi2.py": "425aee45842276f9ebf2fa84eb360329a624de04fb9de70d9613f5b2877bef54",
+    "ContinuousMI.py": "d3158664d524a2bb7f5a393ab3ff06201bc8a5df46193b7bc4f18c4813932de2",
+    "InformationSelectors.py": "cbe207169c4125614cefc5b61b1d0dd81f59b0fa8b04ccffb8fd886f0ef793a2",
+    "LaplacianScore.py": "ce84632bf777ce380663e0fbe4e2e2772ee54847af469156372f7dd857f2170d",
+    "MDR.py": "17229790a2e772634de1f9fdb6f5891dbcf3362ba37b30e782f079c81b5d9e1d",
+    "MultiSURF.py": "009a9df879e5ff999bde23dd4690143a79b1b28ad54a133b0885978b3701a149",
+    "ReliefF.py": "ebfaa738dd22ac607db97718d0cfa481dc7fb8ada149f6010cf3785f9ad0025e",
+    "SURF.py": "7deec9f62aa61882e4ff10181f9fbdafa3aa9381c07551845010f4819b1cc5ff",
+    "TuRF.py": "c88a39764c780c4e22dd9283d306e2270b11a839d0c17863956ca040469ac8e5",
+    "__init__.py": "bfd116853c552a7b1a74dbad63aec9b6fee1145b54e9bcc7501c48fd0d9b102b",
+    "_chi2_metal.py": "432a684b6256b912381121336a11c81f4dfcc802610a22875760d78ca0134822",
+    "_cpu_backend.py": "12d1b843e14218067f9d06ae9c5b236e9705f7dc77ba4b622e0eaea1eb6679d2",
+    "_information_metal.py": "162e0ccb6f8bd34cac14ac32ac359ba2af3830ad52654bf0d011a54ad676c916",
+    "_mdr_metal.py": "b73d0426926d6de3f99f7abe3bfc58d8e82f21dd1abcbaa5f3f1977f9c11a672",
+    "_metal.py": "b3cc1c9f8aa37a329419944aca975ed9f42e1923b3a8572e06ab6681b2b3482e",
+    "_neighbors_metal.py": "36f07639528fbac7c712c1a80defab50ba9d89f60921dea44f98fe5742a45761",
+    "_relieff_metal.py": "77bc015129bda04bd9f34115fa32923ade8791544802ba29a99af8f11158b2eb",
+    "mRMR.py": "5c06e4bdc4eac222d6366fdbdc253d8c304fcdca74c7fa4e1c2bfe60d8887f79",
+    "mutual_information.py": "92aa0f1bc874b7a60d888176c32bacccbb30106f8f7fc14607f0a79e1f60e1ea",
+    "utils.py": "395c121fe37594e66865474975df9a92d88250842d3d88858850c3247d5bd7f7"
+  },
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "candidates": [
+    "mutual_info_regression",
+    "f_classif",
+    "GiniIndex",
+    "DISR",
+    "CIFE"
+  ],
+  "notes": "Prototype outside src. For Gini compare both original scikit-feature and more popular compiled scikit-learn CART stumps, using the fastest correct baseline. Original ICAP implements a maximum instead of paper sum; TraceRatio pre-prunes candidates to k. Exclude those candidates rather than copying their semantic defects.",
+  "selected_after_screen": [
+    "mutual_info_regression",
+    "GiniIndex",
+    "DISR",
+    "CIFE",
+    "MIFS"
+  ],
+  "rejected_after_screen": {
+    "f_classif": "Numerically correct CPU prototype lost to official scikit-learn across all four screened shapes and all tested Numba thread counts."
+  }
+}

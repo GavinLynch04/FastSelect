@@ -1,0 +1,22 @@
+{
+  "observed_utc_date": "2026-10-27",
+  "popularity_metric": "GitHub stars among reviewed Python implementations; a proxy, not a census of installed users",
+  "projects": [
+    {"repository": "scikit-learn/scikit-learn", "stars_displayed": "67.9k", "url": "https://github.com/scikit-learn/scikit-learn", "baseline_for": ["Ross continuous/discrete MI"]},
+    {"repository": "jundongl/scikit-feature", "stars_displayed": "1.6k", "url": "https://github.com/jundongl/scikit-feature", "baseline_for": ["JMI", "CMIM", "FCBF", "Laplacian Score"]},
+    {"repository": "danielhomola/mifs", "stars_displayed": "286", "url": "https://github.com/danielhomola/mifs", "notes": "Reviewed alternative MI selector project"},
+    {"repository": "ctlab/ITMO_FS", "stars_displayed": "148", "url": "https://github.com/ctlab/ITMO_FS", "notes": "Reviewed alternative feature-selection project"}
+  ],
+  "papers": {
+    "MI": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0087357",
+    "LaplacianScore": "https://proceedings.neurips.cc/paper/2005/hash/b5b03f06271f8917685d14cea7c6c50a-Abstract.html",
+    "JMI": "https://papers.nips.cc/paper_files/paper/1999/file/8c01a75941549a705cf7275e41b21f0d-Paper.pdf",
+    "CMIM": "https://www.jmlr.org/papers/v5/fleuret04a.html",
+    "JMI_CMIM_identity": "https://www.jmlr.org/papers/v13/brown12a.html",
+    "FCBF": "https://jmlr.org/papers/volume5/yu04a/yu04a.pdf"
+  },
+  "rejected_shortlist_directions": [
+    {"method": "Boruta", "reason": "Most work is already in the optimized random-forest estimator, limiting gains from a Numba wrapper"},
+    {"method": "RFE", "reason": "Repeated model fits dominate; the selector wrapper is not the main parallelization opportunity"}
+  ]
+}

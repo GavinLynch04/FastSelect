@@ -1,0 +1,272 @@
+{
+  "small_mutual_info_regression": {
+    "shape": [
+      64,
+      1024
+    ],
+    "algorithm": "mutual_info_regression",
+    "cpu_ms": 6.809749989770353,
+    "metal_ms": 5.683896015398204,
+    "central_speedup": 1.1980778626706232,
+    "paired_speedups": [
+      1.1733662923345847,
+      1.573746090476958,
+      1.233752719878437,
+      1.1874560764486035,
+      1.0978105330812395
+    ],
+    "passed_runtime_gate": true
+  },
+  "small_GiniIndex": {
+    "shape": [
+      64,
+      1024
+    ],
+    "algorithm": "GiniIndex",
+    "cpu_ms": 1.0801669559441507,
+    "metal_ms": 1.0169580345973372,
+    "central_speedup": 1.0621548964622134,
+    "paired_speedups": [
+      1.121191950522006,
+      1.0354803213756132,
+      1.0251568208857478,
+      1.1166680567003777,
+      1.126923628540304
+    ],
+    "passed_runtime_gate": false
+  },
+  "small_DISR": {
+    "shape": [
+      64,
+      1024
+    ],
+    "algorithm": "DISR",
+    "cpu_ms": 4.453916510101408,
+    "metal_ms": 5.143228976521641,
+    "central_speedup": 0.8659767104348494,
+    "paired_speedups": [
+      0.8745615255256473,
+      0.9129247437379345,
+      0.8868442990773528,
+      0.8440407986358908,
+      1.0695980073608193
+    ],
+    "passed_runtime_gate": false
+  },
+  "small_CIFE": {
+    "shape": [
+      64,
+      1024
+    ],
+    "algorithm": "CIFE",
+    "cpu_ms": 5.321750068105757,
+    "metal_ms": 5.309083964675665,
+    "central_speedup": 1.0023857417803839,
+    "paired_speedups": [
+      1.0421121177806516,
+      0.9787013169744172,
+      0.8579386866386823,
+      0.859968540519816,
+      1.003143021449288
+    ],
+    "passed_runtime_gate": false
+  },
+  "small_MIFS": {
+    "shape": [
+      64,
+      1024
+    ],
+    "algorithm": "MIFS",
+    "cpu_ms": 3.8877504994161427,
+    "metal_ms": 4.774124943651259,
+    "central_speedup": 0.8143378200828536,
+    "paired_speedups": [
+      0.8497481157771937,
+      0.8143378200828536,
+      0.7381666813180195,
+      0.7724817515154785,
+      0.8700264279297764
+    ],
+    "passed_runtime_gate": false
+  },
+  "medium_mutual_info_regression": {
+    "shape": [
+      128,
+      4096
+    ],
+    "algorithm": "mutual_info_regression",
+    "cpu_ms": 57.27925000246614,
+    "metal_ms": 41.092374944128096,
+    "central_speedup": 1.3939143230428221,
+    "paired_speedups": [
+      1.4114877917205058,
+      1.3729573263720136,
+      1.3925525379760515,
+      1.3971613679814578,
+      1.5533271760415344
+    ],
+    "passed_runtime_gate": true
+  },
+  "medium_GiniIndex": {
+    "shape": [
+      128,
+      4096
+    ],
+    "algorithm": "GiniIndex",
+    "cpu_ms": 6.361728999763727,
+    "metal_ms": 4.2754169553518295,
+    "central_speedup": 1.487978614998081,
+    "paired_speedups": [
+      1.4270054977155566,
+      1.4521681934147648,
+      1.5133913603668374,
+      1.3570454801532559,
+      1.5640255557824785
+    ],
+    "passed_runtime_gate": true
+  },
+  "medium_DISR": {
+    "shape": [
+      128,
+      4096
+    ],
+    "algorithm": "DISR",
+    "cpu_ms": 15.579937549773604,
+    "metal_ms": 11.795166996307671,
+    "central_speedup": 1.3208746900023296,
+    "paired_speedups": [
+      1.3468157326896495,
+      1.3282129167354646,
+      1.2853708717658385,
+      0.9479392988589416,
+      1.5082944435676788
+    ],
+    "passed_runtime_gate": false
+  },
+  "medium_CIFE": {
+    "shape": [
+      128,
+      4096
+    ],
+    "algorithm": "CIFE",
+    "cpu_ms": 15.138166025280952,
+    "metal_ms": 12.468250002712011,
+    "central_speedup": 1.2141371902222202,
+    "paired_speedups": [
+      1.371163428739494,
+      1.3600361577825257,
+      1.226906995452119,
+      1.1317969867974942,
+      1.3717091435884547
+    ],
+    "passed_runtime_gate": true
+  },
+  "medium_MIFS": {
+    "shape": [
+      128,
+      4096
+    ],
+    "algorithm": "MIFS",
+    "cpu_ms": 10.669874958693981,
+    "metal_ms": 10.393520467914641,
+    "central_speedup": 1.0265891130567801,
+    "paired_speedups": [
+      0.9426906930123761,
+      1.0876690396915445,
+      0.9987570426562694,
+      0.9545566094179477,
+      1.5635782486802994
+    ],
+    "passed_runtime_gate": false
+  },
+  "large_mutual_info_regression": {
+    "shape": [
+      256,
+      8192
+    ],
+    "algorithm": "mutual_info_regression",
+    "cpu_ms": 264.73620801698416,
+    "metal_ms": 168.50695898756385,
+    "central_speedup": 1.5710698810754886,
+    "paired_speedups": [
+      1.5264386854878873,
+      1.619966913125078,
+      1.528521378762822,
+      1.362696476422126,
+      1.6387220625273002
+    ],
+    "passed_runtime_gate": true
+  },
+  "large_GiniIndex": {
+    "shape": [
+      256,
+      8192
+    ],
+    "algorithm": "GiniIndex",
+    "cpu_ms": 25.99141700193286,
+    "metal_ms": 15.591083443723619,
+    "central_speedup": 1.6670693281675701,
+    "paired_speedups": [
+      1.6136861293566158,
+      1.642359681545453,
+      1.684372804800052,
+      1.5612102340967355,
+      1.97934485717527
+    ],
+    "passed_runtime_gate": true
+  },
+  "large_DISR": {
+    "shape": [
+      256,
+      8192
+    ],
+    "algorithm": "DISR",
+    "cpu_ms": 42.76733403094113,
+    "metal_ms": 27.906291477847844,
+    "central_speedup": 1.5325337680533457,
+    "paired_speedups": [
+      1.2806399191319506,
+      1.4645237842918222,
+      1.5325337680533457,
+      1.7881908441759837,
+      1.5853408922507484
+    ],
+    "passed_runtime_gate": true
+  },
+  "large_CIFE": {
+    "shape": [
+      256,
+      8192
+    ],
+    "algorithm": "CIFE",
+    "cpu_ms": 49.12091710139066,
+    "metal_ms": 27.978416997939348,
+    "central_speedup": 1.7556717774636246,
+    "paired_speedups": [
+      3.3771465158718366,
+      1.4936381448295584,
+      1.4241751765755857,
+      1.6356600921546887,
+      1.6082023452645544
+    ],
+    "passed_runtime_gate": true
+  },
+  "large_MIFS": {
+    "shape": [
+      256,
+      8192
+    ],
+    "algorithm": "MIFS",
+    "cpu_ms": 28.407520963810384,
+    "metal_ms": 25.984207983128726,
+    "central_speedup": 1.0932609907623543,
+    "paired_speedups": [
+      1.0186683836703854,
+      1.0923429528145336,
+      1.106448847022872,
+      1.2089346867489494,
+      1.1229337885583104
+    ],
+    "passed_runtime_gate": false
+  }
+}
