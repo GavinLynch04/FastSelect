@@ -19,6 +19,57 @@ from fast_select._cpu_backend import resolve_cpu_backend
 from fast_select.utils import check_integer_param, resolve_num_threads
 
 
+@njit(parallel=True, cache=True, nogil=True)
+def _nearest_rows(distances, k):  # pragma: no cover
+    """Indices of each row's ``k`` smallest distances, with a per-row status.
+
+    Status ``0``: the ``k``-smallest set is unique. ``1``: a tie at the
+    ``k``-th distance spans selected and unselected entries, so the set is
+    ambiguous. ``2``: the row holds a NaN. For status ``0`` the set is the one
+    any partial selection returns; the caller recovers the reference
+    membership for the other rows. Order inside a row is irrelevant because
+    the COO-to-CSR conversion sorts each row's indices.
+    """
+    n = distances.shape[0]
+    indices = np.empty((n, k), dtype=np.int64)
+    status = np.zeros(n, dtype=np.int8)
+    for row in prange(n):
+        values = np.empty(k)
+        filled = 0
+        for j in range(n):
+            value = distances[row, j]
+            if value != value:
+                status[row] = 2
+                break
+            if filled < k:
+                position = filled
+                filled += 1
+            elif value < values[k - 1]:
+                position = k - 1
+            else:
+                continue
+            while position > 0 and values[position - 1] > value:
+                values[position] = values[position - 1]
+                indices[row, position] = indices[row, position - 1]
+                position -= 1
+            values[position] = value
+            indices[row, position] = j
+        if status[row] == 2:
+            continue
+        cutoff = values[k - 1]
+        tied_in_row = 0
+        for j in range(n):
+            if distances[row, j] == cutoff:
+                tied_in_row += 1
+        tied_chosen = 0
+        for position in range(k):
+            if values[position] == cutoff:
+                tied_chosen += 1
+        if tied_in_row > tied_chosen:
+            status[row] = 1
+    return indices, status
+
+
 def _affinity(X, neighbors, mode, bandwidth):
     n = len(X)
     # Center columns with large common offsets before the BLAS distance
@@ -38,16 +89,18 @@ def _affinity(X, neighbors, mode, bandwidth):
     if k == n:
         indices = np.tile(np.arange(n), (n, 1))
     else:
-        indices = np.argpartition(distances, k - 1, axis=1)[:, :k]
-        chosen = np.take_along_axis(distances, indices, axis=1)
-        cutoff = chosen.max(axis=1)
         # Partial selection avoids sorting all n distances. If a boundary tie
         # spans selected/unselected neighbors, recover the reference argsort
         # membership exactly rather than imposing a different tie rule.
-        ambiguous = np.count_nonzero(distances == cutoff[:, None], axis=1) > np.count_nonzero(
-            chosen == cutoff[:, None], axis=1
-        )
-        for row in np.flatnonzero(ambiguous):
+        indices, status = _nearest_rows(distances, k)
+        for row in np.flatnonzero(status == 2):
+            # NaN rows keep the original whole-row partial selection.
+            indices[row] = np.argpartition(distances[row], k - 1)[:k]
+            chosen = distances[row, indices[row]]
+            cutoff = chosen.max()
+            if np.count_nonzero(distances[row] == cutoff) > np.count_nonzero(chosen == cutoff):
+                status[row] = 1
+        for row in np.flatnonzero(status == 1):
             indices[row] = np.argsort(distances[row])[:k]
     if mode == "binary":
         data = np.ones(indices.size)

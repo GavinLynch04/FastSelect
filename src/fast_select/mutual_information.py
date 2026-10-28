@@ -70,6 +70,13 @@ def _mi_pair_cpu(x1: np.ndarray, x2: np.ndarray, log_base: float) -> float:  # p
         counts1[state1] += 1.0
         counts2[state2] += 1.0
 
+    return _mi_from_counts(table, counts1, counts2, n, log_base)
+
+
+@njit(cache=True, nogil=True, fastmath=True)
+def _mi_from_counts(table, counts1, counts2, n, log_base):  # pragma: no cover
+    """``sum p(x,y) * log(p(x,y) / (p(x) p(y))) / log_base`` from exact float64 counts."""
+    k1, k2 = table.shape
     mi = 0.0
     eps = 1e-12
     for i in range(k1):
@@ -94,6 +101,117 @@ def _batch_mi_cpu(X: np.ndarray, y: np.ndarray, log_base: float) -> tuple[np.nda
         i = task // 2 if task % 2 == 0 else n_features - 1 - task // 2
         for j in range(i + 1, n_features):
             mi = _mi_pair_cpu(columns[i], columns[j], log_base)
+            redundancy[i, j] = mi
+            redundancy[j, i] = mi
+    return relevance, redundancy
+
+
+# When every joint table has at most _COUNTED_MAX_CELLS cells, the matrices
+# reuse each column's marginal counts and count only the joint table: up to
+# _INTERLEAVED_MAX_CELLS in four interleaved integer sub-tables, so increments
+# of one cell by consecutive samples do not form a serial dependency chain,
+# and otherwise directly. Larger tables are dominated by the per-cell
+# logarithms and keep _batch_mi_cpu, which was as fast there.
+_INTERLEAVED_MAX_CELLS = 64
+_COUNTED_MAX_CELLS = 256
+
+
+@njit(cache=True, nogil=True)
+def _joint_counts(x1, x2, k2, cells, lanes, flat):  # pragma: no cover
+    """Write the exact joint counts of two code columns into ``flat[:cells]``.
+
+    Cell ``(a, b)`` is ``flat[a * k2 + b]`` (row-major ``k1 x k2``). ``lanes``
+    is ``(4, _INTERLEAVED_MAX_CELLS)`` integer scratch space. Integer sums of
+    the sub-tables are exact, so every path equals the sequential float64
+    counting of :func:`_mi_pair_cpu`.
+    """
+    n = x1.shape[0]
+    if cells > _INTERLEAVED_MAX_CELLS:
+        for cell in range(cells):
+            flat[cell] = 0.0
+        for sample in range(n):
+            flat[x1[sample] * k2 + x2[sample]] += 1.0
+        return
+    for lane in range(4):
+        for cell in range(cells):
+            lanes[lane, cell] = 0
+    sample = 0
+    while sample + 4 <= n:
+        lanes[0, x1[sample] * k2 + x2[sample]] += 1
+        lanes[1, x1[sample + 1] * k2 + x2[sample + 1]] += 1
+        lanes[2, x1[sample + 2] * k2 + x2[sample + 2]] += 1
+        lanes[3, x1[sample + 3] * k2 + x2[sample + 3]] += 1
+        sample += 4
+    while sample < n:
+        lanes[0, x1[sample] * k2 + x2[sample]] += 1
+        sample += 1
+    for cell in range(cells):
+        flat[cell] = lanes[0, cell] + lanes[1, cell] + lanes[2, cell] + lanes[3, cell]
+
+
+@njit(cache=True, nogil=True)
+def _mi_columns(x1, x2, k1, k2, counts1, counts2, log_base, lanes, flat):  # pragma: no cover
+    """``_mi_pair_cpu(x1, x2)``, identical to it, given state and marginal counts.
+
+    ``lanes`` and ``flat`` are scratch space for a ``k1 x k2`` table of at
+    most ``_COUNTED_MAX_CELLS`` cells.
+    """
+    cells = k1 * k2
+    _joint_counts(x1, x2, k2, cells, lanes, flat)
+    return _mi_from_counts(flat[:cells].reshape((k1, k2)), counts1, counts2, x1.shape[0], log_base)
+
+
+@njit(parallel=True, cache=True, fastmath=True)
+def _batch_mi_counted_cpu(
+    X: np.ndarray, y: np.ndarray, log_base: float, states: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
+    """:func:`_batch_mi_cpu` for codes below 16, with identical entries.
+
+    ``states[f]`` is ``X[:, f].max() + 1``; every ``states`` product, including
+    with the target's, is at most ``_COUNTED_MAX_CELLS``. Each column's
+    marginal counts are computed once rather than once per pair.
+    """
+    n_samples, n_features = X.shape
+    columns = np.ascontiguousarray(X.T)
+    relevance = np.empty(n_features, dtype=np.float64)
+    redundancy = np.zeros((n_features, n_features), dtype=np.float64)
+
+    offsets = np.zeros(n_features + 1, dtype=np.int64)
+    for f in range(n_features):
+        offsets[f + 1] = offsets[f] + states[f]
+    marginals = np.zeros(offsets[n_features], dtype=np.float64)
+    y_states = int(y.max()) + 1
+    y_counts = np.zeros(y_states, dtype=np.float64)
+    for sample in range(n_samples):
+        y_counts[y[sample]] += 1.0
+
+    for f in prange(n_features):
+        # Count locally, then publish: neighboring columns share cache lines.
+        counts = np.zeros(states[f], dtype=np.float64)
+        for sample in range(n_samples):
+            counts[columns[f, sample]] += 1.0
+        marginals[offsets[f] : offsets[f + 1]] = counts
+        lanes = np.empty((4, _INTERLEAVED_MAX_CELLS), dtype=np.int64)
+        flat = np.empty(_COUNTED_MAX_CELLS, dtype=np.float64)
+        relevance[f] = _mi_columns(columns[f], y, states[f], y_states, counts, y_counts, log_base, lanes, flat)
+
+    for task in prange(n_features):
+        i = task // 2 if task % 2 == 0 else n_features - 1 - task // 2
+        lanes = np.empty((4, _INTERLEAVED_MAX_CELLS), dtype=np.int64)
+        flat = np.empty(_COUNTED_MAX_CELLS, dtype=np.float64)
+        counts_i = marginals[offsets[i] : offsets[i + 1]]
+        for j in range(i + 1, n_features):
+            mi = _mi_columns(
+                columns[i],
+                columns[j],
+                states[i],
+                states[j],
+                counts_i,
+                marginals[offsets[j] : offsets[j + 1]],
+                log_base,
+                lanes,
+                flat,
+            )
             redundancy[i, j] = mi
             redundancy[j, i] = mi
     return relevance, redundancy
@@ -358,4 +476,6 @@ def calculate_mi_matrices(
         return relevance, redundancy
 
     # Pure CPU path
+    if max_state * max_state <= _COUNTED_MAX_CELLS:
+        return _batch_mi_counted_cpu(X_d, y_d, log_base, X_d.max(axis=0).astype(np.int64) + 1)
     return _batch_mi_cpu(X_d, y_d, log_base)

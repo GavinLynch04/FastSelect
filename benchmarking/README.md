@@ -73,6 +73,13 @@ or changes branch protection.
    document tradeoffs, regressions, and unsupported hardware before proposing
    promotion to `main`.
 
+To keep editing while a comparison runs, freeze the candidate first and pass
+it with `--candidate-ref "$(git stash create)"`; both sides are then extracted
+from exact git objects. Every summary also prints paired significance over the
+rounds (sign test and t-test on log ratios) and a Mann-Whitney test over all
+individual fits; use eight rounds when a sign-test p below 0.01 is required.
+The [v0.4.1 pass](results/V041_OPTIMIZATIONS.md) used this workflow.
+
 `--gate` exits nonzero unless **every requested case** preserves complete
 measured score arrays and selected feature indices, and improves at least one
 measured resource in **every round**. By default this means at least a 1.03x

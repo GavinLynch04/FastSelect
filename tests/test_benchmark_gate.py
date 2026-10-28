@@ -74,3 +74,19 @@ def test_nonfinite_command_line_parameters_are_rejected(monkeypatch, flag, value
 def test_nonfinite_measurements_cannot_pass_resource_gate():
     assert benchmark._improvement_gate(_rounds(seconds=np.inf), _rounds(), 0.03, "cpu")[1] is False
     assert benchmark._improvement_gate(_rounds(memory=np.inf), _rounds(), 0.03, "cpu")[2] is False
+
+
+def test_significance_reports_paired_and_pooled_evidence():
+    def rounds(seconds):
+        return [
+            {"round": index, "mean_seconds": value, "timings_seconds": [value] * 20}
+            for index, value in enumerate(seconds, start=1)
+        ]
+
+    faster = benchmark._significance(rounds([1.0] * 8), rounds([0.5, 0.52, 0.49, 0.5, 0.51, 0.5, 0.48, 0.5]))
+    assert faster["faster_rounds"] == 8
+    assert faster["sign_test_p"] == pytest.approx(2**-8)
+    assert faster["log_ratio_t_test_p"] < 1e-6 and faster["mann_whitney_p"] < 1e-6
+    assert faster["geometric_mean_speedup"] == pytest.approx(2.0, rel=0.03)
+    mixed = benchmark._significance(rounds([1.0] * 8), rounds([0.9, 1.1] * 4))
+    assert mixed["faster_rounds"] == 4 and mixed["sign_test_p"] > 0.5

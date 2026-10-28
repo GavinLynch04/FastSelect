@@ -200,6 +200,32 @@ def test_laplacian_graph_large_offset_and_boundary_ties():
     np.testing.assert_array_equal(LaplacianScore(1, n_neighbors=4).fit(X).affinity_.toarray(), np.maximum(W, W.T))
 
 
+@pytest.mark.parametrize("neighbors", [1, 4, 9])
+def test_laplacian_graph_membership_with_mixed_boundary_ties(neighbors):
+    # Small integer coordinates: many rows tie at their k-th distance across
+    # the selection boundary (reference argsort membership) and many do not.
+    rng = np.random.default_rng(neighbors)
+    X = rng.integers(0, 4, (230, 2)).astype(float)
+    X[::3] += rng.random((len(X[::3]), 2))
+    squared = np.sum((X[:, None] - X[None, :]) ** 2, axis=2)
+    nearest = np.argsort(squared, axis=1)[:, : neighbors + 1]
+    W = np.zeros((len(X), len(X)))
+    W[np.arange(len(X))[:, None], nearest] = 1
+    result = LaplacianScore(1, n_neighbors=neighbors).fit(X)
+    np.testing.assert_array_equal(result.affinity_.toarray(), np.maximum(W, W.T))
+    np.testing.assert_allclose(result.laplacian_scores_, laplacian_oracle(X, np.maximum(W, W.T)), atol=2e-12)
+
+
+def test_laplacian_graph_tolerates_overflowing_distances():
+    # Finite input whose BLAS distance identity overflows to inf - inf = NaN for
+    # the first two rows; NaN rows keep the whole-row partial selection.
+    X = np.array([[1e200, 0.0], [1e200, 1.0], [0.0, 2.0], [3.0, 3.0], [4.0, 1.0]])
+    graph = LaplacianScore(1, n_neighbors=2).fit(X).affinity_
+    assert graph.shape == (5, 5)
+    assert np.all(np.diff(graph.indptr) >= 3)
+    np.testing.assert_array_equal(graph.toarray(), graph.toarray().T)
+
+
 def ross_oracle(X, y, k, seed=7):
     # The public scale/jitter convention is separate from Ross's Eq. (2).
     values = scale(np.asarray(X, dtype=float), with_mean=False)

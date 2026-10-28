@@ -1,4 +1,3 @@
-import bisect
 import heapq
 import math
 
@@ -11,6 +10,7 @@ from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data
 
+from .mRMR import _encode_columns_numba
 from .utils import check_integer_param, ensure_cuda_context, is_cuda_ready, resolve_compute_backend, resolve_num_threads
 
 
@@ -48,6 +48,42 @@ def _entropy(x, n_states):  # pragma: no cover
     return entropy
 
 
+# Contingency tables up to this many cells are counted in four interleaved
+# integer sub-tables, so increments of one cell by consecutive samples do not
+# form a serial dependency chain. Counts below 2**24 are exact in float32, so
+# the converted sums equal the sequential float32 increments.
+_INTERLEAVED_MAX_CELLS = 64
+_FLOAT32_EXACT_COUNT = 2**24
+
+
+@numba.njit(cache=True)
+def _contingency_table(x, y, n_states_x, n_states_y):  # pragma: no cover
+    """float32 joint counts of two code arrays, as sequential ``+= 1.0`` produces."""
+    n_samples = x.shape[0]
+    table = np.zeros((n_states_x, n_states_y), dtype=np.float32)
+    cells = n_states_x * n_states_y
+    if cells > _INTERLEAVED_MAX_CELLS or n_samples >= _FLOAT32_EXACT_COUNT:
+        for i in range(n_samples):
+            table[x[i], y[i]] += 1.0
+        return table
+    lanes = np.zeros((4, cells), dtype=np.int32)
+    i = 0
+    while i + 4 <= n_samples:
+        lanes[0, x[i] * n_states_y + y[i]] += 1
+        lanes[1, x[i + 1] * n_states_y + y[i + 1]] += 1
+        lanes[2, x[i + 2] * n_states_y + y[i + 2]] += 1
+        lanes[3, x[i + 3] * n_states_y + y[i + 3]] += 1
+        i += 4
+    while i < n_samples:
+        lanes[0, x[i] * n_states_y + y[i]] += 1
+        i += 1
+    for row in range(n_states_x):
+        for column in range(n_states_y):
+            cell = row * n_states_y + column
+            table[row, column] = lanes[0, cell] + lanes[1, cell] + lanes[2, cell] + lanes[3, cell]
+    return table
+
+
 @numba.njit(cache=True)
 def _mutual_information(x, y, n_states_x, n_states_y):  # pragma: no cover
     """Calculates the mutual information between two discrete arrays."""
@@ -55,9 +91,7 @@ def _mutual_information(x, y, n_states_x, n_states_y):  # pragma: no cover
     if n_samples == 0:
         return 0.0
 
-    contingency_table = np.zeros((n_states_x, n_states_y), dtype=np.float32)
-    for i in range(n_samples):
-        contingency_table[x[i], y[i]] += 1.0
+    contingency_table = _contingency_table(x, y, n_states_x, n_states_y)
 
     p_xy = contingency_table / n_samples
     p_x = np.sum(p_xy, axis=1)
@@ -159,12 +193,13 @@ def _best_first_search(n_features, r_cf_all, r_ff_matrix, max_backtracks=5):  # 
     r_cf_wide = np.asarray(r_cf_all, dtype=np.float64)
     r_ff_matrix = np.asarray(r_ff_matrix)
 
-    for feature in range(n_features):
+    # Python floats from tolist() equal float() of each entry; the vectorised
+    # single-feature merits equal _cfs_merit(sum_r_cf, 1, 0.0).
+    initial_merits = _cfs_merit_vector(r_cf_wide, 1, np.zeros(n_features)).tolist()
+    for feature, sum_r_cf in enumerate(r_cf_wide.tolist()):
         subset = (feature,)
         visited.add(subset)
-        sum_r_cf = float(r_cf_all[feature])
-        subset_merit = float(_cfs_merit(sum_r_cf, 1, 0.0))
-        heapq.heappush(queue, (-subset_merit, subset, sum_r_cf, 0.0))
+        heapq.heappush(queue, (-initial_merits[feature], subset, sum_r_cf, 0.0))
 
     while queue and stale_nodes < max_backtracks:
         neg_merit, subset, sum_r_cf, sum_r_ff = heapq.heappop(queue)
@@ -182,27 +217,23 @@ def _best_first_search(n_features, r_cf_all, r_ff_matrix, max_backtracks=5):  # 
             # r_ff is symmetric, so row lookups give the same values as the
             # column lookups the scalar form used, in the same order.
             child_sum_r_ff += r_ff_matrix[selected_feature]
-        child_merits = _cfs_merit_vector(child_sum_r_cf, len(subset) + 1, child_sum_r_ff)
+        merits = _cfs_merit_vector(child_sum_r_cf, len(subset) + 1, child_sum_r_ff).tolist()
+        sums_r_cf = child_sum_r_cf.tolist()
+        sums_r_ff = child_sum_r_ff.tolist()
 
-        selected = set(subset)
+        # subset is sorted, so walking the features in order tracks where each
+        # candidate is inserted and which features are already selected.
+        position = 0
+        size = len(subset)
         for feature in range(n_features):
-            if feature in selected:
+            if position < size and subset[position] == feature:
+                position += 1
                 continue
-            # subset is kept sorted, so insert in place instead of re-sorting.
-            position = bisect.bisect_left(subset, feature)
             child = subset[:position] + (feature,) + subset[position:]
             if child in visited:
                 continue
             visited.add(child)
-            heapq.heappush(
-                queue,
-                (
-                    -float(child_merits[feature]),
-                    child,
-                    float(child_sum_r_cf[feature]),
-                    float(child_sum_r_ff[feature]),
-                ),
-            )
+            heapq.heappush(queue, (-merits[feature], child, sums_r_cf[feature], sums_r_ff[feature]))
 
     return list(best_subset)
 
@@ -433,7 +464,16 @@ class CFS(SelectorMixin, BaseEstimator):
             X_encoded[:, continuous_indices] = discretizer.fit_transform(X[:, continuous_indices]).astype(np.int32)
             n_states_features[continuous_indices] = self.n_bins
         discrete_indices = np.where(~is_continuous)[0]
-        if len(discrete_indices) > 0:
+        if len(discrete_indices) == self.n_features_in_ and X.dtype.kind in "iu":
+            # The same dense codes as np.unique(column, return_inverse=True),
+            # with the columns encoded in parallel.
+            original_n_threads = numba.get_num_threads()
+            try:
+                numba.set_num_threads(n_threads)
+                n_states_features[:] = _encode_columns_numba(np.ascontiguousarray(X), X_encoded)
+            finally:
+                numba.set_num_threads(original_n_threads)
+        elif len(discrete_indices) > 0:
             for i in discrete_indices:
                 unique_vals, encoded_col = np.unique(X[:, i], return_inverse=True)
                 X_encoded[:, i] = encoded_col

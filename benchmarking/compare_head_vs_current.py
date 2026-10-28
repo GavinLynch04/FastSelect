@@ -29,6 +29,24 @@ from pathlib import Path
 
 DEFAULT_BASELINE_REF = "HEAD"
 RESULT_PREFIX = "RESULT_JSON="
+# Categorical greedy selectors (n_features_to_select, integer-coded inputs) and
+# every selector without a GPU backend.
+INFORMATION_SELECTORS = ("JMI", "CMIM", "MIFS", "CIFE", "DISR")
+CPU_ONLY_SELECTORS = (*INFORMATION_SELECTORS, "LaplacianScore", "GiniIndex")
+ESTIMATOR_CHOICES = [
+    "ReliefF",
+    "SURF",
+    "SURFStar",
+    "MultiSURF",
+    "MultiSURFStar",
+    "MutualInformation",
+    "CFS",
+    "MDR",
+    "mRMR",
+    "mRMR-MIQ",
+    "Chi2",
+    *CPU_ONLY_SELECTORS,
+]
 GPU_MEMORY_UNAVAILABLE = "unavailable: device allocations are not observable by tracemalloc"
 
 
@@ -92,6 +110,41 @@ def _improvement_gate(baseline, current, margin, backend):
     )
     parity_passed = all(item["full_output_parity"] for item in baseline + current)
     return parity_passed, runtime_improved, memory_improved
+
+
+def _significance(baseline, current):
+    """One-sided evidence that the working tree is faster than the baseline.
+
+    Rounds are paired (same round, alternating order), so the paired tests use
+    per-round mean ratios: an exact sign test and a t-test on log ratios.
+    The Mann-Whitney U test pools every individual fit; those fits are not
+    fully independent (they share a process per round), so it supplements
+    rather than replaces the paired tests.
+    """
+    from scipy.stats import binomtest, mannwhitneyu, ttest_1samp
+
+    baseline = sorted(baseline, key=lambda item: item["round"])
+    current = sorted(current, key=lambda item: item["round"])
+    ratios = [b["mean_seconds"] / c["mean_seconds"] for b, c in zip(baseline, current)]
+    log_ratios = [math.log(ratio) for ratio in ratios]
+    faster_rounds = sum(ratio > 1 for ratio in ratios)
+    baseline_fits = [value for item in baseline for value in item["timings_seconds"]]
+    current_fits = [value for item in current for value in item["timings_seconds"]]
+    t_p = (
+        float(ttest_1samp(log_ratios, 0.0, alternative="greater").pvalue)
+        if len(set(log_ratios)) > 1
+        else (0.0 if log_ratios[0] > 0 else 1.0)
+    )
+    return {
+        "rounds": len(ratios),
+        "faster_rounds": faster_rounds,
+        "geometric_mean_speedup": math.exp(statistics.fmean(log_ratios)),
+        "sign_test_p": float(binomtest(faster_rounds, len(ratios), 0.5, alternative="greater").pvalue),
+        "log_ratio_t_test_p": t_p,
+        "baseline_fits": len(baseline_fits),
+        "current_fits": len(current_fits),
+        "mann_whitney_p": float(mannwhitneyu(baseline_fits, current_fits, alternative="greater").pvalue),
+    }
 
 
 def _measurement_details(args, timings, x):
@@ -260,16 +313,27 @@ def _worker(args: argparse.Namespace) -> None:
         "mRMR": mRMR,
         "mRMR-MIQ": mRMR,
     }
+    if args.estimator in CPU_ONLY_SELECTORS:
+        import fast_select
+
+        estimators[args.estimator] = getattr(fast_select, args.estimator)
+        if args.backend != "cpu":
+            raise ValueError(f"{args.estimator} has only a CPU backend")
     estimator_class = estimators[args.estimator]
 
     rng = np.random.default_rng(args.seed)
-    if args.estimator in ("CFS", "mRMR", "mRMR-MIQ"):
+    if args.estimator in ("CFS", "mRMR", "mRMR-MIQ", *INFORMATION_SELECTORS):
         x = rng.integers(0, args.states, (args.samples, args.features), dtype=np.int32)
         y = rng.integers(0, 2, args.samples, dtype=np.int32)
         kwargs = {"backend": args.backend}
-        if args.estimator.startswith("mRMR"):
+        if args.estimator.startswith("mRMR") or args.estimator in INFORMATION_SELECTORS:
             kwargs["n_features_to_select"] = min(10, args.features)
+        if args.estimator.startswith("mRMR"):
             kwargs["method"] = "MIQ" if args.estimator == "mRMR-MIQ" else "MID"
+    elif args.estimator in ("LaplacianScore", "GiniIndex"):
+        x = rng.standard_normal((args.samples, args.features), dtype=np.dtype(args.dtype)).astype(np.float64)
+        y = rng.integers(0, 2, args.samples, dtype=np.int32)
+        kwargs = {"backend": args.backend, "n_features_to_select": min(10, args.features)}
     elif args.estimator == "MDR":
         x = rng.integers(0, 3, (args.samples, args.features), dtype=np.uint8)
         y = rng.integers(0, 2, args.samples, dtype=np.uint8)
@@ -341,7 +405,15 @@ def _worker(args: argparse.Namespace) -> None:
     }
     result.update(_measurement_details(args, timings, x))
     arrays = {"scores": scores}
-    for attribute in ("top_features_", "selected_indices_", "relevance_scores_", "redundancy_matrix_"):
+    for attribute in (
+        "top_features_",
+        "selected_indices_",
+        "relevance_scores_",
+        "redundancy_matrix_",
+        "selection_scores_",
+        "laplacian_scores_",
+        "gini_scores_",
+    ):
         if hasattr(memory_model, attribute):
             arrays[attribute] = getattr(memory_model, attribute)
     if args.estimator == "MDR":
@@ -436,10 +508,12 @@ def _parent(args: argparse.Namespace) -> None:
 
     repo_root = Path(__file__).resolve().parents[1]
     baseline_sha = subprocess.check_output(["git", "rev-parse", args.baseline_ref], cwd=repo_root, text=True).strip()
-    source_hash = hashlib.sha256()
-    for source in sorted((repo_root / "src" / "fast_select").glob("*.py")):
-        source_hash.update(source.name.encode())
-        source_hash.update(source.read_bytes())
+    candidate_sha = (
+        subprocess.check_output(["git", "rev-parse", args.candidate_ref], cwd=repo_root, text=True).strip()
+        if args.candidate_ref
+        else None
+    )
+    candidate_label = "working-tree" if candidate_sha is None else f"candidate-{candidate_sha[:12]}"
     cases = [(name, backend) for backend in args.backends for name in args.estimators]
     results: list[dict] = []
 
@@ -448,6 +522,15 @@ def _parent(args: argparse.Namespace) -> None:
         baseline_root = Path(temp) / "source"
         baseline_root.mkdir()
         _extract_baseline(repo_root, baseline_root, baseline_sha)
+        candidate_root = repo_root
+        if candidate_sha is not None:
+            candidate_root = Path(temp) / "candidate"
+            candidate_root.mkdir()
+            _extract_baseline(repo_root, candidate_root, candidate_sha)
+        source_hash = hashlib.sha256()
+        for source in sorted((candidate_root / "src" / "fast_select").glob("*.py")):
+            source_hash.update(source.name.encode())
+            source_hash.update(source.read_bytes())
 
         for estimator, backend in cases:
             for round_index in range(args.rounds):
@@ -457,7 +540,7 @@ def _parent(args: argparse.Namespace) -> None:
                 )
                 variants = [
                     (baseline_label, baseline_root),
-                    ("working-tree", repo_root),
+                    (candidate_label, candidate_root),
                 ]
                 if round_index % 2:
                     variants.reverse()
@@ -476,8 +559,11 @@ def _parent(args: argparse.Namespace) -> None:
                     result["minimum_improvement"] = args.min_improvement
                     with np.load(args.output_arrays, allow_pickle=False) as output:
                         round_outputs[version] = {name: output[name] for name in output.files}
+                    result["candidate_sha"] = candidate_sha
                     if version == baseline_label:
                         result["git_commit"] = baseline_sha
+                    elif candidate_sha is not None:
+                        result["git_commit"] = candidate_sha
                     results.append(result)
                     round_results[version] = result
                     print(
@@ -487,10 +573,10 @@ def _parent(args: argparse.Namespace) -> None:
                         flush=True,
                     )
 
-                speedup = round_results[baseline_label]["mean_seconds"] / round_results["working-tree"]["mean_seconds"]
+                speedup = round_results[baseline_label]["mean_seconds"] / round_results[candidate_label]["mean_seconds"]
                 print(f"    round speedup {speedup:.3f}x", flush=True)
                 expected = round_outputs[baseline_label]
-                actual = round_outputs["working-tree"]
+                actual = round_outputs[candidate_label]
                 parity, max_error = _compare_outputs(expected, actual, args.rtol, args.atol)
                 for result in round_results.values():
                     result["full_output_parity"] = bool(parity)
@@ -504,7 +590,7 @@ def _parent(args: argparse.Namespace) -> None:
     for estimator, backend in cases:
         matching = [item for item in results if item["estimator"] == estimator and item["backend"] == backend]
         baseline = [item for item in matching if item["version"] == baseline_label]
-        current = [item for item in matching if item["version"] == "working-tree"]
+        current = [item for item in matching if item["version"] == candidate_label]
         baseline_time = statistics.median(item["mean_seconds"] for item in baseline)
         current_time = statistics.median(item["mean_seconds"] for item in current)
         speedup = baseline_time / current_time
@@ -535,6 +621,16 @@ def _parent(args: argparse.Namespace) -> None:
             f"  gate: {'PASS' if passed else 'FAIL'} (parity={parity_passed}, "
             f"runtime={runtime_improved}, traced memory={memory_improved})"
         )
+        evidence = _significance(baseline, current)
+        for item in matching:
+            item["significance"] = evidence
+        print(
+            f"  significance: {evidence['faster_rounds']}/{evidence['rounds']} rounds faster, "
+            f"geometric-mean speedup {evidence['geometric_mean_speedup']:.3f}x, "
+            f"sign test p={evidence['sign_test_p']:.2g}, log-ratio t-test p={evidence['log_ratio_t_test_p']:.2g}, "
+            f"Mann-Whitney p={evidence['mann_whitney_p']:.2g} "
+            f"({evidence['baseline_fits']} vs {evidence['current_fits']} fits)"
+        )
 
     if args.json_output:
         output = Path(args.json_output)
@@ -553,38 +649,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--estimators",
         nargs="+",
-        choices=[
-            "ReliefF",
-            "SURF",
-            "SURFStar",
-            "MultiSURF",
-            "MultiSURFStar",
-            "MutualInformation",
-            "CFS",
-            "MDR",
-            "mRMR",
-            "mRMR-MIQ",
-            "Chi2",
-        ],
+        choices=ESTIMATOR_CHOICES,
         default=["ReliefF", "SURF", "MultiSURF"],
     )
-    parser.add_argument(
-        "--estimator",
-        choices=[
-            "ReliefF",
-            "SURF",
-            "SURFStar",
-            "MultiSURF",
-            "MultiSURFStar",
-            "MutualInformation",
-            "CFS",
-            "MDR",
-            "mRMR",
-            "mRMR-MIQ",
-            "Chi2",
-        ],
-        help=argparse.SUPPRESS,
-    )
+    parser.add_argument("--estimator", choices=ESTIMATOR_CHOICES, help=argparse.SUPPRESS)
     parser.add_argument("--backends", nargs="+", choices=["cpu", "gpu"], default=["cpu"])
     parser.add_argument("--backend", choices=["cpu", "gpu"], help=argparse.SUPPRESS)
     parser.add_argument("--samples", type=int, default=900)
@@ -592,6 +660,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-seconds", type=float, default=5.0)
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--baseline-ref", default=DEFAULT_BASELINE_REF)
+    parser.add_argument(
+        "--candidate-ref",
+        help="Measure this frozen revision (for example from `git stash create`) instead of the working tree.",
+    )
     parser.add_argument("--json-output")
     parser.add_argument("--output-arrays", help=argparse.SUPPRESS)
     parser.add_argument("--threads", type=int, default=8)
