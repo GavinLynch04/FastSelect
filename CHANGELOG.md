@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] - 2026-10-28
+
+Faster CPU kernels for `LaplacianScore`, `MDR`, discrete mutual information
+(and so `mRMR`) and `CFS`, with results identical to 0.4.0: every score,
+selection, merit and model is bit-for-bit unchanged. Also a `py.typed` marker,
+two input-validation fixes, re-measured README benchmark charts, and the
+published algorithm policy.
 
 ### Added
 
@@ -16,14 +22,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README section on switching from scikit-rebate or scikit-learn, with a
   parameter mapping table.
 
-### Fixed
-
-- `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
-  value such as a string now raise the documented `ValueError` instead of a
-  NumPy `TypeError`.
-
 ### Changed
 
+- **Faster CPU kernels, with byte-identical results.** Scores, selections, CFS
+  merits, MDR models and mutual-information matrices are bit-for-bit equal to
+  0.4.0 on the CPU backend (checked on thousands of random, tied and boundary
+  inputs). Sustained M1 Pro speedups over 0.4.0, 8/8 alternating rounds each:
+  - `LaplacianScore`: 2.6x (900 × 128) and 3.7x (3,000 × 64), with half the
+    traced host memory. A parallel per-row selection replaces
+    `np.argpartition` and the dense tie-check arrays; boundary-tie rows still
+    use the reference `argsort` membership.
+  - `MDR` (CPU): 1.6x (900 × 128) and 3.7x (2,000 × 256, k=2). Cell counts come
+    from popcounts of per-genotype bitmasks when a fold is large enough for
+    that to be faster; small folds and high `k` keep the per-sample kernel.
+  - Discrete `calculate_mi_matrices` (CPU): 2.4x (900 × 128) and 3.5x
+    (2,000 × 512) for codes below 16; marginal counts are computed once per
+    column instead of once per pair. Higher cardinalities use the 0.4.0 kernel.
+    `mRMR` gains 1.9x through it.
+  - `CFS`: 1.3x-1.5x from parallel integer encoding, faster contingency
+    counting, and less per-candidate Python work in the best-first search
+    (same traversal and tie order).
+- README benchmark charts re-measured on the current code (they dated from
+  v0.2.1): Relief-family runtime against scikit-rebate 0.8.4 on an M1 Pro, CPU
+  and Metal backends, median of three fresh-process rounds, with light and dark
+  variants. `benchmarking/benchmarking.py` now writes
+  `results/readme_scaling.json` and `benchmarking/plots.py` needs only
+  matplotlib.
+- `benchmarking/compare_head_vs_current.py` gained `--candidate-ref` (measure a
+  frozen revision, for example from `git stash create`), the CPU-only selectors,
+  and a significance summary (paired sign and t-tests over rounds, Mann-Whitney
+  over individual fits). See `benchmarking/results/V041_OPTIMIZATIONS.md`.
 - The repository's algorithm, verification and performance rules are now
   published as `docs/development/algorithm-policy.md`; the `CLAUDE.md` files
   that held them are no longer tracked.
@@ -33,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `# pragma: no cover` like the existing ones, and the Metal modules are omitted
   from the Linux CI coverage report (they cannot run there). Added tests for the
   previously untested parameter-validation and `discrete_features` branches.
+
+### Fixed
+
+- `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
+  value such as a string now raise the documented `ValueError` instead of a
+  NumPy `TypeError`.
+
+### Not verified
+
+- The speedups were measured on one Apple M1 Pro. The CUDA and Metal code paths
+  are unchanged; CUDA is still verified only in the Numba simulator.
 
 ## [0.4.0] - 2026-10-27
 

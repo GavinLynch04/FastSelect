@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -234,3 +236,64 @@ def test_transform_bug_fix(sample_data):
 
     assert isinstance(transformed_X, np.ndarray)
     assert transformed_X.shape[1] == len(cfs.selected_indices_)
+
+
+def _best_first_oracle(r_cf, r_ff, max_backtracks):
+    """Hall (1999) forward best-first search, every merit computed from scratch.
+
+    Correlations are multiples of 1/8 here, so every sum is exact and ties are
+    broken only by the documented ascending subset-tuple order.
+    """
+    import heapq
+
+    def merit(subset):
+        k = len(subset)
+        mean_cf = sum(float(r_cf[f]) for f in subset) / k
+        pairs = [float(r_ff[a, b]) for i, a in enumerate(subset) for b in subset[i + 1 :]]
+        mean_ff = 2 * sum(pairs) / (k * (k - 1)) if k > 1 else 0.0
+        denominator = math.sqrt(k + k * (k - 1) * mean_ff)
+        return k * mean_cf / denominator if denominator > 1e-12 else 0.0
+
+    n_features = len(r_cf)
+    queue = [(-merit((f,)), (f,)) for f in range(n_features)]
+    heapq.heapify(queue)
+    seen = {subset for _, subset in queue}
+    best, best_merit, stale = (), 0.0, 0
+    while queue and stale < max_backtracks:
+        negative, subset = heapq.heappop(queue)
+        if -negative > best_merit + 1e-12:
+            best, best_merit, stale = subset, -negative, 0
+        else:
+            stale += 1
+        for f in range(n_features):
+            child = tuple(sorted(subset + (f,)))
+            if f not in subset and child not in seen:
+                seen.add(child)
+                heapq.heappush(queue, (-merit(child), child))
+    return list(best)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_best_first_search_matches_oracle_with_exact_ties(seed):
+    from fast_select.CFS import _best_first_search
+
+    rng = np.random.default_rng(seed)
+    n_features = int(rng.integers(1, 12))
+    r_cf = (rng.integers(0, 5, n_features) / 8).astype(np.float32)
+    r_ff = np.triu(rng.integers(0, 3, (n_features, n_features)) / 8, 1)
+    r_ff = (r_ff + r_ff.T).astype(np.float32)
+    for max_backtracks in (1, 3, 5):
+        expected = _best_first_oracle(r_cf, r_ff, max_backtracks)
+        assert _best_first_search(n_features, r_cf, r_ff, max_backtracks) == expected
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.uint16, np.int64, np.uint64])
+def test_parallel_integer_encoding_matches_unique_encoding(dtype):
+    rng = np.random.default_rng(3)
+    codes = rng.integers(0, 5, (120, 7))
+    X = (codes * 3).astype(dtype) + (dtype(2**63) if dtype == np.uint64 else dtype(0))
+    y = rng.integers(0, 3, 120)
+    integer = CFS(backend="cpu").fit(X, y)
+    reference = CFS(backend="cpu").fit(X.astype(object), y)  # per-column np.unique path
+    np.testing.assert_array_equal(integer.selected_indices_, reference.selected_indices_)
+    assert integer.merit_ == reference.merit_

@@ -4,7 +4,7 @@ from math import comb
 
 import numba
 import numpy as np
-from numba import cuda, njit, prange
+from numba import cuda, get_num_threads, njit, prange
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.multiclass import check_classification_targets, unique_labels
@@ -115,27 +115,129 @@ def _batch_balanced_accuracy_cpu(X, y, combos, k):  # pragma: no cover
             else:
                 control[cell] += 1
 
-        total_case = 0
-        for i in range(n_cells):
-            total_case += case[i]
-        total_control = n_samples - total_case
+        bas[c_idx] = _balanced_accuracy_from_counts(case, control, n_samples)
 
-        if total_case == 0 or total_control == 0:
-            bas[c_idx] = 0.0
-            continue
+    return bas
 
-        thr = total_case / total_control
-        tp = 0
-        tn = 0
-        for i in range(n_cells):
-            if (control[i] == 0 and case[i] > 0) or (control[i] > 0 and (case[i] / control[i]) >= thr):
-                tp += case[i]
-            else:
-                tn += control[i]
 
-        sens = tp / total_case
-        spec = tn / total_control
-        bas[c_idx] = (sens + spec) / 2.0
+@njit(fastmath=True, nogil=True, inline="always")
+def _balanced_accuracy_from_counts(case, control, n_samples):  # pragma: no cover
+    """Training balanced accuracy of the MDR rule for one combination's cell counts.
+
+    A nonempty cell is high risk when its case/control ratio is >= the overall
+    case/control ratio; a cell with cases and no controls is high risk.
+    """
+    n_cells = case.shape[0]
+    total_case = 0
+    for i in range(n_cells):
+        total_case += case[i]
+    total_control = n_samples - total_case
+
+    if total_case == 0 or total_control == 0:
+        return 0.0
+
+    thr = total_case / total_control
+    tp = 0
+    tn = 0
+    for i in range(n_cells):
+        if (control[i] == 0 and case[i] > 0) or (control[i] > 0 and (case[i] / control[i]) >= thr):
+            tp += case[i]
+        else:
+            tn += control[i]
+
+    sens = tp / total_case
+    spec = tn / total_control
+    return (sens + spec) / 2.0
+
+
+# Bitwise counting packs each sample into one bit of a uint64 word.
+_BITWISE_MIN_SAMPLES = 160
+
+
+def _use_bitwise_counts(n_samples, k):
+    """Whether popcount counting beats per-sample cell increments.
+
+    Both paths produce identical integer counts. Bitwise work grows with
+    ``3**k`` cells times ``ceil(n / 64)`` words, the per-sample path with
+    ``n * k``; the constants were calibrated on an Apple M1 Pro, where the
+    bitwise path was 1.2-6.8x faster inside this region and slower outside it.
+    """
+    words = (n_samples + 63) // 64
+    return n_samples >= _BITWISE_MIN_SAMPLES and 3**k * words * 3 <= n_samples * k
+
+
+@njit(nogil=True)
+def _popcount64(x):  # pragma: no cover
+    x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
+    x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
+    x = (x + (x >> np.uint64(4))) & np.uint64(0x0F0F0F0F0F0F0F0F)
+    return (x * np.uint64(0x0101010101010101)) >> np.uint64(56)
+
+
+@njit(parallel=True, nogil=True)
+def _genotype_masks(X, y):  # pragma: no cover
+    """Bit ``i`` of ``masks[f, g]`` is set when sample ``i`` has genotype ``g`` at locus ``f``.
+
+    ``case_mask`` marks ``y == 1``. Padding bits past ``n_samples`` stay zero.
+    Each thread owns one 64-sample word, so no two threads write the same word.
+    """
+    n_samples, n_features = X.shape
+    words = (n_samples + 63) // 64
+    masks = np.zeros((n_features, 3, words), dtype=np.uint64)
+    case_mask = np.zeros(words, dtype=np.uint64)
+    for word in prange(words):
+        for i in range(word * 64, min(n_samples, word * 64 + 64)):
+            bit = np.uint64(1) << np.uint64(i - word * 64)
+            for f in range(n_features):
+                masks[f, X[i, f], word] |= bit
+            if y[i] == 1:
+                case_mask[word] |= bit
+    return masks, case_mask
+
+
+@njit(parallel=True, fastmath=True)
+def _batch_balanced_accuracy_bits(masks, case_mask, n_samples, combos, k):  # pragma: no cover
+    """Same result as :func:`_batch_balanced_accuracy_cpu` from genotype bitmasks.
+
+    Cells are visited in the kernel's order (first locus most significant). A
+    cell's sample set is the AND of its loci's genotype masks, its case count
+    the popcount of that set with ``case_mask``; the counts are exact integers.
+    """
+    n_combos = combos.shape[0]
+    n_cells = 3**k
+    words = masks.shape[2]
+    bas = np.empty(n_combos, dtype=np.float32)
+    n_chunks = min(n_combos, 8 * get_num_threads())
+
+    for chunk in prange(n_chunks):
+        case = np.empty(n_cells, dtype=np.int32)
+        control = np.empty(n_cells, dtype=np.int32)
+        # partial[e] is the AND of the masks of loci 0..e at the current digits.
+        partial = np.empty((k, words), dtype=np.uint64)
+        digits = np.empty(k, dtype=np.int64)
+        for c_idx in range(chunk * n_combos // n_chunks, (chunk + 1) * n_combos // n_chunks):
+            digits[:] = 0
+            changed = 0
+            for cell in range(n_cells):
+                for e in range(changed, k):
+                    source = masks[combos[c_idx, e], digits[e]]
+                    for w in range(words):
+                        partial[e, w] = source[w] if e == 0 else partial[e - 1, w] & source[w]
+                total = 0
+                cases = 0
+                for w in range(words):
+                    members = partial[k - 1, w]
+                    total += _popcount64(members)
+                    cases += _popcount64(members & case_mask[w])
+                case[cell] = cases
+                control[cell] = total - cases
+                # Advance the base-3 cell digits; the last locus varies fastest.
+                changed = k - 1
+                while changed > 0 and digits[changed] == 2:
+                    digits[changed] = 0
+                    changed -= 1
+                digits[changed] += 1
+            bas[c_idx] = _balanced_accuracy_from_counts(case, control, n_samples)
 
     return bas
 
@@ -323,6 +425,12 @@ class MDR(ClassifierMixin, TransformerMixin, BaseEstimator):
 
                     score_batch = make_mdr_scorer(X_train, y_train, self.k)
                     batches = _combination_batches(n_features, self.k, batch_size=65536)
+                elif _use_bitwise_counts(len(train_idx), self.k):
+                    masks, case_mask = _genotype_masks(X_train, y_train)
+                    score_batch = lambda batch: _batch_balanced_accuracy_bits(
+                        masks, case_mask, len(train_idx), batch, self.k
+                    )
+                    batches = (all_combos,) if all_combos is not None else _combination_batches(n_features, self.k)
                 else:
                     score_batch = lambda batch: _batch_balanced_accuracy_cpu(X_train, y_train, batch, self.k)
                     batches = (all_combos,) if all_combos is not None else _combination_batches(n_features, self.k)

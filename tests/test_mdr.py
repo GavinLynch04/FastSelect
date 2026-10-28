@@ -220,3 +220,75 @@ def test_gpu_kernel_consistency(simple_dataset):
 
     cpu_bas = np.array([cpu_ba(c) for c in combos], dtype=np.float32)
     np.testing.assert_allclose(gpu_bas, cpu_bas, rtol=1e-4, atol=1e-5)
+
+
+def _balanced_accuracy_oracle(X, y, combination):
+    """Ritchie et al. (2001) training balanced accuracy, counted cell by cell in Python."""
+    case, control = {}, {}
+    for row, label in zip(X[:, list(combination)].tolist(), y.tolist()):
+        cell = tuple(row)
+        case[cell] = case.get(cell, 0) + (label == 1)
+        control[cell] = control.get(cell, 0) + (label != 1)
+    total_case, total_control = sum(case.values()), sum(control.values())
+    if not total_case or not total_control:
+        return 0.0
+    true_positive = true_negative = 0
+    for cell in case:
+        # High risk: case/control ratio >= the dataset ratio (cross-multiplied, exact).
+        if case[cell] * total_control >= total_case * control[cell] and (case[cell] or control[cell]):
+            true_positive += case[cell]
+        else:
+            true_negative += control[cell]
+    return (true_positive / total_case + true_negative / total_control) / 2
+
+
+@pytest.mark.parametrize("n_samples", [1, 63, 64, 65, 128, 191, 200])
+@pytest.mark.parametrize("interaction_order", [1, 2, 3, 4])
+def test_bitwise_and_per_sample_counting_match_the_oracle(n_samples, interaction_order):
+    from fast_select.MDR import _batch_balanced_accuracy_bits, _batch_balanced_accuracy_cpu, _genotype_masks
+
+    rng = np.random.default_rng(1000 * n_samples + interaction_order)
+    X = rng.integers(0, 3, (n_samples, 6), dtype=np.uint8)
+    X[:, 5] = 1  # constant locus: most of its cells are empty
+    y = (rng.random(n_samples) < 0.3).astype(np.uint8)
+    combos = np.array(list(combinations(range(6), interaction_order)), dtype=np.uint32)
+    expected = np.array([_balanced_accuracy_oracle(X, y, c) for c in combos], dtype=np.float32)
+    per_sample = _batch_balanced_accuracy_cpu(X, y, combos, interaction_order)
+    masks, case_mask = _genotype_masks(X, y)
+    bitwise = _batch_balanced_accuracy_bits(masks, case_mask, n_samples, combos, interaction_order)
+    np.testing.assert_allclose(per_sample, expected, rtol=0, atol=1e-6)
+    np.testing.assert_array_equal(bitwise, per_sample)
+
+
+def test_bitwise_counting_keeps_exact_ratio_ties_high_risk():
+    from fast_select.MDR import _batch_balanced_accuracy_bits, _batch_balanced_accuracy_cpu, _genotype_masks
+
+    # 70 cases and 140 controls (ratio 1:2). Genotype 0 holds 10 cases and 20
+    # controls, exactly the dataset ratio, so it is high risk; genotype 2 is
+    # empty. Spanning several 64-bit words exercises the word boundaries.
+    X = np.concatenate([np.zeros(30), np.ones(180)]).astype(np.uint8).reshape(-1, 1)
+    y = np.concatenate([np.ones(10), np.zeros(20), np.ones(60), np.zeros(120)]).astype(np.uint8)
+    combos = np.zeros((1, 1), dtype=np.uint32)
+    masks, case_mask = _genotype_masks(X, y)
+    bitwise = _batch_balanced_accuracy_bits(masks, case_mask, len(y), combos, 1)
+    np.testing.assert_array_equal(bitwise, _batch_balanced_accuracy_cpu(X, y, combos, 1))
+    assert bitwise[0] == np.float32(_balanced_accuracy_oracle(X, y, (0,))) == np.float32(0.5)
+
+
+@pytest.mark.parametrize("interaction_order", [1, 2, 3])
+def test_fit_is_identical_on_both_counting_paths(monkeypatch, interaction_order):
+    import importlib
+
+    module = importlib.import_module("fast_select.MDR")
+    rng = np.random.default_rng(interaction_order)
+    X = rng.integers(0, 3, (300, 9), dtype=np.uint8)
+    y = np.where((X[:, 2] == 2) ^ (rng.random(300) < 0.2), "case", "control")
+    models = []
+    for bitwise in (True, False):
+        monkeypatch.setattr(module, "_use_bitwise_counts", lambda n_samples, k, bitwise=bitwise: bitwise)
+        models.append(MDR(k=interaction_order, cv=3, backend="cpu").fit(X, y))
+    bitwise_model, per_sample_model = models
+    assert bitwise_model.best_interaction_ == per_sample_model.best_interaction_
+    assert bitwise_model.best_cvc_ == per_sample_model.best_cvc_
+    assert bitwise_model.best_mean_testing_ba_ == per_sample_model.best_mean_testing_ba_
+    np.testing.assert_array_equal(bitwise_model.best_model_lookup_table_, per_sample_model.best_model_lookup_table_)

@@ -127,3 +127,45 @@ def test_gpu_information_matches_distribution_oracle_and_cpu(unit):
     )
     for actual_array, expected_array in zip(actual, expected):
         np.testing.assert_allclose(actual_array, expected_array, atol=2e-6, rtol=2e-5)
+
+
+@pytest.mark.parametrize(
+    ("n_samples", "left_states", "right_states"),
+    # 8 x 8 and 5 x 13 straddle the 64-cell interleaving limit, 16 x 16 the
+    # 256-cell limit of the counted kernel, and 17 states the fallback.
+    [(1, 2, 2), (3, 2, 3), (6, 8, 8), (257, 8, 8), (258, 5, 13), (401, 16, 16), (402, 17, 3), (999, 4, 2)],
+)
+def test_counted_mi_kernel_matches_oracle_and_pairwise_kernel(n_samples, left_states, right_states):
+    from fast_select.mutual_information import _batch_mi_counted_cpu, _batch_mi_cpu
+
+    rng = np.random.default_rng(n_samples)
+    states = np.array([left_states, right_states, left_states])
+    X = np.column_stack([rng.integers(0, s, n_samples) for s in states]).astype(np.int32)
+    X[:, 2] = X[0, 2]  # constant column
+    X[:, 1] = np.where(X[:, 1] % 2 == 0, X[:, 1], 0)  # unused odd codes
+    y = rng.integers(0, 3, n_samples).astype(np.int32)
+    reference = _batch_mi_cpu(X, y, 1.0)
+    if max(X.max(), y.max()) < 16:
+        counted = _batch_mi_counted_cpu(X, y, 1.0, X.max(axis=0).astype(np.int64) + 1)
+        assert counted[0].tobytes() == reference[0].tobytes()
+        assert counted[1].tobytes() == reference[1].tobytes()
+    public_relevance, public_redundancy = calculate_mi_matrices(X, y, backend="cpu", unit="nat")
+    for feature in range(3):
+        oracle = _information_oracle(X[:, feature].tolist(), y.tolist(), unit="nat")
+        assert public_relevance[feature] == pytest.approx(oracle, rel=1e-12, abs=1e-12)
+        for other in range(3):
+            if other != feature:
+                oracle = _information_oracle(X[:, feature].tolist(), X[:, other].tolist(), unit="nat")
+                assert public_redundancy[feature, other] == pytest.approx(oracle, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("states", [2, 4, 16, 17, 40])
+def test_cpu_matrix_entries_equal_single_pair_values_exactly(states):
+    rng = np.random.default_rng(states)
+    X = rng.integers(0, states, (333, 5))
+    y = rng.integers(0, 3, 333)
+    relevance, redundancy = calculate_mi_matrices(X, y, backend="cpu")
+    for feature in range(5):
+        assert relevance[feature] == calculate_mi_single_pair(X[:, feature], y, backend="cpu")
+        for other in range(feature + 1, 5):
+            assert redundancy[feature, other] == calculate_mi_single_pair(X[:, feature], X[:, other], backend="cpu")
