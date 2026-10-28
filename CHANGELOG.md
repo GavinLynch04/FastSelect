@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] - 2026-10-28
+
+Faster CPU kernels for `LaplacianScore`, `MDR`, discrete mutual information
+(and so `mRMR`) and `CFS`, with results identical to 0.4.0: every score,
+selection, merit and model is bit-for-bit unchanged. Also a `py.typed` marker,
+two input-validation fixes, re-measured README benchmark charts, and the
+published algorithm policy.
 
 ### Added
 
@@ -15,12 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inline annotations.
 - README section on switching from scikit-rebate or scikit-learn, with a
   parameter mapping table.
-
-### Fixed
-
-- `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
-  value such as a string now raise the documented `ValueError` instead of a
-  NumPy `TypeError`.
 
 ### Changed
 
@@ -61,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `# pragma: no cover` like the existing ones, and the Metal modules are omitted
   from the Linux CI coverage report (they cannot run there). Added tests for the
   previously untested parameter-validation and `discrete_features` branches.
+
+### Fixed
+
+- `LaplacianScore(bandwidth=...)` and `FCBF(delta=...)` given a non-numeric
+  value such as a string now raise the documented `ValueError` instead of a
+  NumPy `TypeError`.
+
+### Not verified
+
+- The speedups were measured on one Apple M1 Pro. The CUDA and Metal code paths
+  are unchanged; CUDA is still verified only in the Numba simulator.
 
 ## [0.4.0] - 2026-10-27
 
