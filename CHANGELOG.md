@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `CFS`: 1.3x-1.5x from parallel integer encoding, faster contingency
     counting, and less per-candidate Python work in the best-first search
     (same traversal and tie order).
+- README benchmark charts re-measured on the current code (they dated from
+  v0.2.1): Relief-family runtime against scikit-rebate 0.8.4 on an M1 Pro, CPU
+  and Metal backends, median of three fresh-process rounds, with light and dark
+  variants. `benchmarking/benchmarking.py` now writes
+  `results/readme_scaling.json` and `benchmarking/plots.py` needs only
+  matplotlib.
 - `benchmarking/compare_head_vs_current.py` gained `--candidate-ref` (measure a
   frozen revision, for example from `git stash create`), the CPU-only selectors,
   and a significance summary (paired sign and t-tests over rounds, Mann-Whitney

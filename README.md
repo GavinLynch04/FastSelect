@@ -250,28 +250,40 @@ gpu_selector = MultiSURF(n_features_to_select=10, backend='gpu')
 ## **Benchmarking Highlights**
 
 Fast-Select delivers substantial runtime and memory improvements through its
-Numba and CUDA kernels. CPU and GPU paths are checked against independent,
+Numba, CUDA and Metal kernels. CPU and GPU paths are checked against independent,
 equation-driven algorithm tests rather than assuming an external implementation
 is authoritative. Sustained comparison scripts and raw results are available in
 the [benchmarking directory](./benchmarking).
 
-The two plots below are the Relief-family comparisons from the v0.2.1 release
-and have not been regenerated since. Current measurements are in the
+The charts below time the Relief-family selectors against
+[scikit-rebate](https://github.com/EpistasisLab/scikit-rebate) 0.8.4 on one
+Apple M1 Pro with 8 threads. FastSelect's CPU backend is 61–117× faster at
+5,000 samples and 294–878× faster at 10,000 features. ReliefF uses 10 neighbors in
+both libraries, and scikit-rebate gets the faster of `n_jobs=1` and all cores
+at every size. Each point is the median of three rounds of repeated fits in
+fresh processes; the raw timings are in
+[`benchmarking/results/readme_scaling.json`](benchmarking/results/readme_scaling.json).
+Rerun with `python benchmarking/benchmarking.py`, then (with matplotlib)
+`python benchmarking/plots.py`. The CUDA backend needs NVIDIA hardware and is
+not shown. Other measurements are in the
 [Metal backend report](benchmarking/results/METAL_BACKENDS.md), the
-[ReliefF Metal report](benchmarking/results/RELIEFF_METAL.md), and the
+[ReliefF Metal report](benchmarking/results/RELIEFF_METAL.md), the
 [first](benchmarking/results/NEW_ALGORITHMS.md) and
-[second](benchmarking/results/NEW_ALGORITHMS_2.md) new-algorithm reports.
-
-#### Runtime vs. Number of Samples (n >> p)
+[second](benchmarking/results/NEW_ALGORITHMS_2.md) new-algorithm reports, and
+the [v0.4.1 CPU optimization report](benchmarking/results/V041_OPTIMIZATIONS.md).
 
 <p align="center">
-  <img alt="Runtime Benchmark N-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime.png">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime_dark.png">
+    <img alt="Runtime against sample count for ReliefF, SURF and MultiSURF on log-log axes. At 5,000 samples FastSelect on CPU takes 90 to 190 ms and scikit-rebate 8 to 15 s, 61 to 117 times slower." width="100%" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime.png">
+  </picture>
 </p>
 
-#### Runtime vs. Number of Features (p >> n)
-
 <p align="center">
-  <img alt="Runtime Benchmark P-Dominant" width="700" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime_dark.png">
+    <img alt="Runtime against feature count for ReliefF, SURF and MultiSURF on log-log axes. At 10,000 features FastSelect on CPU takes 7 to 18 ms and scikit-rebate 5 to 6 s, 294 to 878 times slower." width="100%" src="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_p_dominant_runtime.png">
+  </picture>
 </p>
 
 ---
