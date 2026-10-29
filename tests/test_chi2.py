@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+import scipy.sparse as sp
+from scipy.stats import chi2 as chi2_distribution
 from sklearn.feature_selection import chi2 as sklearn_chi2
 
 from fast_select import chi2 as chi2_numba
@@ -229,3 +231,105 @@ def test_chi2_core_with_zero_feature_count():
     assert chi2_stats[1] == 0.0
     assert chi2_stats[0] > 0.0
     assert chi2_stats[2] > 0.0
+
+
+def _pearson_chi2_oracle(X, y):
+    """Pearson's statistic from its definition, with class-wise feature sums as counts.
+
+    Observed ``O[c, j]`` is the sum of feature ``j`` over class ``c``; expected
+    ``E[c, j]`` is ``n_c * sum_j / n``.  Features with a zero total score 0,
+    matching the package's documented convention.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    classes = np.unique(y)
+    n_samples, n_features = X.shape
+    stats = np.zeros(n_features)
+    for j in range(n_features):
+        total = X[:, j].sum()
+        if total == 0:
+            continue
+        for c in classes:
+            observed = X[y == c, j].sum()
+            expected = np.count_nonzero(y == c) * total / n_samples
+            stats[j] += (observed - expected) ** 2 / expected
+    return stats, chi2_distribution.sf(stats, len(classes) - 1)
+
+
+def _sparse_counts(n_samples=300, n_features=40, n_classes=4, density=0.08, seed=7):
+    rng = np.random.default_rng(seed)
+    X = rng.integers(1, 20, size=(n_samples, n_features)) * (rng.random((n_samples, n_features)) < density)
+    X[:, 5] = 0  # an all-zero column
+    y = rng.integers(0, n_classes, size=n_samples)
+    return X.astype(np.float64), y
+
+
+@pytest.mark.parametrize("container", [sp.csr_matrix, sp.csc_matrix, sp.coo_matrix, sp.csr_array, sp.csc_array])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.int64])
+def test_sparse_input_matches_dense_exactly_and_the_definition(container, dtype):
+    X, y = _sparse_counts()
+    dense_stats, dense_p = chi2_numba(X.astype(dtype), y)
+    sparse_stats, sparse_p = chi2_numba(container(X.astype(dtype)), y)
+
+    # Integer counts make every class sum exact, and the sparse kernel sums each
+    # column in row order, so the layouts agree to the last bit.
+    np.testing.assert_array_equal(sparse_stats, dense_stats)
+    np.testing.assert_array_equal(sparse_p, dense_p)
+
+    oracle_stats, oracle_p = _pearson_chi2_oracle(X, y)
+    np.testing.assert_allclose(sparse_stats, oracle_stats, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(sparse_p, oracle_p, rtol=1e-10, atol=1e-300)
+    assert sparse_stats[5] == 0.0 and sparse_p[5] == 1.0
+
+
+def test_sparse_input_matches_sklearn_on_fractional_values():
+    rng = np.random.default_rng(11)
+    X = sp.random(500, 60, density=0.05, format="csr", random_state=3, data_rvs=lambda n: rng.random(n) * 3)
+    y = np.repeat([3, -1, 8], [100, 150, 250])  # imbalanced, non-0/1 labels
+
+    stats, p_values = chi2_numba(X, y)
+    sk_stats, sk_p = sklearn_chi2(X, y)
+    np.testing.assert_allclose(stats, np.nan_to_num(sk_stats), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(p_values, np.nan_to_num(sk_p, nan=1.0), rtol=1e-9, atol=1e-300)
+    np.testing.assert_allclose(stats, chi2_numba(X.toarray(), y)[0], rtol=1e-13, atol=0)
+
+
+def test_sparse_input_with_duplicate_and_unsorted_entries():
+    """Non-canonical CSC (repeated, unordered row indices) is summed like its dense equivalent."""
+    data = np.array([2.0, 1.0, 5.0, 4.0, 3.0, 6.0, 1.0, 2.0])
+    indices = np.array([3, 0, 3, 2, 1, 4, 0, 2], dtype=np.int32)  # row 3 twice; unordered
+    indptr = np.array([0, 3, 5, 8], dtype=np.int32)
+    X = sp.csc_matrix((data, indices, indptr), shape=(5, 3))
+    assert not X.has_canonical_format
+    y = np.array([0, 1, 0, 1, 1])
+    before = (X.data.copy(), X.indices.copy(), X.indptr.copy())
+
+    stats, p_values = chi2_numba(X, y)
+    expected_stats, expected_p = chi2_numba(X.toarray(), y)
+    np.testing.assert_array_equal(stats, expected_stats)
+    np.testing.assert_array_equal(p_values, expected_p)
+    for original, current in zip(before, (X.data, X.indices, X.indptr)):
+        np.testing.assert_array_equal(current, original)  # the caller's matrix is untouched
+
+
+def test_sparse_input_validation():
+    X, y = _sparse_counts(n_samples=40, n_features=6)
+    negative = sp.csr_matrix(X)
+    negative.data[0] = -1.0
+    with pytest.raises(ValueError, match="non-negative"):
+        chi2_numba(negative, y)
+
+    missing = sp.csr_matrix(X)
+    missing.data[0] = np.nan
+    with pytest.raises(ValueError):
+        chi2_numba(missing, y)
+
+    with pytest.raises(ValueError, match="CPU only"):
+        chi2_numba(sp.csr_matrix(X), y, backend="metal")
+
+    empty_stats, empty_p = chi2_numba(sp.csr_matrix((40, 6)), y)
+    np.testing.assert_array_equal(empty_stats, np.zeros(6))
+    np.testing.assert_array_equal(empty_p, np.ones(6))
+
+    single_stats, single_p = chi2_numba(sp.csr_matrix(X), np.zeros(40, dtype=int))
+    np.testing.assert_array_equal(single_stats, np.zeros(6))
+    np.testing.assert_array_equal(single_p, np.ones(6))

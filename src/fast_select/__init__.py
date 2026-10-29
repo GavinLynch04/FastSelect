@@ -28,6 +28,7 @@ from .MultiSURF import MultiSURF
 from .mutual_information import calculate_mi_matrices, calculate_mi_single_pair
 from .RegressionMI import mutual_info_regression
 from .ReliefF import ReliefF
+from .RReliefF import RReliefF
 from .SURF import SURF
 from .TuRF import TuRF
 
@@ -49,6 +50,7 @@ __all__ = [
     "MIFS",
     "MultiSURF",
     "ReliefF",
+    "RReliefF",
     "SURF",
     "TuRF",
     "__version__",

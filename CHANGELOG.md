@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `RReliefF`, Relief attribute estimation for regression targets
+  (Robnik-Šikonja and Kononenko, ICML 1997; *Machine Learning* 53, 2003,
+  Figure 3 and Eqs. (9)-(11)), with the paper's exponential rank weighting
+  (default `n_neighbors=70`, `sigma=20`) or constant influence. CPU only. It
+  is tested against a line-by-line transcription of the published pseudocode,
+  an exact rational-arithmetic oracle for rank ties, and empty-group cases, and
+  works inside `TuRF`.
+- `ReliefF` accepts missing values (NaN) in discrete features, using the
+  ReliefF papers' class-conditional probability difference (Kononenko, 1994;
+  Robnik-Šikonja and Kononenko, 2003, Eqs. 3-4) in distances and scores.
+  NaN in continuous features, and in `SURF`/`MultiSURF`, is still rejected
+  because no paper defines it. Missing-value fits run on the CPU (`auto`
+  selects it; an explicit GPU backend raises), and `TuRF` passes NaN through
+  to a `ReliefF` base. Complete data uses the unchanged kernels and gives
+  byte-identical results.
+- `chi2` accepts SciPy sparse matrices and arrays. Columns are summed on the
+  CPU in the same order as the dense path, so sparse and dense input give
+  bit-for-bit identical statistics on count data; `backend='metal'` still
+  requires dense input.
+
 ## [0.4.1] - 2026-10-28
 
 Faster CPU kernels for `LaplacianScore`, `MDR`, discrete mutual information

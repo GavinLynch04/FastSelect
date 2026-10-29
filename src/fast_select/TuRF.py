@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin, clone
+from sklearn.utils import get_tags
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 
@@ -95,7 +96,10 @@ class TuRF(TransformerMixin, BaseEstimator):
             y_numeric=True,
             dtype=np.float64,
             ensure_2d=True,
+            ensure_all_finite="allow-nan",
         )
+        if not self._base_accepts_nan() and np.isnan(X).any():
+            raise ValueError("Input X contains NaN, and the base estimator does not handle missing values.")
         self.n_features_in_ = X.shape[1]
         if not 0 < self.pct_remove < 1:
             raise ValueError("pct_remove must be between 0 and 1.")
@@ -141,9 +145,22 @@ class TuRF(TransformerMixin, BaseEstimator):
     def transform(self, X: np.ndarray) -> np.ndarray:
         """Reduces X to the selected features."""
         check_is_fitted(self)
-        X = validate_data(self, X, reset=False, dtype=[np.float64, np.float32])
+        X = validate_data(self, X, reset=False, dtype=[np.float64, np.float32], ensure_all_finite="allow-nan")
+        if not self._base_accepts_nan() and np.isnan(X).any():
+            raise ValueError("Input X contains NaN, and the base estimator does not handle missing values.")
 
         return X[:, self.top_features_]
+
+    def _base_accepts_nan(self) -> bool:
+        """Whether NaNs may reach the base estimator, which then validates them itself.
+
+        ReliefF handles missing values in discrete features; other estimators
+        qualify through scikit-learn's ``allow_nan`` tag.
+        """
+        return bool(
+            getattr(self.estimator, "_accepts_nan_in_discrete_features", False)
+            or get_tags(self.estimator).input_tags.allow_nan
+        )
 
     def fit_transform(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
         """Fit to data, then transform it."""

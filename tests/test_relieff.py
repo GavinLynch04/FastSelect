@@ -72,7 +72,15 @@ def test_sklearn_api_compliance():
     This runs a large suite of tests for things like get_params/set_params,
     clonability, and expected behavior on various inputs.
     """
-    check_estimator(ReliefF())
+    check_estimator(
+        ReliefF(),
+        expected_failed_checks={
+            "check_estimators_nan_inf": (
+                "NaN is accepted in discrete features (Eqs. 3-4); the check's 10-sample data makes "
+                "every column discrete, so the NaN it expects to be rejected is valid input"
+            )
+        },
+    )
 
 
 def test_fit_transform_output_shape(simple_classification_data):

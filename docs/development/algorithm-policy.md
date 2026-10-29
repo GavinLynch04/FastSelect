@@ -78,6 +78,10 @@ Before merging an algorithm or kernel change:
   Methods for Bioinformatics Data Mining* (2018), PMCID: PMC6299838; and
   Urbanowicz et al., *Relief-Based Feature Selection: Introduction and Review*
   (2018).
+- RReliefF: Robnik-Šikonja and Kononenko, *An Adaptation of Relief for
+  Attribute Estimation in Regression* (ICML 1997), and *Theoretical and
+  Empirical Analysis of ReliefF and RReliefF* (Machine Learning 53, 2003),
+  DOI: 10.1023/A:1025667309714, Figure 3 and Eqs. (9)-(11).
 - CFS: Mark A. Hall, *Correlation-based Feature Selection for Machine
   Learning* (PhD thesis, 1999).
 - mRMR: Peng, Long, and Ding, *Feature Selection Based on Mutual Information:
@@ -121,6 +125,15 @@ invariants in every CPU, CUDA, helper, and fallback path.
 - Continuous feature difference is `abs(a-b)/(max-min)`; zero-range features
   contribute zero. Discrete difference is `0` for equality and `1` otherwise.
   Instance distance is the sum of feature differences.
+- ReliefF missing values (discrete features only) follow Robnik-Šikonja and
+  Kononenko (2003) Eqs. (3)-(4): one unknown value gives
+  `1 - P(known value | class of the instance with the unknown value)`, two give
+  `1 - sum_V P(V | class_1) P(V | class_2)`, with relative frequencies of the
+  known training values, in distances as well as scores. A class with no known
+  value uses the feature's overall frequencies and an all-missing feature has
+  difference 0 (explicit conventions). NaN in a continuous feature, and in the
+  SURF family, is rejected; no source defines it. Complete data must keep the
+  unchanged kernels.
 - ReliefF uses nearest hits and per-class nearest misses. Multiclass miss
   contributions use the defining class-prior normalization. A reduced
   neighbor count must be explicit and consistently normalized.
@@ -157,6 +170,15 @@ invariants in every CPU, CUDA, helper, and fallback path.
   rational-arithmetic oracle in `tests/test_exact_boundaries.py`).
 - `MultiSURF.fit(feat_idx=...)` restricts distances, scoring *and* ranking to
   the listed features; unevaluated features must never be ranked.
+- RReliefF follows Figure 3 of Robnik-Šikonja and Kononenko (2003) with every
+  instance as a target once. Its `k` nearest instances (any target value; equal
+  distances keep the lower index) are weighted by Eq. (10) with Eq. (11)'s
+  `exp(-(rank/sigma)**2)` or the constant `1/k`. `diff(tau)` is the
+  range-normalised target difference. The estimate is line 15,
+  `N_dC&dA/N_dC - (N_dA - N_dC&dA)/(m - N_dC)`; the second ratio may be
+  accumulated directly with weight `1 - diff(tau)`, and a ratio whose total
+  weight is zero contributes zero. A constant target is rejected. Do not add
+  the ramp difference or GPU routing without the change gate.
 - TuRF repeatedly re-fits its Relief-family base estimator after removing the
   requested fraction of the currently lowest-scoring features. Never reuse
   scores computed for a superseded feature space.
@@ -185,7 +207,8 @@ invariants in every CPU, CUDA, helper, and fallback path.
   both CPU and GPU.
 - Chi-squared count-feature scoring uses class-wise feature sums as observed
   counts, class frequency times the feature total divided by sample count as
-  expected counts, and `n_classes - 1` degrees of freedom.
+  expected counts, and `n_classes - 1` degrees of freedom. Sparse input is
+  summed per column in row order on the CPU, so it matches the dense sums.
 - MDR marks a nonempty cell high risk when its case/control ratio is greater
   than or equal to the dataset case/control ratio. Empty cells are low risk.
   Encode arbitrary binary labels internally and map predictions back to the

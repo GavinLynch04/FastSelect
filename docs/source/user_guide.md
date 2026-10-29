@@ -131,6 +131,11 @@ The library includes several variations of the Relief algorithm, each improving 
 #### ReliefF
 This is the most well-known extension of the original Relief. Instead of one near miss, it finds **k** nearest neighbors for both the "hit" and "miss" categories, making its scores more robust, especially for noisy data and multi-class problems.
 
+ReliefF also accepts missing values (NaN) in discrete features, using the papers' rule: a missing value counts as the probability, given the instance's class, that the two values differ. NaN in continuous features, and in the SURF family, is rejected because no paper defines it. Missing-value fits run on the CPU.
+
+#### RReliefF
+The regression form of ReliefF (Robnik-Šikonja and Kononenko). With a continuous target there are no hits or misses, so RReliefF uses the **k** nearest neighbors of every sample, whatever their targets, and weighs how often a feature differs when the target differs against how often it differs when the target does not. Nearer neighbors count more (`sigma` controls how quickly influence decays with rank), or all count equally with `weighting="constant"`. It runs on the CPU.
+
 #### SURF
 SURF improves upon ReliefF by removing the need to specify `k`. Instead, it defines neighbors as all other samples within a certain distance (radius) from the target sample. This avoids the problem of choosing an arbitrary `k` and is more robust to different feature densities.
 
@@ -266,7 +271,8 @@ The algorithm exhaustively tests up to k=6 interactions of features to find the 
 | Algorithm Family | `X` Data Type | `y` Data Type | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ReliefF / SURF / MultiSURF** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |
+| **RReliefF** | Discrete & Continuous | Regression | ✅ **Yes** | ❌ No | High | The same neighbor-based scoring for a continuous target. |
 | **mRMR** | Discrete | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete classification data. |
 | **CFS** | Discrete & Continuous | Classification | ❌ No | ✅ **Yes** | High | Finding a synergistically predictive subset (theory-driven). |
-| **Chi-Squared** | Discrete (Non-Negative) | Classification | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete classification data. |
+| **Chi-Squared** | Discrete (Non-Negative), dense or sparse | Classification | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete classification data. |
 | **MDR** | Discrete | Classification | ✅ **Yes (Primary Goal)** | ❌ No | **Very High** | Detecting epistasis and complex non-linear interactions in case-control studies. |

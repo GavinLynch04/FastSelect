@@ -21,7 +21,7 @@ A high-performance Python library powered by **Numba**, **CUDA**, and optional *
   
 - **Flexible Backends:** Supports CPU (Numba `prange`), NVIDIA GPUs (CUDA), and Apple Silicon GPUs (optional Metal/MLX). `backend="auto"` picks a GPU only where it has been shown to help.
   
-- **Feature-Rich Implementation:** The complete Relief family (ReliefF, SURF, SURF*, MultiSURF, MultiSURF*, TuRF), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
+- **Feature-Rich Implementation:** The complete Relief family (ReliefF, RReliefF for regression, SURF, SURF*, MultiSURF, MultiSURF*, TuRF), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
   
 - **Paper-Faithful:** Every algorithm is verified against independent, equation-driven tests derived from its defining paper, not from another library's output. Where an extension goes beyond the published algorithm, the docstring says so.
   
@@ -148,6 +148,8 @@ but some parameter names and defaults differ:
 | `n_features_to_select=10` (default) | `n_features_to_select=0.2` (default) | An int is a count; a float is a fraction of features. |
 | `n_jobs=1` (default) | `n_jobs=-1` (default) | `-1` uses every Numba thread. |
 | `skrebate.turf.TURF(relief_object, pct=0.5, num_scores_to_return=100)` | `TuRF(estimator, pct_remove=0.5, n_features_to_select=100)` | Both remove a fraction of features per iteration; the fast-select default is `pct_remove=0.1`. An integer `pct` has no equivalent. |
+| Continuous endpoint (`ReliefF` on a regression target) | `RReliefF` | A separate estimator for regression targets; see below. |
+| Missing values (NaN) | `ReliefF` only, discrete features only | Handled as the ReliefF papers define them; see below. |
 | `multiclass_threshold`, `weight_final_scores`, `rank_absolute`, `label_type` | — | No equivalent. |
 
 ```python
@@ -159,6 +161,26 @@ selector = ReliefF(n_features_to_select=10, n_neighbors=100, discrete_limit=10)
 
 fast-select implements each method from its defining paper, so scores can
 differ slightly from scikit-rebate where the two implementations differ.
+
+For a continuous target, use `RReliefF` (Robnik-Šikonja and Kononenko), the
+regression form of ReliefF. Its defaults are the paper's: 70 neighbours whose
+influence decays with rank (`sigma=20`); `weighting="constant"` gives every
+neighbour equal weight, for which the paper recommends `n_neighbors=10`. It
+runs on the CPU and works inside `TuRF`.
+
+`ReliefF` accepts missing values (NaN) in discrete features, such as missing
+genotype calls. As the ReliefF papers define it, a missing value is compared
+through the class-conditional probability that the two values differ,
+estimated from the known values; this applies to the neighbor distances as
+well as the scores. The papers define this only for discrete features, so NaN
+in a continuous feature is an error, as is NaN for `SURF` and `MultiSURF`.
+Data with missing values runs on the CPU.
+
+```python
+from fast_select import RReliefF
+
+selector = RReliefF(n_features_to_select=10).fit(X, y_continuous)
+```
 
 **From scikit-learn.** `fast_select.mutual_info_classif` and
 `fast_select.mutual_info_regression` take the same arguments as their
@@ -294,6 +316,7 @@ Currently supported:
 
 - **Relief-Family Algorithms:**
   - ReliefF
+  - RReliefF (regression targets, CPU)
   - SURF
   - SURF*
   - MultiSURF
@@ -302,7 +325,7 @@ Currently supported:
 - **Correlation-Based Feature Selection (CFS)**
 - **Multifactor Dimensionality Reduction (MDR)**
 - **Minimum Redundancy Maximum Relevance (mRMR)**
-- **Chi Squared (Chi2)**
+- **Chi Squared (Chi2)** — dense or SciPy sparse count matrices; sparse input is counted on the CPU without densifying and gives the same statistics as the dense array.
 - **Discrete mutual information** — `calculate_mi_single_pair` and `calculate_mi_matrices`, with the same CPU/GPU backend selection and a choice of bit or nat units.
 - **Continuous/discrete classification MI** — `mutual_info_classif`, Ross's nearest-neighbor estimator in nats, for dense numeric inputs and `SelectKBest`.
 - **Joint Mutual Information (JMI)** — categorical classification, normalized joint-information criterion.

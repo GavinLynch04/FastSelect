@@ -18,6 +18,16 @@ not part of this documentation set.
    :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
+### RReliefF
+
+```{eval-rst}
+.. autoclass:: fast_select.RReliefF.RReliefF
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
 ### SURF
 
 ```{eval-rst}

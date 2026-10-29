@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import scipy.sparse as sp
 from numba import njit, prange
 from scipy.stats import chi2 as chi2_dist
 from sklearn.utils.validation import check_array, check_X_y
@@ -23,6 +24,28 @@ def _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes):  #
             val = X[i, j]
             observed[class_idx, j] += val
             feature_counts[j] += val
+    return observed, feature_counts
+
+
+@njit(parallel=True)
+def _compute_observed_and_feature_counts_csc(
+    data, indices, indptr, y_mapped, n_features, n_classes
+):  # pragma: no cover
+    """Sparse (CSC) counterpart of :func:`_compute_observed_and_feature_counts`.
+
+    Each column is summed in row order, as in the dense loop, and absent entries
+    contribute nothing, so both layouts produce identical sums.  ``fastmath`` is
+    deliberately off: it would let the per-column total be reassociated.
+    """
+    observed = np.zeros((n_classes, n_features), dtype=np.float64)
+    feature_counts = np.zeros(n_features, dtype=np.float64)
+    for j in prange(n_features):
+        total = 0.0
+        for position in range(indptr[j], indptr[j + 1]):
+            value = data[position]
+            observed[y_mapped[indices[position]], j] += value
+            total += value
+        feature_counts[j] = total
     return observed, feature_counts
 
 
@@ -61,24 +84,37 @@ def chi2(X: np.ndarray, y: np.ndarray, *, backend="auto") -> tuple[np.ndarray, n
     that represent frequencies or counts (e.g., word counts in text classification).
 
     Args:
-        X (np.ndarray): The input sample matrix of shape (n_samples, n_features).
-                        Must contain non-negative, count-based feature values.
+        X (np.ndarray | scipy.sparse matrix or array): The input sample matrix of
+                        shape (n_samples, n_features). Must contain non-negative,
+                        count-based feature values. Sparse input is counted on the
+                        CPU without densifying and gives the same statistics as
+                        the equivalent dense array.
         y (np.ndarray): The target vector of class labels, shape (n_samples,).
         backend (str): 'auto' and 'cpu' run on the CPU. 'metal' explicitly
                        requests MLX; it was slower than CPU in sustained
-                       benchmarks, so 'auto' does not select it. This
-                       statistic has no CUDA implementation.
+                       benchmarks, so 'auto' does not select it, and it
+                       does not accept sparse input. This statistic has no
+                       CUDA implementation.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: A tuple containing:
             - chi2_stats: The Chi-squared statistics for each feature.
             - p_values: The p-values for each feature.
     """
-    X = check_array(X, dtype=[np.float64, np.float32], ensure_2d=True)
+    is_sparse = sp.issparse(X)
+    if is_sparse and backend == "metal":
+        raise ValueError("Sparse input runs on the CPU only; use backend='cpu' or 'auto', or pass a dense array.")
 
-    X, y = check_X_y(X, y, y_numeric=True)
+    X = check_array(X, accept_sparse="csc", dtype=[np.float64, np.float32], ensure_2d=True)
 
-    if np.any(X < 0):
+    X, y = check_X_y(X, y, accept_sparse="csc", y_numeric=True)
+
+    if is_sparse and not X.has_canonical_format:
+        # Sorted row indices keep the per-column summation in row order.
+        X = X.copy()
+        X.sum_duplicates()
+
+    if np.any((X.data if is_sparse else X) < 0):
         raise ValueError("Input matrix X must contain non-negative values.")
 
     n_samples, n_features = X.shape
@@ -95,6 +131,10 @@ def chi2(X: np.ndarray, y: np.ndarray, *, backend="auto") -> tuple[np.ndarray, n
         from ._chi2_metal import chi2_counts_metal
 
         observed, feature_counts = chi2_counts_metal(X, y_mapped, n_classes)
+    elif is_sparse:
+        observed, feature_counts = _compute_observed_and_feature_counts_csc(
+            X.data, X.indices, X.indptr, y_mapped, n_features, n_classes
+        )
     else:
         observed, feature_counts = _compute_observed_and_feature_counts(X, y_mapped, n_features, n_classes)
 

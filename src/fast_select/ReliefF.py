@@ -11,6 +11,7 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 from .utils import (
     check_integer_param,
     discrete_feature_mask,
+    effective_discrete_limit,
     ensure_cuda_context,
     is_cuda_ready,
     prepare_relief_matrix,
@@ -401,6 +402,185 @@ def _relieff_cpu_host_caller(x, y_enc, n_cont, k, class_probs, n_jobs):
     return scores
 
 
+@njit(inline="always")
+def _missing_aware_diff(a, b, f, class_a, class_b, one_missing, both_missing):  # pragma: no cover
+    """``diff`` of discrete feature ``f`` for category codes ``a`` and ``b``; ``-1`` is missing.
+
+    Known codes use Eq. (1). One missing value uses Eq. (3),
+    ``1 - P(known value | class of the instance whose value is missing)``, and two
+    use Eq. (4), ``1 - sum_V P(V | class_a) P(V | class_b)`` (Robnik-Šikonja and
+    Kononenko, 2003); both are tabulated in ``one_missing`` and ``both_missing``.
+    """
+    if a >= 0.0:
+        if b >= 0.0:
+            return 0.0 if a == b else 1.0
+        return one_missing[f, class_b, int(a)]
+    if b >= 0.0:
+        return one_missing[f, class_a, int(b)]
+    return both_missing[f, class_a, class_b]
+
+
+@njit(parallel=True)
+def _relieff_missing_cpu_kernel(x, y_enc, n_cont, k, class_probs, one_missing, both_missing):  # pragma: no cover
+    """ReliefF CPU scoring for data with missing discrete values.
+
+    The same neighbour selection, tie rule (lower index first) and update as
+    :func:`_relieff_cpu_kernel`, with every discrete difference, in distances as
+    well as in scores, taken from :func:`_missing_aware_diff`.  Kept separate so
+    complete data never pays for the lookups; float64 throughout and no
+    ``fastmath``, so each distance is summed in column order.
+    """
+    n_samples, n_features = x.shape
+    n_classes = class_probs.shape[0]
+    n_threads = get_num_threads()
+
+    thread_scores = np.zeros((n_threads, n_features))
+
+    for i in prange(n_samples):
+        tid = get_thread_id()
+        lbl_i = y_enc[i]
+        x_i = x[i]
+
+        hit_d = np.full(k, np.inf)
+        hit_idx = np.full(k, -1, dtype=np.int32)
+        miss_d = np.full((n_classes, k), np.inf)
+        miss_idx = np.full((n_classes, k), -1, dtype=np.int32)
+
+        for j in range(n_samples):
+            if i == j:
+                continue
+
+            x_j = x[j]
+            lbl_j = y_enc[j]
+            d = 0.0
+            for f in range(n_cont):
+                d += abs(x_i[f] - x_j[f])
+            for f in range(n_cont, n_features):
+                d += _missing_aware_diff(x_i[f], x_j[f], f - n_cont, lbl_i, lbl_j, one_missing, both_missing)
+
+            if lbl_j == lbl_i:
+                if d < hit_d[k - 1]:
+                    pos = k - 1
+                    while pos > 0 and d < hit_d[pos - 1]:
+                        hit_d[pos] = hit_d[pos - 1]
+                        hit_idx[pos] = hit_idx[pos - 1]
+                        pos -= 1
+                    hit_d[pos] = d
+                    hit_idx[pos] = j
+            elif d < miss_d[lbl_j, k - 1]:
+                pos = k - 1
+                while pos > 0 and d < miss_d[lbl_j, pos - 1]:
+                    miss_d[lbl_j, pos] = miss_d[lbl_j, pos - 1]
+                    miss_idx[lbl_j, pos] = miss_idx[lbl_j, pos - 1]
+                    pos -= 1
+                miss_d[lbl_j, pos] = d
+                miss_idx[lbl_j, pos] = j
+
+        denom = 1.0 - class_probs[lbl_i]
+        if denom <= 0:
+            denom = 1.0
+
+        scores_i = thread_scores[tid]
+        for c in range(n_classes):
+            found = 0
+            for ki in range(k):
+                if (hit_idx[ki] if c == lbl_i else miss_idx[c, ki]) != -1:
+                    found += 1
+                else:
+                    break
+            if found == 0:
+                continue
+            if c == lbl_i:
+                scale = -1.0 / (found * n_samples)
+            else:
+                scale = class_probs[c] / denom / found / n_samples
+            for ki in range(found):
+                j = hit_idx[ki] if c == lbl_i else miss_idx[c, ki]
+                x_j = x[j]
+                for f in range(n_cont):
+                    scores_i[f] += scale * abs(x_i[f] - x_j[f])
+                for f in range(n_cont, n_features):
+                    scores_i[f] += scale * _missing_aware_diff(
+                        x_i[f], x_j[f], f - n_cont, lbl_i, c, one_missing, both_missing
+                    )
+
+    scores = np.zeros(n_features)
+    for f in range(n_features):
+        for t in range(n_threads):
+            scores[f] += thread_scores[t, f]
+    return scores
+
+
+def _discrete_mask_with_missing(x, missing, discrete_limit):
+    """:func:`discrete_feature_mask`, counting only the known values of columns with NaNs."""
+    is_discrete = discrete_feature_mask(x, discrete_limit)
+    limit = effective_discrete_limit(discrete_limit, x.shape[0])
+    for f in np.flatnonzero(missing.any(axis=0)):
+        is_discrete[f] = limit >= 1 and np.unique(x[~missing[:, f], f]).size <= limit
+    return is_discrete
+
+
+def _prepare_missing_matrix(x, missing, is_discrete, columns, n_cont, y_enc, n_classes, discrete_limit):
+    """float64 working matrix plus the Eq. (3)/(4) tables for the discrete columns.
+
+    Continuous columns (which contain no NaNs) use :func:`prepare_relief_matrix`.
+    Each discrete column becomes dense codes of its known values, with ``-1`` for
+    a missing value. ``P(V | c)`` is the relative frequency of ``V`` among the
+    class-``c`` instances whose value is known. Two conventions the paper leaves
+    open are explicit here: a class with no known value of a feature uses the
+    feature's overall relative frequencies, and a feature with no known value at
+    all has difference 0 everywhere, like a constant feature.
+    """
+    n_samples = x.shape[0]
+    n_disc = columns.size - n_cont
+    prepared = np.empty((n_samples, columns.size))
+    prepared[:, :n_cont] = prepare_relief_matrix(
+        x, is_discrete, columns[:n_cont], dtype=np.float64, discrete_limit=discrete_limit
+    )
+
+    codes, vocabulary_sizes = [], []
+    for f in columns[n_cont:]:
+        known = ~missing[:, f]
+        values, inverse = np.unique(x[known, f], return_inverse=True)
+        column = np.full(n_samples, -1.0)
+        column[known] = inverse
+        codes.append(column)
+        vocabulary_sizes.append(values.size)
+    if n_disc:
+        prepared[:, n_cont:] = np.column_stack(codes)
+
+    n_values = max([1, *vocabulary_sizes])
+    one_missing = np.zeros((n_disc, n_classes, n_values))
+    both_missing = np.zeros((n_disc, n_classes, n_classes))
+    for position in range(n_disc):
+        column = prepared[:, n_cont + position]
+        known = column >= 0
+        if not known.any():
+            continue
+        counts = np.zeros((n_classes, n_values))
+        np.add.at(counts, (y_enc[known], column[known].astype(np.int64)), 1.0)
+        overall = counts.sum(axis=0)
+        probabilities = np.empty_like(counts)
+        for c in range(n_classes):
+            class_known = counts[c].sum()
+            probabilities[c] = counts[c] / class_known if class_known > 0 else overall / overall.sum()
+        one_missing[position] = 1.0 - probabilities
+        agreement = np.zeros((n_classes, n_classes))
+        for v in range(n_values):  # sequential over values, in sorted value order
+            agreement += np.outer(probabilities[:, v], probabilities[:, v])
+        both_missing[position] = 1.0 - agreement
+    return prepared, one_missing, both_missing
+
+
+def _relieff_missing_cpu_host_caller(x, y_enc, n_cont, k, class_probs, one_missing, both_missing, n_jobs):
+    original_num_threads = get_num_threads()
+    set_num_threads(resolve_num_threads(n_jobs))
+    try:
+        return _relieff_missing_cpu_kernel(x, y_enc, n_cont, k, class_probs, one_missing, both_missing)
+    finally:
+        set_num_threads(original_num_threads)
+
+
 class ReliefF(TransformerMixin, BaseEstimator):
     """GPU and CPU-accelerated feature selection using the ReliefF algorithm.
 
@@ -444,10 +624,22 @@ class ReliefF(TransformerMixin, BaseEstimator):
 
     Notes
     -----
-    This implementation follows the complete-data classification equations,
-    including multiclass prior weighting. Missing-value ReliefF extensions are
-    outside its supported scope; input containing NaNs is rejected.
+    This implementation follows the classification equations, including
+    multiclass prior weighting. Missing values (NaN) are accepted in discrete
+    features and handled as the ReliefF papers define (Kononenko, 1994;
+    Robnik-Šikonja and Kononenko, 2003, Eqs. 3-4): the difference becomes the
+    class-conditional probability that the two values differ, estimated from
+    relative frequencies of the known values, in distances as well as scores.
+    The papers define this only for discrete features, so NaN in a continuous
+    feature is rejected. Data with missing values runs on the CPU (``'auto'``
+    selects it; an explicit GPU backend raises). Two conventions the papers
+    leave open: a class with no known value of a feature uses the feature's
+    overall frequencies, and a feature with no known value scores 0.
     """
+
+    # Read by TuRF: NaNs in discrete features are handled (see Notes). Not an
+    # ``allow_nan`` tag, because NaN in a continuous feature is still an error.
+    _accepts_nan_in_discrete_features = True
 
     def __init__(
         self,
@@ -509,12 +701,17 @@ class ReliefF(TransformerMixin, BaseEstimator):
             dtype=[np.float64, np.float32],
             ensure_2d=True,
             y_numeric=True,
+            ensure_all_finite="allow-nan",
         )
         check_classification_targets(y)
         self.n_features_in_ = x.shape[1]
         n_samples = x.shape[0]
 
         n_select = self._validate_parameters(n_samples, self.n_features_in_)
+        missing = np.isnan(x)
+        has_missing = bool(missing.any())
+        if has_missing and self.backend in ("gpu", "metal"):
+            raise ValueError("Missing values are handled on the CPU only; use backend='cpu' or 'auto'.")
 
         self.classes_, y_encoded = np.unique(y, return_inverse=True)
         if len(self.classes_) < 2:
@@ -530,6 +727,9 @@ class ReliefF(TransformerMixin, BaseEstimator):
                 f"smallest class size ({min_class_size}).",
                 UserWarning,
             )
+
+        if has_missing:
+            return self._fit_missing(x, y_encoded, missing, n_select)
 
         is_discrete = discrete_feature_mask(x, self.discrete_limit)
         self.is_discrete_ = is_discrete
@@ -577,11 +777,46 @@ class ReliefF(TransformerMixin, BaseEstimator):
         self.top_features_ = np.argsort(scores)[::-1][:n_select]
         return self
 
+    def _fit_missing(self, x, y_enc, missing, n_select):
+        """CPU fit for input with NaNs in discrete features (Eqs. 3-4)."""
+        is_discrete = _discrete_mask_with_missing(x, missing, self.discrete_limit)
+        continuous_with_missing = np.flatnonzero(missing.any(axis=0) & ~is_discrete)
+        if continuous_with_missing.size:
+            raise ValueError(
+                "ReliefF handles missing values only in discrete features (at most "
+                f"discrete_limit={self.discrete_limit} distinct known values), as the ReliefF papers "
+                f"define them; features {continuous_with_missing.tolist()} are continuous and contain NaN."
+            )
+        self.is_discrete_ = is_discrete
+        self.effective_backend_ = "cpu"
+
+        n_classes = len(self.classes_)
+        y_enc = np.asarray(y_enc, dtype=np.int32)
+        class_probs = np.bincount(y_enc, minlength=n_classes) / len(y_enc)
+        columns, n_cont = split_discrete_last(is_discrete)
+        x_prepared, one_missing, both_missing = _prepare_missing_matrix(
+            x, missing, is_discrete, columns, n_cont, y_enc, n_classes, self.discrete_limit
+        )
+        if self.verbose:
+            print("Running ReliefF with missing values on the CPU now...")
+        permuted_scores = _relieff_missing_cpu_host_caller(
+            x_prepared, y_enc, n_cont, self.n_neighbors, class_probs, one_missing, both_missing, self.n_jobs
+        )
+        scores = np.zeros(self.n_features_in_, dtype=np.float32)
+        scores[columns] = permuted_scores
+        self.feature_importances_ = scores
+        self.top_features_ = np.argsort(scores)[::-1][:n_select]
+        return self
+
     def transform(self, x: np.ndarray) -> np.ndarray:
         """Reduces x to the selected features."""
         check_is_fitted(self)
 
-        x = validate_data(self, x, reset=False, dtype=[np.float64, np.float32])
+        x = validate_data(self, x, reset=False, dtype=[np.float64, np.float32], ensure_all_finite="allow-nan")
+        missing_columns = np.isnan(x).any(axis=0)
+        discrete = getattr(self, "is_discrete_", np.zeros(self.n_features_in_, dtype=bool))
+        if np.any(missing_columns & ~discrete):
+            raise ValueError("Input X contains NaN in features that were continuous during fit.")
 
         return x[:, self.top_features_]
 
