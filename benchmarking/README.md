@@ -16,6 +16,33 @@ the normal run measures frozen prototypes before admission, while
 prototype stays outside the package. See
 [batch-two provenance](../audit/new_algorithms_2/README.md).
 
+The [SWRF family](results/SWRF_FAMILY.md) and [μ-Relief](results/MURELIEF.md)
+reports time those estimators on the CPU against scikit-rebate 0.8.4 and
+compare their memory, in fresh processes over alternating rounds. Memory is the
+worker's macOS footprint, sampled from outside the process so kernels that hold
+the GIL are seen, plus a `tracemalloc` peak. Run
+`benchmark_relief_variants.py --family swrf` (or `--family murelief`), then the
+same command with `--report`. The SWRF scores differ from scikit-rebate's by
+design. The μ-Relief run also records how far the two libraries' scores differ,
+because on its continuous binary data they should agree.
+
+The same script compares methods that have no exact scikit-rebate equivalent
+against the closest honest baseline:
+- `--family reliefseq` ([report](results/RELIEFSEQ.md)) compares ReliefSeq with
+  fitting ReliefF once per `k`, using FastSelect's and scikit-rebate's ReliefF.
+- `--family stir` ([report](results/STIR.md)) compares STIR with MultiSURF in
+  both libraries, which computes the same neighbourhood's scores without
+  statistics.
+- `--family vls` ([report](results/VLS.md)) compares VLS with scikit-rebate's
+  `VLS`, using the same subset count and size.
+- `--family mrmr` ([report](results/MRMR_FCQ.md)) compares `mRMR(method="FCQ")`
+  with `mrmr_selection`'s `mrmr_classif` and with a scikit-learn + NumPy FCQ. It
+  needs `MRMR_SELECTION_PATH` set to a folder with `mrmr_selection`
+  installed, for example
+  `uv pip install --target <dir> --no-deps mrmr_selection tqdm polars category_encoders statsmodels patsy`.
+  That folder is appended to `sys.path`, so NumPy, pandas and scikit-learn
+  still come from the environment.
+
 The [feature-heavy follow-up](results/FEATURE_HEAVY_GPU.md) compares the latest
 five retained CPU paths to physical Metal prototypes at p > n. Run
 `benchmark_feature_heavy.py` for the fixed eight-thread comparison, or tune

@@ -13,16 +13,21 @@ from sklearn.exceptions import NotFittedError
 from fast_select import (
     CFS,
     MDR,
+    STIR,
     SURF,
+    SWRF,
     MultiSURF,
+    MultiSWRF,
+    MuRelief,
     ReliefF,
+    ReliefSeq,
     calculate_mi_matrices,
     calculate_mi_single_pair,
     mRMR,
 )
 from fast_select.utils import resolve_num_threads
 
-RELIEF = [ReliefF, SURF, MultiSURF]
+RELIEF = [ReliefF, SURF, MultiSURF, SWRF, MultiSWRF, MuRelief, STIR, ReliefSeq]
 
 
 def _data(n=30, p=4, seed=0):
@@ -36,7 +41,7 @@ def _data(n=30, p=4, seed=0):
 
 def _kw(cls, **extra):
     kw = dict(backend="cpu", n_jobs=1)
-    if cls is ReliefF:
+    if cls in (ReliefF, MuRelief):
         kw["n_neighbors"] = 2
     kw.update(extra)
     return kw

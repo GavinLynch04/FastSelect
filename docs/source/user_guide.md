@@ -142,8 +142,23 @@ SURF improves upon ReliefF by removing the need to specify `k`. Instead, it defi
 #### MultiSURF
 This is a powerful variant that uses the distance threshold idea from SURF but applies it to **all samples in the dataset**, not just the nearest ones. It defines a "near" and "far" neighborhood for each instance and updates scores based on neighbors that fall into the "near" category. This makes its scoring very stable.
 
+#### SWRF and MultiSWRF
+The sigmoid-weighted variants replace the in-or-out radius of SURF and MultiSURF with a smooth weight. A neighbor close to the target counts fully, its influence falls to zero at the mean distance, and in the star variants (`use_star=True`) distant neighbors reverse the update. `SWRF` uses the global mean distance (SWRF* is `SWRF(use_star=True)`). `MultiSWRF` uses each target's own mean distance, and `dead_band=True` adds MultiSURF's dead band. Like SURF* and MultiSURF*, the star variants favor interactions over strong single-feature effects. They run on the CPU, and their scores intentionally differ from scikit-rebate's, which normalises differently.
+
+#### MuRelief
+μ-Relief keeps ReliefF's scoring but chooses different neighbors. For each class it takes the **k** instances whose distance to the target differs most from that class's average distance, so both unusually close and unusually far instances are used. It runs on the CPU.
+
+#### STIR
+STIR turns each feature's Relief score into a t statistic with a p-value, using MultiSURF's neighbors (or a fixed **k**). Instead of picking a top-k, you can keep the features whose false-discovery-rate adjusted p-value is below a threshold (`alpha=0.05`). It works for two classes and runs on the CPU.
+
+#### ReliefSeq
+ReliefSeq runs ReliefF for every number of neighbors from 1 to `max_neighbors` and keeps each feature's best score, because main effects are scored best with many neighbors and interactions with few. `best_k_` reports the chosen **k** for each feature. All values of **k** come from one pass, so a full sweep costs little more than one ReliefF fit.
+
 ### TuRF
 This is a wrapper method that goes around any of the Relief based algorithms in this package, its purpose is to iteratively subselect features until a desired level is met. This has the advantage of improving performance in noisy environments, and datasets with huge numbers of features (such as biological datasets). It is recommended to shave off a small percent of features each run, say 20%, to improve stability.
+
+### VLS
+VLS fits a Relief estimator on many random subsets of the features and gives each feature the highest score it got in any subset. Distances computed over fewer features are less swamped by noise, which helps on very wide data. Every feature appears in at least one subset. Wrap VLS in TuRF for the iterative version.
 
 ### When to Use Relief-Based Algorithms
 
@@ -173,6 +188,18 @@ Two main criteria are used to combine these:
 - **MID (Mutual Information Difference):** `Score = I(f; y) - mean(I(f; S))`
 - **MIQ (Mutual Information Quotient):** `Score = I(f; y) / mean(I(f; S))`
 
+For continuous features, Ding and Peng's F-test criteria avoid discretising:
+relevance is the ANOVA F statistic of the feature across the classes and
+redundancy is the average absolute Pearson correlation with the selected
+features.
+- **FCD (F-test Correlation Difference):** `Score = F(f, y) - mean(|corr(f, S)|)`
+- **FCQ (F-test Correlation Quotient):** `Score = F(f, y) / mean(|corr(f, S)|)`
+
+FCQ is usually the better choice, because F statistics and correlations live
+on different scales and the difference lets a large F swamp the redundancy
+penalty. Use `mRMR(10, method="FCQ")`; it runs on the CPU and needs no `p x p`
+matrix.
+
 ### When to Use mRMR
 
 **Strengths:**
@@ -181,7 +208,7 @@ Two main criteria are used to combine these:
 - **Fast Greedy Search:** The selection process after pre-computation is very quick.
 
 **Weaknesses:**
-- **Requires Discrete Data:** Standard MI is defined for discrete variables. Continuous data must be discretized first.
+- **MID/MIQ Require Discrete Data:** Standard MI is defined for discrete variables; use FCD/FCQ for continuous features instead of discretizing.
 - **Pre-computation is Expensive:** Calculating the full feature-feature redundancy matrix can be costly (`O(n_features^2 * n_samples)`).
 - **Ignores Interactions (Partially):** While it handles redundancy, it doesn't explicitly model higher-order interactions like Relief does.
 
@@ -270,9 +297,9 @@ The algorithm exhaustively tests up to k=6 interactions of features to find the 
 ### Summary and Comparison
 | Algorithm Family | `X` Data Type | `y` Data Type | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ReliefF / SURF / MultiSURF** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |
+| **ReliefF / SURF / MultiSURF / SWRF / MultiSWRF / MuRelief / STIR / ReliefSeq** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |
 | **RReliefF** | Discrete & Continuous | Regression | ✅ **Yes** | ❌ No | High | The same neighbor-based scoring for a continuous target. |
-| **mRMR** | Discrete | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete classification data. |
+| **mRMR** | Discrete (MID/MIQ) or continuous (FCD/FCQ) | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete classification data. |
 | **CFS** | Discrete & Continuous | Classification | ❌ No | ✅ **Yes** | High | Finding a synergistically predictive subset (theory-driven). |
 | **Chi-Squared** | Discrete (Non-Negative), dense or sparse | Classification | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete classification data. |
 | **MDR** | Discrete | Classification | ✅ **Yes (Primary Goal)** | ❌ No | **Very High** | Detecting epistasis and complex non-linear interactions in case-control studies. |

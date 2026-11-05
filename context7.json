@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "fast-select (Python feature selection)",
-  "description": "Scikit-learn-compatible feature selection: the Relief family (ReliefF, SURF, MultiSURF, TuRF), mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS, MDR, Chi2, Gini index, Laplacian Score and mutual-information estimators, accelerated with Numba on CPU, NVIDIA CUDA and Apple Silicon (Metal) GPUs.",
+  "description": "Scikit-learn-compatible feature selection: the Relief family (ReliefF, RReliefF, SURF, MultiSURF, SWRF, MultiSWRF, μ-Relief, STIR, ReliefSeq, TuRF, VLS), mRMR (discrete and continuous), JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS, MDR, Chi2, Gini index, Laplacian Score and mutual-information estimators, accelerated with Numba on CPU, NVIDIA CUDA and Apple Silicon (Metal) GPUs.",
   "folders": [
     "docs/source"
   ],

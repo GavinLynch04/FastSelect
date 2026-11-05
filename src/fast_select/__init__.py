@@ -3,10 +3,11 @@
 Public API
 ----------
 Estimators
-    :class:`ReliefF`, :class:`SURF`, :class:`MultiSURF`, :class:`TuRF`,
-    :class:`mRMR`, :class:`CFS`, :class:`MDR`, :class:`JMI`, :class:`CMIM`,
-    :class:`FCBF`, :class:`LaplacianScore`, :class:`GiniIndex`, :class:`DISR`,
-    :class:`CIFE`, :class:`MIFS`
+    :class:`ReliefF`, :class:`RReliefF`, :class:`SURF`, :class:`MultiSURF`,
+    :class:`SWRF`, :class:`MultiSWRF`, :class:`MuRelief`, :class:`STIR`, :class:`ReliefSeq`,
+    :class:`TuRF`, :class:`VLS`, :class:`mRMR`, :class:`CFS`, :class:`MDR`, :class:`JMI`, :class:`CMIM`,
+    :class:`FCBF`, :class:`LaplacianScore`, :class:`GiniIndex`, :class:`DISR`, :class:`CIFE`,
+    :class:`MIFS`
 Functions
     :func:`chi2`, :func:`calculate_mi_single_pair`, :func:`calculate_mi_matrices`,
     :func:`mutual_info_classif`, :func:`mutual_info_regression`
@@ -25,12 +26,17 @@ from .LaplacianScore import LaplacianScore
 from .MDR import MDR
 from .mRMR import mRMR
 from .MultiSURF import MultiSURF
+from .MuRelief import MuRelief
 from .mutual_information import calculate_mi_matrices, calculate_mi_single_pair
 from .RegressionMI import mutual_info_regression
 from .ReliefF import ReliefF
+from .ReliefSeq import ReliefSeq
 from .RReliefF import RReliefF
+from .STIR import STIR
 from .SURF import SURF
+from .SWRF import SWRF, MultiSWRF
 from .TuRF import TuRF
+from .VLS import VLS
 
 try:
     __version__ = _version("fast-select")
@@ -49,10 +55,16 @@ __all__ = [
     "MDR",
     "MIFS",
     "MultiSURF",
+    "MultiSWRF",
+    "MuRelief",
     "ReliefF",
+    "ReliefSeq",
     "RReliefF",
+    "STIR",
     "SURF",
+    "SWRF",
     "TuRF",
+    "VLS",
     "__version__",
     "calculate_mi_matrices",
     "calculate_mi_single_pair",

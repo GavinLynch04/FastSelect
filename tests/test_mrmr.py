@@ -46,7 +46,7 @@ def test_parameter_validation_happens_in_fit(discrete_classification_data):
     # Constructing with invalid values must succeed and round-trip.
     bad_method = mRMR(n_features_to_select=5, method="INVALID_METHOD")
     assert bad_method.get_params()["method"] == "INVALID_METHOD"
-    with pytest.raises(ValueError, match="Method must be either 'MID' or 'MIQ'"):
+    with pytest.raises(ValueError, match="Method must be one of 'MID', 'MIQ', 'FCD' or 'FCQ'"):
         bad_method.fit(X, y)
 
     bad_backend = mRMR(n_features_to_select=5, backend="tpu")
@@ -101,6 +101,7 @@ def test_init_stores_parameters_unmodified_and_clones():
         "n_features_to_select": 7,
         "method": "MIQ",
         "backend": "gpu",
+        "n_jobs": -1,
     }
     # clone must work even for a backend this machine cannot run.
     assert clone(estimator).get_params() == params

@@ -48,10 +48,70 @@ not part of this documentation set.
    :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
+### SWRF
+
+```{eval-rst}
+.. autoclass:: fast_select.SWRF.SWRF
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### MultiSWRF
+
+```{eval-rst}
+.. autoclass:: fast_select.SWRF.MultiSWRF
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### MuRelief
+
+```{eval-rst}
+.. autoclass:: fast_select.MuRelief.MuRelief
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### STIR
+
+```{eval-rst}
+.. autoclass:: fast_select.STIR.STIR
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### ReliefSeq
+
+```{eval-rst}
+.. autoclass:: fast_select.ReliefSeq.ReliefSeq
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
 ### TuRF
 
 ```{eval-rst}
 .. autoclass:: fast_select.TuRF.TuRF
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### VLS
+
+```{eval-rst}
+.. autoclass:: fast_select.VLS.VLS
    :members:
    :undoc-members:
    :show-inheritance:

@@ -21,7 +21,7 @@ A high-performance Python library powered by **Numba**, **CUDA**, and optional *
   
 - **Flexible Backends:** Supports CPU (Numba `prange`), NVIDIA GPUs (CUDA), and Apple Silicon GPUs (optional Metal/MLX). `backend="auto"` picks a GPU only where it has been shown to help.
   
-- **Feature-Rich Implementation:** The complete Relief family (ReliefF, RReliefF for regression, SURF, SURF*, MultiSURF, MultiSURF*, TuRF), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
+- **Feature-Rich Implementation:** The complete Relief family (ReliefF, RReliefF for regression, SURF, SURF*, MultiSURF, MultiSURF*, the sigmoid-weighted SWRF, SWRF*, MultiSWRF, MultiSWRF*, MultiSWRFDB and MultiSWRFDB*, μ-Relief, STIR with p-values, ReliefSeq, TuRF, VLS), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
   
 - **Paper-Faithful:** Every algorithm is verified against independent, equation-driven tests derived from its defining paper, not from another library's output. Where an extension goes beyond the published algorithm, the docstring says so.
   
@@ -143,6 +143,8 @@ but some parameter names and defaults differ:
 |---|---|---|
 | `ReliefF`, `SURF`, `MultiSURF` | `ReliefF`, `SURF`, `MultiSURF` | Same names. |
 | `SURFstar`, `MultiSURFstar` | `SURF(use_star=True)`, `MultiSURF(use_star=True)` | One class per method with a `use_star` switch. |
+| `SWRF`, `SWRFstar` | `SWRF()`, `SWRF(use_star=True)` | CPU only. Scores follow the papers, so they differ from scikit-rebate's; see below. |
+| `MultiSWRF`, `MultiSWRFstar`, `MultiSWRFDB`, `MultiSWRFDBstar` | `MultiSWRF(use_star=..., dead_band=...)` | `dead_band=True` gives the DB variants. CPU only. |
 | `categorical_threshold=10` | `discrete_limit=10` | Same rule: a feature with at most this many distinct values is discrete. |
 | `n_neighbors=100` (default) | `n_neighbors=3` (default) | Pass `n_neighbors=100` to keep the scikit-rebate setting. |
 | `n_features_to_select=10` (default) | `n_features_to_select=0.2` (default) | An int is a count; a float is a fraction of features. |
@@ -150,6 +152,9 @@ but some parameter names and defaults differ:
 | `skrebate.turf.TURF(relief_object, pct=0.5, num_scores_to_return=100)` | `TuRF(estimator, pct_remove=0.5, n_features_to_select=100)` | Both remove a fraction of features per iteration; the fast-select default is `pct_remove=0.1`. An integer `pct` has no equivalent. |
 | Continuous endpoint (`ReliefF` on a regression target) | `RReliefF` | A separate estimator for regression targets; see below. |
 | Missing values (NaN) | `ReliefF` only, discrete features only | Handled as the ReliefF papers define them; see below. |
+| `MuRelief` | `MuRelief` | CPU only. Default `n_neighbors=10`; scikit-rebate's is 100. |
+| `VLS(relief_object, num_feature_subset, size_feature_subset)` | `VLS(estimator, n_subsets=..., subset_size=...)` | Wraps any FastSelect Relief estimator. Every feature is in at least one subset; `n_subsets=None` scores each about twice. |
+| `Iter` | — | Not implemented. |
 | `multiclass_threshold`, `weight_final_scores`, `rank_absolute`, `label_type` | — | No equivalent. |
 
 ```python
@@ -182,12 +187,77 @@ from fast_select import RReliefF
 selector = RReliefF(n_features_to_select=10).fit(X, y_continuous)
 ```
 
+The sigmoid-weighted SWRF family replaces SURF's in-or-out radius with a
+smooth weight: instances close to the target count fully, influence fades to
+zero at the mean distance and, for the star variants, distant instances reverse
+the update. `SWRF(use_star=True)` is SWRF* (Stokes and Visweswaran, 2012);
+`SWRF()` and the four `MultiSWRF` variants, which use per-target boundaries as
+MultiSURF does, come from Kazemi-Nia et al. (2026, arXiv preprint). That paper
+gives the weights but not the score update, so all six use SWRF*'s published
+update. scikit-rebate's versions differ from it: distant instances score `1 -
+diff`, and hits and misses are normalised by their counts. Expect different
+scores. Like SURF* and MultiSURF*, the star variants are tuned to interactions
+and can rank a strong univariate effect low. They run on the CPU.
+
+```python
+from fast_select import SWRF, MultiSWRF
+
+swrf_star = SWRF(n_features_to_select=10, use_star=True).fit(X, y)
+multi_swrf_db = MultiSWRF(n_features_to_select=10, dead_band=True).fit(X, y)
+```
+
+`MuRelief` (μ-Relief, Aggarwal et al., 2023) keeps ReliefF's scoring but picks
+different neighbors. For each class it takes the `k` instances whose distance
+to the target differs most from that class's mean distance, so both unusually
+close and unusually far instances are used. The original article is behind a
+publisher login, so the implementation follows the method's restatement in the
+arXiv benchmark above. Rules that restatement leaves open (multiclass, small
+classes, ties) follow ReliefF and are documented. It runs on the CPU, and on
+continuous binary data it matches scikit-rebate 0.8.4's `MuRelief`.
+
+Three more Relief methods have no scikit-rebate equivalent:
+
+- `STIR` (Le et al., 2019) turns the Relief score into a t statistic with a
+  p-value for each feature, so features can be selected by significance with
+  a false-discovery-rate adjustment (`alpha=0.05`) instead of a fixed top-k.
+  It uses MultiSURF's neighbors (default) or a fixed `k`, and two classes only.
+- `ReliefSeq` (McKinney et al., 2013) computes ReliefF for every `k` from 1 to
+  `max_neighbors` and gives each feature its best score. Main effects tend to
+  peak at large `k` and interactions at small `k`. All `k` come from a single
+  neighbor ranking, so a full sweep costs about one ReliefF fit plus a cheap
+  pass per `k`.
+- `VLS` (Eppstein and Haake, 2008) fits any of these estimators on random
+  feature subsets and keeps each feature's best subset score, which helps
+  ReliefF see interactions among tens of thousands of features. Wrap it in
+  `TuRF` for the iterative version.
+
+```python
+from fast_select import STIR, ReliefSeq, VLS, ReliefF
+
+significant = STIR(alpha=0.05).fit(X, y).top_features_   # BH-adjusted p < 0.05
+adaptive_k = ReliefSeq(max_neighbors=50).fit(X, y)       # adaptive_k.best_k_ per feature
+subsets = VLS(ReliefF(n_neighbors=10), subset_size=0.05, random_state=0).fit(X, y)
+```
+
 **From scikit-learn.** `fast_select.mutual_info_classif` and
 `fast_select.mutual_info_regression` take the same arguments as their
 `sklearn.feature_selection` namesakes and work with `SelectKBest`; only the
 `n_jobs` default differs (`-1` instead of `None`). scikit-learn has no
 greedy relevance–redundancy selectors; for those, use `mRMR`, `JMI`, `CMIM`,
 `FCBF`, `MIFS`, `CIFE`, `DISR` or `CFS` directly.
+
+**From `mrmr_selection`.** `mrmr_classif(X, y, K)` (the FCQ criterion) is
+`mRMR(K, method="FCQ").fit(X, y).top_features_`, and `method="FCD"` gives the
+difference form. Both follow Ding and Peng (2005), so two differences from
+`mrmr_selection` are intentional. The redundancy is not floored at 0.001, and
+features with zero F statistic stay candidates. The floor can change the
+selection on wide data, where some correlations fall below 0.001: on a
+500 × 1,000 benchmark the two agree on the first two picks and then differ.
+FastSelect matches an independent NumPy implementation of the paper's formula
+exactly. A constant column is detected
+exactly: scikit-learn's `f_classif`, which `mrmr_selection` uses, can report a
+nonzero F for a column like `0.1` repeated, from rounding alone. Only
+classification targets are supported.
 
 ```python
 # Before: from sklearn.feature_selection import mutual_info_classif
@@ -294,6 +364,32 @@ not shown. Other measurements are in the
 [second](benchmarking/results/NEW_ALGORITHMS_2.md) new-algorithm reports, and
 the [v0.4.1 CPU optimization report](benchmarking/results/V041_OPTIMIZATIONS.md).
 
+The newer Relief methods have their own reports, measured the same way:
+- **[SWRF family](benchmarking/results/SWRF_FAMILY.md):** the six variants are
+  50–698× faster than scikit-rebate (median 112×), with a 3–71× smaller traced
+  memory peak.
+- **[μ-Relief](benchmarking/results/MURELIEF.md):** 68–589× faster than
+  scikit-rebate, with identical scores (to 1e-16) and the same selected
+  features at every size.
+- **[ReliefSeq](benchmarking/results/RELIEFSEQ.md):** sweeping k = 1…10 is
+  4–15× faster than fitting FastSelect's own ReliefF once per k, and 700–2,700×
+  faster than doing so with scikit-rebate. Its traced memory peak is about
+  2.5× one ReliefF fit's, because it keeps every k's scores.
+- **[STIR](benchmarking/results/STIR.md):** no Python STIR exists to compare
+  with. Its p-values cost 1.6–3.4× the time of FastSelect's plain MultiSURF,
+  and it is still 42–219× faster than scikit-rebate's MultiSURF, which gives
+  scores only.
+- **[VLS](benchmarking/results/VLS.md):** wrapping ReliefF on 100-feature
+  subsets is 45–127× faster than scikit-rebate's `VLS`, with a 3–51× smaller
+  traced memory peak. With small samples the time is dominated by a fixed cost
+  of about 1 ms per subset fit.
+- **[Continuous mRMR (FCQ)](benchmarking/results/MRMR_FCQ.md):** 24–258×
+  faster than `mrmr_selection` 0.2.8 (median 140×). At 500 × 20,000 its traced
+  peak is 79 MiB against `mrmr_selection`'s 3.2 GiB. Against FCQ written
+  directly with scikit-learn and NumPy it is 1.3–1.7× faster on the larger
+  shapes and slightly slower at 500 × 1,000. All three agree once
+  `mrmr_selection`'s 0.001 correlation floor is accounted for.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GavinLynch04/FastSelect/main/benchmarking/benchmark_n_dominant_runtime_dark.png">
@@ -317,6 +413,12 @@ Currently supported:
 - **Relief-Family Algorithms:**
   - ReliefF
   - RReliefF (regression targets, CPU)
+  - SWRF and SWRF* (sigmoid neighbor weights around the global mean distance, CPU)
+  - MultiSWRF, MultiSWRF*, MultiSWRFDB, MultiSWRFDB* (per-target sigmoid weights, CPU)
+  - μ-Relief (`MuRelief`, neighbors far from the class-mean distance, CPU)
+  - STIR (t statistics and p-values for Relief scores, binary targets, CPU)
+  - ReliefSeq (per-feature adaptive k, CPU)
+  - VLS (random feature subsets around any Relief estimator)
   - SURF
   - SURF*
   - MultiSURF
@@ -324,7 +426,7 @@ Currently supported:
   - TuRF
 - **Correlation-Based Feature Selection (CFS)**
 - **Multifactor Dimensionality Reduction (MDR)**
-- **Minimum Redundancy Maximum Relevance (mRMR)**
+- **Minimum Redundancy Maximum Relevance (mRMR)** — MID/MIQ on discrete data, and FCD/FCQ (F-statistic relevance, absolute-correlation redundancy) on continuous features
 - **Chi Squared (Chi2)** — dense or SciPy sparse count matrices; sparse input is counted on the CPU without densifying and gives the same statistics as the dense array.
 - **Discrete mutual information** — `calculate_mi_single_pair` and `calculate_mi_matrices`, with the same CPU/GPU backend selection and a choice of bit or nat units.
 - **Continuous/discrete classification MI** — `mutual_info_classif`, Ross's nearest-neighbor estimator in nats, for dense numeric inputs and `SelectKBest`.

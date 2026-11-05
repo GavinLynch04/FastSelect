@@ -78,6 +78,30 @@ Before merging an algorithm or kernel change:
   Methods for Bioinformatics Data Mining* (2018), PMCID: PMC6299838; and
   Urbanowicz et al., *Relief-Based Feature Selection: Introduction and Review*
   (2018).
+- SWRF family: Stokes and Visweswaran, *Application of a spatially-weighted
+  Relief algorithm for ranking genetic predictors of disease* (BioData Mining
+  5:20, 2012), DOI: 10.1186/1756-0381-5-20, MoRF Eqs. (1)-(4) and the SWRF*
+  sigmoid; Kazemi-Nia, Bandhey, Freda and Urbanowicz, *Advancing
+  Interaction-Sensitive Feature Selection: Novel Relief-Based Algorithms,
+  Expanded Comparisons, and Recommendations for Biomedical Data Mining*
+  (arXiv:2608.28552, v1, 2026), Eqs. (3)-(7), for SWRF, MultiSWRF(*) and
+  MultiSWRFDB(*).
+- μ-Relief: Aggarwal, Shukla, Saxena, Rawat, Bafila, Singh and Pundir, *Mean
+  based relief: An improved feature selection method based on ReliefF*
+  (Applied Intelligence 53, 2023), DOI: 10.1007/s10489-023-04662-w. The
+  article could not be consulted; the implementation follows its restatement
+  in Kazemi-Nia et al. (arXiv:2608.28552, 2026), Eq. (2). Check it against the
+  original before changing any rule.
+- STIR: Le, Urbanowicz, Moore and McKinney, *STatistical Inference Relief
+  (STIR) feature selection* (Bioinformatics 35, 2019), DOI:
+  10.1093/bioinformatics/bty788, Eqs. (1)-(13).
+- ReliefSeq: McKinney et al., *ReliefSeq: a gene-wise adaptive-K
+  nearest-neighbor feature selection tool* (PLoS ONE 8, 2013), DOI:
+  10.1371/journal.pone.0081527, Eqs. (1)-(6).
+- VLS (VLSReliefF): Eppstein and Haake, *Very large scale ReliefF for
+  genome-wide association analysis* (IEEE CIBCB 2008), DOI:
+  10.1109/CIBCB.2008.4675767, as described in Urbanowicz et al. (2018,
+  review), Section 3.4. The article could not be consulted.
 - RReliefF: Robnik-Šikonja and Kononenko, *An Adaptation of Relief for
   Attribute Estimation in Regression* (ICML 1997), and *Theoretical and
   Empirical Analysis of ReliefF and RReliefF* (Machine Learning 53, 2003),
@@ -86,7 +110,10 @@ Before merging an algorithm or kernel change:
   Learning* (PhD thesis, 1999).
 - mRMR: Peng, Long, and Ding, *Feature Selection Based on Mutual Information:
   Criteria of Max-Dependency, Max-Relevance, and Min-Redundancy* (TPAMI 2005),
-  DOI: 10.1109/TPAMI.2005.159.
+  DOI: 10.1109/TPAMI.2005.159. Continuous FCD/FCQ: Ding and Peng, *Minimum
+  Redundancy Feature Selection from Microarray Gene Expression Data* (J.
+  Bioinform. Comput. Biol. 3(2), 2005), DOI: 10.1142/S0219720005001004,
+  Eqs. (8)-(10) and Table 1.
 - MDR: Ritchie et al., *Multifactor-Dimensionality Reduction Reveals
   High-Order Interactions among Estrogen-Metabolism Genes in Sporadic Breast
   Cancer* (2001), DOI: 10.1086/321276.
@@ -168,6 +195,64 @@ invariants in every CPU, CUDA, helper, and fallback path.
   neither near nor far; the kernels keep strict `<` / `>` against the widened
   `near_limit` / `far_limit`. Keep exact-boundary regression cases (the
   rational-arithmetic oracle in `tests/test_exact_boundaries.py`).
+- The SWRF family (`SWRF`, `MultiSWRF`) scores every target with MoRF Eq. (1)
+  of Stokes and Visweswaran (2012):
+  `sum_{j != i} c * f(d_ij) * diff / sum_{j != i} |f(d_ij)|`, with `c = -1`
+  for a hit and `+1` for a miss (Eq. 2; every other class is a miss), averaged
+  over all `n` targets. A target whose weights are all zero contributes zero.
+  Hits and misses share the one `sum |f|` normaliser; they are not normalised
+  separately, and distant instances keep `diff` with a negative weight (never
+  `1 - diff`). The neighbour weights are the published logistic forms, written
+  as `tanh` (`2 / (1 + exp(x)) - 1 = -tanh(x / 2)`): SWRF* centres on the
+  global pair mean `mu` with width `sigma` (population standard deviation over
+  unique pairs) and weights every instance; SWRF weights only `d < mu`;
+  MultiSWRF(*) uses each target's `mu_i`, `sigma_i` over the `n - 1` others;
+  MultiSWRFDB(*) centres the near weight on `mu_i - sigma_i/2` and the far
+  weight on `mu_i + sigma_i/2`, zero in the dead band. The arXiv paper defining
+  SWRF, MultiSWRF(*) and MultiSWRFDB(*) states only these weights, so they use
+  the MoRF update; this choice, the population `sigma`, continuous features
+  and multiclass targets are documented conventions or extensions.
+  Boundaries are strict, and a distance within `utils.BOUNDARY_RTOL`
+  (relative to the mean distance) of a centre is a tie with weight zero, the
+  sigmoid's value there; zero spread therefore gives zero scores, never
+  amplified rounding noise. Do not copy scikit-rebate's SWRF code, which scores
+  `1 - diff` for far instances, normalises by hit/miss counts and includes the
+  self-distances in its mean. CPU only; no GPU path has been measured.
+- μ-Relief (`MuRelief`) keeps ReliefF's update, class-prior multiclass
+  weighting and reduced-count normalisation, and changes only neighbour
+  choice: for target `i` and each class `C`, the `k` instances of `C` with the
+  largest `|d_ij - mu_C|`, where `mu_C` is the mean distance from `i` to `C`'s
+  instances (excluding `i` from its own class). Selection is by deviation in
+  either direction, never by distance. Equal deviations keep the lower index,
+  and deviations within `utils.BOUNDARY_RTOL` of each other (relative to
+  `mu_C`) are equal. The restatement does not give the multiclass rule, the
+  small-class rule or the tie rule; these follow ReliefF and are documented
+  conventions. CPU only.
+- STIR is binary only. Its statistic is Eq. (10),
+  `(M_a - H_a) / (S_p sqrt(1/|M| + 1/|H|))`. The means of Eqs. (5)-(6)
+  average each target's per-neighbour mean over the same `m` targets: those
+  with at least one hit and one miss (the R code requires two of each). The
+  variances of Eqs. (12)-(13) use the paper's `1/m`, `1/k_i` weights, and the
+  pooled SD is Eq. (11) with `|M| + |H| - 2` degrees of freedom. P-values are
+  one-sided upper (as in the authors' R code) and adjusted with
+  Benjamini-Hochberg, as the paper states. Do not switch to R's `p.adjust`
+  default (Holm). The MultiSURF neighbourhood is `d < mu_i - sigma_i/2` with
+  population `sigma_i`, as in `MultiSURF`, and no far neighbours; the
+  fixed-k neighbourhood is the k nearest hits and k nearest misses, with equal
+  distances keeping the lower index. Zero pooled variance gives `t = +/-inf`
+  when the means differ and `t = 0` when they do not. Exact zero variance is
+  detected from each group's min and max difference, never from a rounded
+  variance.
+- ReliefSeq's column `k` is ReliefF's score with `n_neighbors=k`. That is
+  Eqs. (1)-(3) for two classes; more classes use ReliefF's class-prior misses.
+  The reported weight is the maximum over `k = 1..k_max` (Eqs. 5-6), and
+  `best_k_` is the smallest maximising `k`. The default `k_max` is the
+  smallest class size minus one. All `k` must come from one neighbour ranking
+  and running sums, and must equal separate ReliefF fits.
+- VLS scores random feature subsets with any Relief-family base estimator and
+  keeps each feature's maximum subset score (review, Section 3.4). Its subset
+  scheme is a documented convention: a random partition padded to the subset
+  size, then uniform subsets. Every feature must be scored.
 - `MultiSURF.fit(feat_idx=...)` restricts distances, scoring *and* ranking to
   the listed features; unevaluated features must never be ranked.
 - RReliefF follows Figure 3 of Robnik-Šikonja and Kononenko (2003) with every
@@ -198,6 +283,17 @@ invariants in every CPU, CUDA, helper, and fallback path.
   empirical joint distribution: encode every feature and the target
   independently, by symbol identity, into an explicit integer dtype (never mix
   vocabularies of different dtypes, which promotes to float64).
+- mRMR FCD/FCQ relevance is the one-way ANOVA F statistic of the raw feature
+  across the classes (Ding and Peng, Eq. 8, pooled within-class variance with
+  `n - K` degrees of freedom). Redundancy is the mean *absolute* Pearson
+  correlation with the selected features (Eq. 10). FCD subtracts it and FCQ
+  divides by it, and the first feature is the largest F. Classification only.
+  Constant columns are detected exactly (min == max), never from a rounded
+  variance: such a column has F = 0 and correlation 0 with everything, a
+  column constant within every class has F = inf, and in FCQ a zero
+  redundancy gives inf for F > 0 and 0 for F = 0. Do not copy
+  `mrmr_selection`'s 0.001 redundancy floor or its dropping of zero-relevance
+  features. Do not form a `p x p` correlation matrix.
 - Discrete codes passed to the mutual-information functions are remapped to
   dense per-column codes when large; distinct symbols must never alias through
   a narrowing cast.

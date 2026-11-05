@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `mRMR(method="FCD")` and `mRMR(method="FCQ")`: continuous-feature mRMR from
+  Ding and Peng (J. Bioinform. Comput. Biol. 2005, Eqs. 8-10, Table 1).
+  Relevance is the one-way ANOVA F statistic and redundancy the mean absolute
+  Pearson correlation with the selected features. FCQ is the default
+  criterion of the `mrmr_selection` package. Correlations are computed
+  incrementally from standardised columns, O(n p k), with no `p x p` matrix.
+  Constant columns are detected exactly, unlike scikit-learn's `f_classif`,
+  which can report rounding noise as a nonzero F. CPU only, with a new
+  `n_jobs` parameter. Tested against an exact rational oracle, scikit-learn's
+  `f_classif` and NumPy's `corrcoef`.
+- `STIR` (Le et al., Bioinformatics 2019): Relief scores as pseudo t
+  statistics (Eq. 10) with one-sided p-values and Benjamini-Hochberg adjusted
+  p-values, using MultiSURF neighbourhoods (default) or a fixed `k`. It is
+  binary only, and `alpha=` selects every feature below that adjusted p-value.
+  The variances are accumulated in one pass; zero variance is detected exactly
+  (a perfectly separating feature has `t = inf`). Tested against an exact
+  rational oracle, including radius and k-cut ties.
+- `ReliefSeq` (McKinney et al., PLoS ONE 2013): each feature gets its best
+  ReliefF score over `k = 1..max_neighbors` (default: every possible `k`),
+  with `best_k_` and the full `scores_by_k_`. Every `k` comes from one
+  neighbour ranking with running sums, and each column equals ReliefF at that
+  `k`.
+- `VLS` (VLSReliefF; Eppstein and Haake, 2008): scores random feature subsets
+  with any Relief estimator and keeps each feature's maximum. Every feature is
+  covered, and `TuRF(VLS(...))` gives the iterative variant. The original
+  article could not be consulted, so the subset scheme is documented as a
+  convention.
+- `MuRelief`, μ-Relief (Aggarwal et al., Applied Intelligence 53, 2023):
+  ReliefF's update with neighbors chosen as the `k` instances per class whose
+  distance deviates most from that class's mean distance to the target. The
+  original article could not be consulted, so it follows the restatement in
+  arXiv:2608.28552, Eq. (2). Its multiclass, small-class and tie rules follow
+  ReliefF and are documented. CPU only, default `n_neighbors=10`. Tested
+  against an exact rational oracle (including ties at the neighbor cut), hand
+  calculations, small and singleton classes, scikit-learn's estimator checks,
+  `Pipeline`, `GridSearchCV` and `TuRF`, and cross-checked against
+  scikit-rebate 0.8.4 on tie-free continuous binary data.
+- `SWRF` and `MultiSWRF`, the sigmoid-weighted Relief family: SWRF* (Stokes
+  and Visweswaran, BioData Mining 5:20, 2012) as `SWRF(use_star=True)`, and
+  SWRF, MultiSWRF, MultiSWRF*, MultiSWRFDB and MultiSWRFDB* (Kazemi-Nia et al.,
+  arXiv:2608.28552, 2026, Eqs. 3-7) as `SWRF()` and
+  `MultiSWRF(use_star=..., dead_band=...)`. All six use SWRF*'s Modular Relief
+  Framework update, Eq. (1): signed sigmoid weights with one `sum |w|`
+  normaliser per target. The arXiv paper gives no update of its own, and this
+  is documented as a convention. Scores intentionally differ from
+  scikit-rebate 0.8.4, which scores distant instances by `1 - diff` and
+  normalises hits and misses by their counts. CPU only. Tested against an
+  equation oracle with exact rational boundaries (including 72 exact-tie cases
+  and a zero-spread case), hand calculations, multiclass, translation and
+  relabelling invariance, scikit-learn's estimator checks, `Pipeline`,
+  `GridSearchCV` and `TuRF`.
 - `RReliefF`, Relief attribute estimation for regression targets
   (Robnik-Šikonja and Kononenko, ICML 1997; *Machine Learning* 53, 2003,
   Figure 3 and Eqs. (9)-(11)), with the paper's exponential rank weighting

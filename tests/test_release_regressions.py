@@ -24,9 +24,14 @@ from sklearn.utils import get_tags
 from fast_select import (
     CFS,
     MDR,
+    STIR,
     SURF,
+    SWRF,
     MultiSURF,
+    MultiSWRF,
+    MuRelief,
     ReliefF,
+    ReliefSeq,
     TuRF,
     calculate_mi_matrices,
     calculate_mi_single_pair,
@@ -196,6 +201,16 @@ RELIEF_VARIANTS = [
     (SURF, {"use_star": True}),
     (MultiSURF, {}),
     (MultiSURF, {"use_star": True}),
+    (SWRF, {}),
+    (SWRF, {"use_star": True}),
+    (MultiSWRF, {}),
+    (MultiSWRF, {"use_star": True}),
+    (MultiSWRF, {"dead_band": True}),
+    (MultiSWRF, {"use_star": True, "dead_band": True}),
+    (MuRelief, {"n_neighbors": 3}),
+    (STIR, {}),
+    (STIR, {"neighborhood": "relieff", "n_neighbors": 3}),
+    (ReliefSeq, {"max_neighbors": 5}),
 ]
 
 
