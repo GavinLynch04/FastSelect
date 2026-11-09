@@ -7,7 +7,7 @@ Estimators
     :class:`SWRF`, :class:`MultiSWRF`, :class:`MuRelief`, :class:`STIR`, :class:`ReliefSeq`,
     :class:`TuRF`, :class:`VLS`, :class:`mRMR`, :class:`CFS`, :class:`MDR`, :class:`JMI`, :class:`CMIM`,
     :class:`FCBF`, :class:`LaplacianScore`, :class:`GiniIndex`, :class:`DISR`, :class:`CIFE`,
-    :class:`MIFS`
+    :class:`MIFS`, :class:`HSICLasso`, :class:`SPEC`, :class:`MCFS`
 Functions
     :func:`chi2`, :func:`calculate_mi_single_pair`, :func:`calculate_mi_matrices`,
     :func:`mutual_info_classif`, :func:`mutual_info_regression`
@@ -20,9 +20,11 @@ from .CFS import CFS
 from .Chi2 import chi2
 from .ContinuousMI import mutual_info_classif
 from .GiniIndex import GiniIndex
+from .HSICLasso import HSICLasso
 from .InformationSelectors import CMIM, FCBF, JMI
 from .JointInformation import CIFE, DISR, MIFS
 from .LaplacianScore import LaplacianScore
+from .MCFS import MCFS
 from .MDR import MDR
 from .mRMR import mRMR
 from .MultiSURF import MultiSURF
@@ -32,6 +34,7 @@ from .RegressionMI import mutual_info_regression
 from .ReliefF import ReliefF
 from .ReliefSeq import ReliefSeq
 from .RReliefF import RReliefF
+from .SPEC import SPEC
 from .STIR import STIR
 from .SURF import SURF
 from .SWRF import SWRF, MultiSWRF
@@ -50,8 +53,10 @@ __all__ = [
     "FCBF",
     "DISR",
     "GiniIndex",
+    "HSICLasso",
     "JMI",
     "LaplacianScore",
+    "MCFS",
     "MDR",
     "MIFS",
     "MultiSURF",
@@ -61,6 +66,7 @@ __all__ = [
     "ReliefSeq",
     "RReliefF",
     "STIR",
+    "SPEC",
     "SURF",
     "SWRF",
     "TuRF",

@@ -13,8 +13,8 @@ Apple Silicon Metal, then CPU. Install Metal support with
 explicitly means CUDA. TuRF inherits the preference from its wrapped selector
 on every refit.
 
-Metal is available for Relief-family methods, discrete MI, mRMR, CFS, MDR and
-Chi2 (which has no CUDA path). Chi2 and CFS run on Metal only when requested
+Metal is available for ReliefF, SURF/SURF*, MultiSURF/MultiSURF*, discrete MI,
+mRMR (MID/MIQ), CFS, MDR and Chi2 (which has no CUDA path). Chi2 and CFS run on Metal only when requested
 with `backend="metal"`: their Metal paths were slower than CPU in sustained
 benchmarks, so `auto` keeps them on CPU. ReliefF supports up to 64 neighbors on
 Metal; information/CFS kernels support up to 64 encoded state slots.
@@ -25,6 +25,12 @@ JMI, CMIM, FCBF and LaplacianScore currently retain only their parallel Numba
 CPU backends: `auto` selects CPU and explicit GPU requests raise. The dense
 continuous MI function `mutual_info_classif` is CPU-only as well. Their Metal
 experiments did not consistently improve on these new CPU implementations.
+
+RReliefF, SWRF, MultiSWRF, MuRelief, STIR, ReliefSeq, HSICLasso, SPEC and MCFS,
+mRMR's FCD/FCQ criteria and ReliefF fits with missing values also run on the
+CPU only: no GPU path has been built or measured for them. `auto` selects CPU,
+and explicit `gpu` or `metal` requests raise. VLS uses the backend of the Relief
+estimator it wraps.
 
 ## Additional selectors admitted against external baselines
 
@@ -294,12 +300,54 @@ The algorithm exhaustively tests up to k=6 interactions of features to find the 
 - **Usually Not a General-Purpose Feature Selector:** Use this when your primary goal is to find interactions, not just to reduce dimensionality for a predictive model.
 
 ---
-### Summary and Comparison
+
+## 6. Kernel and Spectral Methods
+
+### HSIC Lasso
+HSIC Lasso pursues the same goal as mRMR, relevant features that are not
+redundant, with kernels instead of mutual information. It detects nonlinear
+dependence on continuous features without discretising. Each feature's
+Gaussian kernel matrix is regressed onto the target's kernel matrix with a
+nonnegative Lasso, and the path is followed until `n_features_to_select`
+features are active. The default block estimator (`block_size=20`,
+`n_permutations=3`) keeps the cost linear in the number of samples, while
+`block_size=0` is the exact, quadratic original. It handles classification
+and regression and runs on the CPU.
+
+### SPEC and MCFS
+Both build a similarity graph over the samples and look at its spectrum.
+`SPEC` scores each feature by how smoothly it varies over the graph. Its
+default criterion is the Laplacian Score (the same quantity `LaplacianScore`
+computes on its kNN graph), and `affinity="supervised"` builds the graph from
+class labels instead. `MCFS` is unsupervised. It finds the directions that
+separate the graph's clusters, regresses each one on the features with a
+Lasso, and keeps the features that best explain any cluster. That makes MCFS a
+good choice when several features are each informative about a different
+cluster. Both run on the CPU.
+
+### When to Use Kernel and Spectral Methods
+
+**Strengths:**
+- **Nonlinear Dependence Without Discretising:** HSIC Lasso finds relationships that correlations and F statistics miss, on continuous features, for classification or regression targets.
+- **No Labels Needed:** SPEC and MCFS, like the Laplacian Score, can select features before any target exists, keeping those that follow the data's cluster or manifold structure.
+
+**Weaknesses:**
+- **Cost Grows With the Square of the Samples:** SPEC, MCFS and vanilla HSIC Lasso (`block_size=0`) work with `n_samples x n_samples` kernel or similarity matrices. The default block HSIC Lasso avoids this.
+- **Graph and Kernel Choices Matter:** The RBF width (`gamma`), the number of neighbors and the number of clusters change the result, and without labels there is no score to tune them against.
+- **Ignores Interactions:** HSIC Lasso is additive over features, and the spectral scores rate features one at a time (MCFS through one Lasso per cluster direction), so features that matter only together are missed.
+
+---
+
+## Summary and Comparison
 | Algorithm Family | `X` Data Type | `y` Data Type | Handles Interactions? | Handles Redundancy? | Computational Cost | Best For... |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ReliefF / SURF / MultiSURF / SWRF / MultiSWRF / MuRelief / STIR / ReliefSeq** | Discrete & Continuous | Classification | ✅ **Yes** | ❌ No | High | Finding interacting features in mixed-type classification data. |
 | **RReliefF** | Discrete & Continuous | Regression | ✅ **Yes** | ❌ No | High | The same neighbor-based scoring for a continuous target. |
-| **mRMR** | Discrete (MID/MIQ) or continuous (FCD/FCQ) | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for discrete classification data. |
+| **mRMR** | Discrete (MID/MIQ) or continuous (FCD/FCQ) | Classification | ❌ No | ✅ **Yes** | Medium-High | Creating a compact, non-redundant feature set for classification data. |
+| **JMI / CMIM / FCBF / MIFS / CIFE / DISR** | Discrete | Classification | Pairwise, with selected features (JMI, CMIM, CIFE, DISR) | ✅ **Yes** | Medium | Compact, non-redundant subsets of categorical features. |
+| **HSIC Lasso** | Continuous | Classification or regression | ❌ No | ✅ **Yes** | Medium (block) to High (`block_size=0`) | Nonlinear, non-redundant selection without discretising. |
+| **SPEC / MCFS / Laplacian Score** | Continuous | None (SPEC can also use class labels) | ❌ No | Partly (MCFS) | Medium-High (an `n x n` graph) | Unsupervised selection that keeps cluster or manifold structure. |
+| **Gini Index** | Discrete & Continuous | Classification | ❌ No | ❌ No | Low | A fast univariate ranking by each feature's best single split. |
 | **CFS** | Discrete & Continuous | Classification | ❌ No | ✅ **Yes** | High | Finding a synergistically predictive subset (theory-driven). |
 | **Chi-Squared** | Discrete (Non-Negative), dense or sparse | Classification | ❌ No | ❌ No | **Very Low** | A fast, simple baseline for non-negative discrete classification data. |
 | **MDR** | Discrete | Classification | ✅ **Yes (Primary Goal)** | ❌ No | **Very High** | Detecting epistasis and complex non-linear interactions in case-control studies. |

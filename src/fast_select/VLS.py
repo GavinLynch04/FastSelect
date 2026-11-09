@@ -64,10 +64,10 @@ class VLS(TransformerMixin, BaseEstimator):
     feature_importances_ : ndarray of shape (n_features,)
         Each feature's largest score over the subsets that contain it.
 
-    subsets_ : ndarray of shape (n_subsets_, subset_size_)
+    subsets_ : ndarray of shape (``n_subsets_``, ``subset_size_``)
         The feature indices of every subset, in the order they were scored.
 
-    subset_scores_ : ndarray of shape (n_subsets_, subset_size_)
+    subset_scores_ : ndarray of shape (``n_subsets_``, ``subset_size_``)
         The base estimator's score for each subset feature.
 
     n_subsets_, subset_size_ : int

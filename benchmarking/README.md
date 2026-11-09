@@ -42,6 +42,18 @@ against the closest honest baseline:
   `uv pip install --target <dir> --no-deps mrmr_selection tqdm polars category_encoders statsmodels patsy`.
   That folder is appended to `sys.path`, so NumPy, pandas and scikit-learn
   still come from the environment.
+- `--family hsic` ([report](results/HSIC_LASSO.md)) and `--family hsic_vanilla`
+  ([report](results/HSIC_LASSO_VANILLA.md)) compare `HSICLasso` with the
+  authors' pyHSICLasso 1.4.2, in block mode (`B=20, M=3`) and vanilla mode
+  (`B=0`). Set `PYHSICLASSO_PATH` to a folder made with
+  `uv pip install --target <dir> --no-deps pyHSICLasso future matplotlib seaborn contourpy cycler fonttools kiwisolver pillow pyparsing`
+  and `MPLBACKEND=Agg`. The same variable enables the pinned cross-check in
+  `tests/test_hsic_lasso.py`.
+- `--family spec` ([report](results/SPEC.md)) and `--family mcfs`
+  ([report](results/MCFS.md)) compare with the scikit-feature tree pinned in
+  `audit/new_algorithms/vendor`. SPEC's source gets one NumPy-2 fix in memory,
+  `D[i, i] = X_sum[i, 0]`; its mathematics is unchanged. Both libraries get
+  the same graph.
 
 The [feature-heavy follow-up](results/FEATURE_HEAVY_GPU.md) compares the latest
 five retained CPU paths to physical Metal prototypes at p > n. Run

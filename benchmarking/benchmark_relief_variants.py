@@ -200,6 +200,102 @@ FAMILIES = {
             },
         },
     },
+    "hsic": {
+        "title": "HSIC Lasso (block, B = 20, M = 3)",
+        "output": RESULTS / "hsic_lasso_comparison.json",
+        "report": RESULTS / "HSIC_LASSO.md",
+        "parity": True,
+        "scenarios": {
+            "samples": {"fixed": ("n_features", 1000), "sizes": [500, 1000, 2000]},
+            "features": {"fixed": ("n_samples", 500), "sizes": [1000, 2000, 5000]},
+        },
+        "note": (
+            "`HSICLasso(10)` (block size 20, 3 permutations, normalised Gram matrices) against pyHSICLasso's "
+            "`classification(num_feat=10)` with the same defaults. pyHSICLasso computes its kernels in float32, so "
+            "coefficients agree to roughly single precision; the parity table records it."
+        ),
+        "variants": {
+            "block": {
+                "fast-select": ("fast", "HSICLasso", {}),
+                "pyhsiclasso": ("pyhsiclasso", {"B": 20, "M": 3}),
+            },
+        },
+    },
+    "hsic_vanilla": {
+        "title": "HSIC Lasso (vanilla, one block)",
+        "output": RESULTS / "hsic_lasso_vanilla_comparison.json",
+        "report": RESULTS / "HSIC_LASSO_VANILLA.md",
+        "parity": True,
+        "scenarios": {
+            "samples": {"fixed": ("n_features", 200), "sizes": [100, 200, 400]},
+            "features": {"fixed": ("n_samples", 200), "sizes": [200, 1000, 2000]},
+        },
+        "note": (
+            "`HSICLasso(10, block_size=0)` against pyHSICLasso's `classification(num_feat=10, B=0)`. pyHSICLasso "
+            "stores every feature's n x n Gram matrix, so shapes stay small."
+        ),
+        "variants": {
+            "vanilla": {
+                "fast-select": ("fast", "HSICLasso", {"block_size": 0}),
+                "pyhsiclasso": ("pyhsiclasso", {"B": 0, "M": 1}),
+            },
+        },
+    },
+    "spec": {
+        "title": "SPEC",
+        "output": RESULTS / "spec_comparison.json",
+        "report": RESULTS / "SPEC.md",
+        "parity": True,
+        "scenarios": {
+            "samples": {"fixed": ("n_features", 100), "sizes": [200, 500, 1000, 2000]},
+            "features": {"fixed": ("n_samples", 500), "sizes": [100, 1000, 5000]},
+        },
+        "note": (
+            "`SPEC(10, criterion=...)` on the RBF graph (`gamma = 1 / n_features`; each fit builds it, "
+            "scikit-feature through `rbf_kernel` passed as `W`) against the pinned scikit-feature `spec` "
+            "(commit 48cffad, one NumPy-2 fix applied in memory: `D[i, i] = X_sum[i, 0]`; all mathematics "
+            "unchanged) with `style=0` (phi2) or `style=11` (phi3 over 10 nontrivial eigenpairs). The scores "
+            "agree; the selections differ because scikit-feature ranks phi2 descending and phi3 ascending, "
+            "the opposite of the criteria's meaning. At 500 × 5,000 FastSelect's traced peak is one centred "
+            "copy of `X`, which keeps the RBF distances free of cancellation; copies above 64 MiB are built in "
+            "column blocks instead."
+        ),
+        "variants": {
+            "phi2": {
+                "fast-select": ("fast", "SPEC", {"criterion": "phi2"}),
+                "scikit-feature": ("skfeature-spec", {"style": 0}),
+            },
+            "phi3 (m = 10)": {
+                "fast-select": ("fast", "SPEC", {"criterion": "phi3", "n_eigenvectors": 10}),
+                "scikit-feature": ("skfeature-spec", {"style": 11}),
+            },
+        },
+    },
+    "mcfs": {
+        "title": "MCFS",
+        "output": RESULTS / "mcfs_comparison.json",
+        "report": RESULTS / "MCFS.md",
+        "parity": True,
+        "scenarios": {
+            "samples": {"fixed": ("n_features", 100), "sizes": [500, 1000, 2000, 4000]},
+            "features": {"fixed": ("n_samples", 500), "sizes": [100, 1000, 5000]},
+        },
+        "note": (
+            "`MCFS(10, n_clusters=5)` against the pinned scikit-feature `mcfs` (commit 48cffad) given the same "
+            "Euclidean binary 5-NN graph (`construct_W(X, metric='euclidean', weight_mode='binary', k=5)`). "
+            "scikit-feature solves a dense eigenproblem, fits plain LARS rather than LARS-Lasso and scores by "
+            "the largest signed coefficient. The agreement table compares the largest absolute coefficient for "
+            "both: it agrees to rounding unless the Lasso path drops a variable before reaching 10 nonzero "
+            "coefficients, where plain LARS (which never drops one) no longer solves Eq. (30). The "
+            "selections differ because of the signed score."
+        ),
+        "variants": {
+            "MCFS (K = 5)": {
+                "fast-select": ("fast", "MCFS", {"n_clusters": 5}),
+                "scikit-feature": ("skfeature-mcfs", {"n_clusters": 5}),
+            },
+        },
+    },
 }
 ALL_VARIANTS = {name: spec for family in FAMILIES.values() for name, spec in family["variants"].items()}
 LABELS = {
@@ -211,6 +307,8 @@ LABELS = {
     "scikit-rebate-multisurf": "scikit-rebate MultiSURF",
     "numpy-fcq": "scikit-learn + NumPy FCQ",
     "mrmr-selection": "mrmr_selection",
+    "pyhsiclasso": "pyHSICLasso",
+    "scikit-feature": "scikit-feature",
 }
 N_FEATURES_TO_SELECT = 10
 SERIAL_LIMIT_SECONDS = 10.0
@@ -242,7 +340,7 @@ def _series(family):
 
 def _is_rebate(label, variant):
     kind = ALL_VARIANTS[variant][label][0]
-    return kind.startswith("rebate") or kind == "mrmr-selection"
+    return kind.startswith("rebate") or kind in ("mrmr-selection", "pyhsiclasso")
 
 
 def _shapes(family):
@@ -332,8 +430,92 @@ class _MrmrSelection:
         return self
 
 
+class _PyHSICLasso:
+    """pyHSICLasso's ``classification``, imported from ``PYHSICLASSO_PATH``."""
+
+    def __init__(self, k, n_jobs, B, M):
+        self.k, self.n_jobs, self.B, self.M = k, n_jobs, B, M
+
+    def fit(self, X, y):
+        import contextlib
+        import io
+
+        import numpy as np
+
+        sys.path.append(os.environ["PYHSICLASSO_PATH"])  # appended: NumPy, SciPy and pandas stay the venv's
+        from pyHSICLasso import HSICLasso
+
+        model = HSICLasso()
+        with contextlib.redirect_stdout(io.StringIO()):
+            model.input(np.asarray(X, dtype=np.float64), np.asarray(y))
+            model.classification(num_feat=self.k, B=self.B, M=self.M, n_jobs=self.n_jobs or 1)
+        self.top_features_ = np.asarray(model.get_index(), dtype=np.int64)
+        self.feature_importances_ = np.asarray(model.beta, dtype=np.float64).ravel()
+        return self
+
+
+SKFEATURE_ROOT = ROOT / "audit" / "new_algorithms" / "vendor" / "jundongl-scikit-feature-48cffad"
+
+
+def _skfeature_spec_module():
+    """The pinned scikit-feature SPEC module with its one NumPy-2 incompatibility fixed in memory."""
+    import types
+
+    sys.path.insert(0, str(SKFEATURE_ROOT))
+    path = SKFEATURE_ROOT / "skfeature" / "function" / "similarity_based" / "SPEC.py"
+    source = path.read_text()
+    assert source.count("D[i, i] = X_sum[i]") == 1
+    module = types.ModuleType("skfeature_spec_patched")
+    module.__file__ = str(path)
+    exec(compile(source.replace("D[i, i] = X_sum[i]", "D[i, i] = X_sum[i, 0]"), str(path), "exec"), module.__dict__)
+    return module
+
+
+class _SkfeatureSPEC:
+    def __init__(self, style):
+        self.style = style
+
+    def fit(self, X, y=None):
+        import numpy as np
+        from sklearn.metrics.pairwise import rbf_kernel
+
+        module = _skfeature_spec_module()
+        X = np.asarray(X, dtype=np.float64)
+        # The same graph as FastSelect's default (gamma = 1 / n_features), passed explicitly.
+        scores = module.spec(X, style=self.style, W=rbf_kernel(X, gamma=1.0 / X.shape[1]))
+        # Higher is better in FastSelect's convention: -phi1/-phi2, +phi3.
+        self.feature_importances_ = -scores if self.style in (-1, 0) else scores
+        self.top_features_ = np.asarray(module.feature_ranking(scores, style=self.style))[:N_FEATURES_TO_SELECT]
+        return self
+
+
+class _SkfeatureMCFS:
+    def __init__(self, n_clusters):
+        self.n_clusters = n_clusters
+
+    def fit(self, X, y=None):
+        import numpy as np
+
+        sys.path.insert(0, str(SKFEATURE_ROOT))
+        from skfeature.function.sparse_learning_based import MCFS as module
+        from skfeature.utility.construct_W import construct_W
+
+        X = np.asarray(X, dtype=np.float64)
+        W = construct_W(X, metric="euclidean", weight_mode="binary", k=5)
+        coef = module.mcfs(X, N_FEATURES_TO_SELECT, W=W, n_clusters=self.n_clusters)
+        self.feature_importances_ = np.abs(coef).max(axis=1)
+        self.top_features_ = np.asarray(module.feature_ranking(coef))[:N_FEATURES_TO_SELECT]
+        return self
+
+
 def _estimator(label, variant, n_jobs=None):
     kind, *spec = ALL_VARIANTS[variant][label]
+    if kind == "skfeature-spec":
+        return _SkfeatureSPEC(**spec[0])
+    if kind == "skfeature-mcfs":
+        return _SkfeatureMCFS(**spec[0])
+    if kind == "pyhsiclasso":
+        return _PyHSICLasso(N_FEATURES_TO_SELECT, n_jobs, **spec[0])
     if kind == "numpy-fcq":
         return _NumpyFCQ(N_FEATURES_TO_SELECT)
     if kind == "mrmr-selection":
@@ -649,11 +831,54 @@ def _mrmr_selection_identity():
     return {"mrmr_selection": version, "mrmr_selection_source_sha256": _tree_sha256(Path(mrmr.__file__).parent)}
 
 
+def _pyhsiclasso_identity():
+    path = os.environ.get("PYHSICLASSO_PATH")
+    if not path:
+        return {}
+    version = None
+    for info in Path(path).glob("pyHSICLasso-*.dist-info"):
+        version = info.name.removesuffix(".dist-info").split("-")[1]
+    return {"pyhsiclasso": version, "pyhsiclasso_source_sha256": _tree_sha256(Path(path) / "pyHSICLasso")}
+
+
+SKFEATURE_FILES = {
+    "spec": ["skfeature/function/similarity_based/SPEC.py"],
+    "mcfs": ["skfeature/function/sparse_learning_based/MCFS.py", "skfeature/utility/construct_W.py"],
+}
+
+
+def _skfeature_identity(family):
+    if family not in SKFEATURE_FILES:
+        return {}
+    digest = hashlib.sha256()
+    for name in SKFEATURE_FILES[family]:
+        digest.update(name.encode())
+        digest.update((SKFEATURE_ROOT / name).read_bytes())
+    commit = SKFEATURE_ROOT.name.rsplit("-", 1)[-1]
+    return {"scikit_feature": commit, "scikit_feature_source_sha256": digest.hexdigest()}
+
+
+def _uses_skrebate(family):
+    return any(
+        kind.startswith("rebate")
+        for implementations in FAMILIES[family]["variants"].values()
+        for kind, *_ in implementations.values()
+    )
+
+
 def _provenance(family):
     import numba
     import numpy
     import sklearn
-    import skrebate
+
+    rebate = {}
+    if _uses_skrebate(family):
+        import skrebate
+
+        rebate = {
+            "skrebate": skrebate.__version__,
+            "skrebate_source_sha256": _tree_sha256(Path(skrebate.__file__).parent),
+        }
 
     def git(*arguments):
         return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True).stdout.strip()
@@ -664,9 +889,10 @@ def _provenance(family):
         "git_commit": git("rev-parse", "HEAD"),
         "git_src_dirty": bool(git("status", "--porcelain", "--", "src")),
         "source_sha256": _tree_sha256(ROOT / "src" / "fast_select"),
-        "skrebate": skrebate.__version__,
-        "skrebate_source_sha256": _tree_sha256(Path(skrebate.__file__).parent),
+        **rebate,
+        **_skfeature_identity(family),
         **_mrmr_selection_identity(),
+        **_pyhsiclasso_identity(),
         "python": platform.python_version(),
         "numpy": numpy.__version__,
         "numba": numba.__version__,
@@ -680,9 +906,9 @@ def _provenance(family):
         "memory_method": (
             "peak macOS phys_footprint of a fresh worker process (both libraries warmed on the same 30-row "
             "slice), sampled by the parent with proc_pid_rusage about every 0.5 ms while the fit repeats "
-            "for >= 0.5 s, minus the footprint just before; "
-            "scikit-rebate with n_jobs=1 so all work is in-process. tracemalloc_peak_bytes is a separate fit "
-            "and covers Python/NumPy host allocations only."
+            "for >= 0.5 s, minus the footprint just before"
+            + ("; scikit-rebate with n_jobs=1 so all work is in-process" if rebate else "")
+            + ". tracemalloc_peak_bytes is a separate fit and covers Python/NumPy host allocations only."
         ),
     }
 
@@ -856,14 +1082,31 @@ def _report(args):
         "",
         f"- FastSelect `{provenance['git_commit'][:7]}`"
         f"{' with uncommitted src changes' if provenance['git_src_dirty'] else ''}, "
-        f"source SHA-256 `{provenance['source_sha256'][:16]}…`; scikit-rebate {provenance['skrebate']}, "
-        f"source SHA-256 `{provenance['skrebate_source_sha256'][:16]}…`"
+        f"source SHA-256 `{provenance['source_sha256'][:16]}…`"
+        + (
+            f"; scikit-rebate {provenance['skrebate']}, source SHA-256 `{provenance['skrebate_source_sha256'][:16]}…`"
+            if "skrebate" in provenance
+            else ""
+        )
+        + (
+            f"; scikit-feature {provenance['scikit_feature']} (pinned tree), source SHA-256 "
+            f"`{provenance['scikit_feature_source_sha256'][:16]}…` over the files used"
+            if "scikit_feature" in provenance
+            else ""
+        )
         + (
             f"; mrmr_selection {provenance['mrmr_selection']}, source SHA-256 "
-            f"`{provenance['mrmr_selection_source_sha256'][:16]}…`."
+            f"`{provenance['mrmr_selection_source_sha256'][:16]}…`"
             if "mrmr_selection" in provenance
-            else "."
-        ),
+            else ""
+        )
+        + (
+            f"; pyHSICLasso {provenance['pyhsiclasso']}, source SHA-256 "
+            f"`{provenance['pyhsiclasso_source_sha256'][:16]}…`"
+            if "pyhsiclasso" in provenance
+            else ""
+        )
+        + ".",
         f"- {provenance['cpu']}, {provenance['numba_threads']} Numba threads, single-threaded BLAS; Python "
         f"{provenance['python']}, NumPy {provenance['numpy']}, Numba {provenance['numba']}, scikit-learn "
         f"{provenance['scikit_learn']}.",
@@ -971,8 +1214,9 @@ def _report(args):
             "is given."
         )
     lines += [
-        "- The load averages include the benchmark's own workers (eight Numba threads, or eight scikit-rebate "
-        "processes with `n_jobs=-1`).",
+        "- The load averages include the benchmark's own workers (eight Numba threads"
+        + (", or eight scikit-rebate processes with `n_jobs=-1`" if "skrebate" in provenance else "")
+        + ").",
         "",
     ]
     family["report"].write_text("\n".join(lines), encoding="utf-8")

@@ -118,6 +118,36 @@ not part of this documentation set.
    :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
 ```
 
+### HSICLasso
+
+```{eval-rst}
+.. autoclass:: fast_select.HSICLasso.HSICLasso
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### SPEC
+
+```{eval-rst}
+.. autoclass:: fast_select.SPEC.SPEC
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
+### MCFS
+
+```{eval-rst}
+.. autoclass:: fast_select.MCFS.MCFS
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: set_fit_request, set_transform_request, set_score_request, set_predict_request
+```
+
 ### Chi2
 
 ```{eval-rst}

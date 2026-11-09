@@ -114,6 +114,19 @@ Before merging an algorithm or kernel change:
   Redundancy Feature Selection from Microarray Gene Expression Data* (J.
   Bioinform. Comput. Biol. 3(2), 2005), DOI: 10.1142/S0219720005001004,
   Eqs. (8)-(10) and Table 1.
+- HSIC Lasso: Yamada, Jitkrittum, Sigal, Xing and Sugiyama, *High-Dimensional
+  Feature Selection by Feature-Wise Kernelized Lasso* (Neural Computation 26,
+  2014), DOI: 10.1162/NECO_a_00537, Eq. (3); Climente-Gonzalez, Azencott,
+  Kaski and Yamada, *Block HSIC Lasso* (Bioinformatics 35, 2019), DOI:
+  10.1093/bioinformatics/btz333, Eqs. (2)-(14), for the normalised Gram
+  matrices, the block estimator and nonnegative LARS-Lasso.
+- SPEC: Zhao and Liu, *Spectral Feature Selection for Supervised and
+  Unsupervised Learning* (ICML 2007), DOI: 10.1145/1273496.1273641. MCFS: Cai,
+  Zhang and He, *Unsupervised Feature Selection for Multi-Cluster Data* (KDD
+  2010), DOI: 10.1145/1835804.1835848. Neither article could be consulted.
+  Both follow their restatement in Li et al., *Feature Selection: A Data
+  Perspective* (ACM Computing Surveys 2017, arXiv:1601.07996), Sections 2.1.2
+  and 2.3.4.
 - MDR: Ritchie et al., *Multifactor-Dimensionality Reduction Reveals
   High-Order Interactions among Estrogen-Metabolism Genes in Sporadic Breast
   Cancer* (2001), DOI: 10.1086/321276.
@@ -294,6 +307,44 @@ invariants in every CPU, CUDA, helper, and fallback path.
   redundancy gives inf for F > 0 and 0 for F = 0. Do not copy
   `mrmr_selection`'s 0.001 redundancy floor or its dropping of zero-relevance
   features. Do not form a `p x p` correlation matrix.
+- HSIC Lasso solves the nonnegative Lasso of Yamada et al. (2014), Eq. (3),
+  over centred Gram matrices, by nonnegative LARS-Lasso stopped at the knot
+  where one more feature would enter. With the default `normalize=True`, every
+  centred Gram matrix is divided by its Frobenius norm (Climente-Gonzalez et
+  al., 2019, Eq. 2); `normalize=False` is the 2014 Eq. (3). Inputs use a
+  Gaussian kernel of width `sigma_x` (default 1) on each feature divided by its
+  ddof=0 standard deviation. Outputs use the delta kernel `1/n_c` with class
+  counts from the block (classification) or a Gaussian on the unit-variance
+  target (regression). The block estimator averages `n // B` blocks over `M`
+  cumulative seeded permutations, drops the leftover samples, and centres and
+  normalises each block on its own, matching pyHSICLasso where the paper is
+  silent. Never form the `(n B M) x d` design. Stream Frobenius products through
+  `sum A*C - (2/B) r_A . r_C + s_A s_C / B^2`, with Gaussian kernels taken as
+  `-expm1(-delta^2 / (2 sigma^2))`. A constant feature, or a block with a
+  constant feature or output, contributes zero. A feature can enter the path
+  only before its end (lambda > 0), and only positive coefficients are
+  reported. CPU only.
+- SPEC uses the normalised Laplacian `D^{-1/2}(D - S)D^{-1/2}`,
+  `f_hat = D^{1/2} f / ||D^{1/2} f||` and `gamma(lambda) = lambda`. phi1 is
+  `f_hat' L f_hat`; phi2 divides it by `1 - (f_hat' xi_1)^2` and equals the
+  Laplacian Score on the same graph. Both are smaller-is-better and are
+  computed as centred quadratic forms, without eigenvectors. phi3 is
+  `sum (2 - lambda_j) alpha_j^2` over the `m` smallest nontrivial eigenpairs and
+  is larger-is-better. The trivial eigenvector is always
+  `xi_1 = D^{1/2} 1 / ||.||`, removed by deflation, so disconnected graphs are
+  well defined. Do not copy scikit-feature's reversed ranking directions.
+  Graphs: RBF `exp(-gamma ||x_i - x_j||^2)` over all pairs (default
+  `gamma = 1 / n_features`), the `LaplacianScore` kNN graph, the supervised
+  `1/n_l` graph, or a precomputed symmetric `W`. A constant feature has
+  phi2 = inf (ranked last). CPU only.
+- MCFS embeds with the `K` largest eigenvectors of the deflated normalised
+  affinity (the smallest nontrivial ones of `L e = lambda D e`, with
+  `e' D e = 1` and a deterministic sign). It regresses each centred embedding
+  vector on the centred, unscaled features along the LARS-Lasso path, stopping
+  at the first knot with `d` nonzero coefficients. It scores a feature by
+  `max_i |W(j, i)|`. The graph is the `LaplacianScore` kNN graph or a
+  precomputed `W`. Do not copy scikit-feature's signed `max` or its
+  symmetrisation after normalisation. CPU only.
 - Discrete codes passed to the mutual-information functions are remapped to
   dense per-column codes when large; distinct symbols must never alias through
   a narrowing cast.

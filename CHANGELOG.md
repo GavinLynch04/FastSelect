@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SPEC` (Zhao and Liu, ICML 2007) and `MCFS` (Cai, Zhang and He, KDD 2010),
+  following their restatement in Li et al. (ACM CSUR 2017) because neither
+  article could be consulted. SPEC offers the three criteria (phi2 is the
+  Laplacian Score) on RBF, kNN, supervised or precomputed graphs. phi1/phi2
+  use quadratic forms with no eigendecomposition; phi3 uses a deflated
+  sparse eigensolver. MCFS combines a spectral embedding on LaplacianScore's
+  graph with LARS-Lasso stopped at `d` nonzero coefficients per embedding
+  vector. Both define the trivial eigenvector as `D^{1/2} 1` explicitly, so
+  disconnected graphs are well defined. scikit-feature's reversed SPEC ranking
+  directions and signed MCFS score are not copied. SPEC scores features in
+  column blocks and, above 300 samples, applies the normalised affinity
+  without forming it. A fit therefore allocates one n-by-n graph, small
+  working blocks and, for the RBF graph, a centred copy of the input capped at
+  64 MiB. Tested against dense eigendecomposition oracles, the Laplacian
+  Score, the generalised eigenproblem `L e = lambda D e` and the Lasso
+  optimality conditions. CPU only.
+- `HSICLasso` (Yamada et al., Neural Computation 2014; block estimator and
+  normalised Gram matrices from Climente-Gonzalez et al., Bioinformatics
+  2019). Nonlinear, redundancy-aware selection by nonnegative LARS-Lasso on
+  centred Gaussian/delta-kernel Gram matrices, for classification or
+  regression, vanilla (`block_size=0`) or block (`B=20, M=3`, pyHSICLasso's
+  defaults). The design matrix is never formed: Frobenius products are
+  streamed from kernel values, so memory is O(n d) instead of O(n B M d).
+  Tested against the explicitly built design, the nonnegative-Lasso optimality
+  conditions and scikit-learn's `lars_path(positive=True)`. CPU only.
 - `mRMR(method="FCD")` and `mRMR(method="FCQ")`: continuous-feature mRMR from
   Ding and Peng (J. Bioinform. Comput. Biol. 2005, Eqs. 8-10, Table 1).
   Relevance is the one-way ANOVA F statistic and redundancy the mean absolute

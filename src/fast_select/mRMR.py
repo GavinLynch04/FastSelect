@@ -169,8 +169,8 @@ class mRMR(TransformerMixin, BaseEstimator):
         The mRMR selection criterion to use.
         - 'MID' (Mutual Information Difference): f_score = I(f; y) - mean(I(f; S))
         - 'MIQ' (Mutual Information Quotient): f_score = I(f; y) / mean(I(f; S))
-        - 'FCD' (F-test Correlation Difference): F(f, y) - mean(|c(f, S)|)
-        - 'FCQ' (F-test Correlation Quotient): F(f, y) / mean(|c(f, S)|)
+        - 'FCD' (F-test Correlation Difference): ``F(f, y) - mean(|c(f, S)|)``
+        - 'FCQ' (F-test Correlation Quotient): ``F(f, y) / mean(|c(f, S)|)``
 
     backend : {'auto', 'cpu', 'gpu', 'metal'}, default='auto'
         'auto' prefers CUDA (up to 32 encoded states), then optional Metal

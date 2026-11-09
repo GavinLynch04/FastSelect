@@ -21,7 +21,7 @@ A high-performance Python library powered by **Numba**, **CUDA**, and optional *
   
 - **Flexible Backends:** Supports CPU (Numba `prange`), NVIDIA GPUs (CUDA), and Apple Silicon GPUs (optional Metal/MLX). `backend="auto"` picks a GPU only where it has been shown to help.
   
-- **Feature-Rich Implementation:** The complete Relief family (ReliefF, RReliefF for regression, SURF, SURF*, MultiSURF, MultiSURF*, the sigmoid-weighted SWRF, SWRF*, MultiSWRF, MultiSWRF*, MultiSWRFDB and MultiSWRFDB*, μ-Relief, STIR with p-values, ReliefSeq, TuRF, VLS), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
+- **Feature-Rich Implementation:** The complete Relief family (ReliefF, RReliefF for regression, SURF, SURF*, MultiSURF, MultiSURF*, the sigmoid-weighted SWRF, SWRF*, MultiSWRF, MultiSWRF*, MultiSWRFDB and MultiSWRFDB*, μ-Relief, STIR with p-values, ReliefSeq, TuRF, VLS), information-theoretic selectors (mRMR, JMI, CMIM, FCBF, MIFS, CIFE, DISR, CFS), the kernel-based HSIC Lasso, the spectral SPEC and MCFS, MDR, Gini index, Laplacian Score, Chi2, and continuous/regression mutual-information score functions.
   
 - **Paper-Faithful:** Every algorithm is verified against independent, equation-driven tests derived from its defining paper, not from another library's output. Where an extension goes beyond the published algorithm, the docstring says so.
   
@@ -246,6 +246,28 @@ subsets = VLS(ReliefF(n_neighbors=10), subset_size=0.05, random_state=0).fit(X, 
 greedy relevance–redundancy selectors; for those, use `mRMR`, `JMI`, `CMIM`,
 `FCBF`, `MIFS`, `CIFE`, `DISR` or `CFS` directly.
 
+**From scikit-feature (SPEC, MCFS).** `spec(X, style=0)` is
+`SPEC(criterion="phi2")`, `style=-1` is `"phi1"`, and `style=k` is
+`SPEC(criterion="phi3", n_eigenvectors=k - 1)`. `mcfs(X, d, n_clusters=K)` is
+`MCFS(d, n_clusters=K)`. SPEC's scores match scikit-feature's, but its
+rankings deliberately do not: scikit-feature sorts phi1/phi2 in descending
+order and phi3 in ascending order, which is backwards for each criterion. For
+MCFS, scikit-feature scores a feature by its largest *signed* coefficient;
+FastSelect uses the largest absolute one, as the method defines. FastSelect's SPEC computes phi1/phi2
+without any eigendecomposition, and its MCFS uses a sparse eigensolver. Neither
+original article could be consulted, so both follow the restatement in Li et
+al.'s survey, as their docstrings explain.
+
+**From pyHSICLasso.** `hsic_lasso.classification(num_feat=K)` (or
+`regression`) with its defaults `B=20, M=3` is `HSICLasso(K).fit(X, y)`,
+`block_size=0` is vanilla HSIC Lasso (`B=0`), and `top_features_` /
+`feature_importances_` correspond to `get_index()` and the coefficients. It
+uses the same normalised Gram matrices, block permutations and nonnegative
+LARS, but never builds pyHSICLasso's `(n B M) x d` kernel matrix, so memory
+grows with `n d` instead. Covariate adjustment, the discrete-input kernel and
+the neighbour lists are not implemented. `normalize=False` gives Yamada et
+al.'s original, unnormalised Eq. (3).
+
 **From `mrmr_selection`.** `mrmr_classif(X, y, K)` (the FCQ criterion) is
 `mRMR(K, method="FCQ").fit(X, y).top_features_`, and `method="FCD"` gives the
 difference form. Both follow Ding and Peng (2005), so two differences from
@@ -314,6 +336,13 @@ function is CPU-only. These methods passed comparisons against tuned
 scikit-learn or pinned original scikit-feature. An ANOVA F prototype lost to
 scikit-learn and was excluded. See the
 [second admission report](benchmarking/results/NEW_ALGORITHMS_2.md).
+
+The estimators added after 0.4.1 (**RReliefF, SWRF, MultiSWRF, MuRelief, STIR,
+ReliefSeq, HSICLasso, SPEC and MCFS**, plus mRMR's FCD/FCQ criteria and
+ReliefF fits with missing values) also run on the CPU only. No GPU path has
+been built or measured for them, so `auto` selects CPU and explicit `gpu` or
+`metal` requests raise (ReliefF with missing values falls back to the CPU
+under `auto`). `VLS` runs on whatever backend its wrapped Relief estimator uses.
 
 A [feature-heavy follow-up](benchmarking/results/FEATURE_HEAVY_GPU.md) tests
 64×1,024 through 256×8,192 inputs against experimental Metal paths. It shows
@@ -389,6 +418,27 @@ The newer Relief methods have their own reports, measured the same way:
   directly with scikit-learn and NumPy it is 1.3–1.7× faster on the larger
   shapes and slightly slower at 500 × 1,000. All three agree once
   `mrmr_selection`'s 0.001 correlation floor is accounted for.
+- **HSIC Lasso ([block](benchmarking/results/HSIC_LASSO.md),
+  [vanilla](benchmarking/results/HSIC_LASSO_VANILLA.md)):** selects the same
+  features in the same order as the authors' pyHSICLasso 1.4.2, with
+  coefficients within 2e-7, while using 45× (block) to 69–151× (vanilla) less
+  traced memory: about 6 MiB of footprint growth instead of 1.9 GiB at
+  2,000 × 1,000. It is 1.7–2.3× faster in block mode and 1.3–1.6× in vanilla
+  mode. Most of the gain is memory, because kernel values are recomputed
+  rather than stored.
+- **[SPEC](benchmarking/results/SPEC.md):** 22–52× faster than
+  scikit-feature with phi2 (the Laplacian Score criterion) and 3.5–45× with
+  phi3, with scores equal to within 1e-13. Its traced peak is 2–9× smaller (34
+  MiB against 290 MiB at 2,000 × 100), except at 500 × 5,000, where both are
+  about 20 MiB. The rankings differ on purpose: scikit-feature sorts each
+  criterion in the wrong direction.
+- **[MCFS](benchmarking/results/MCFS.md):** 4.7–148× faster than
+  scikit-feature on 100 features (50× at 2,000 samples). On wider data the gap
+  narrows to 3.7× at 500 × 1,000 and 1.7× at 500 × 5,000, where most of the
+  time goes to the LARS regressions both libraries run. Its traced peak is
+  2.2–4× smaller. The coefficients agree to
+  rounding unless the Lasso path drops a variable, which scikit-feature's
+  plain LARS never does.
 
 <p align="center">
   <picture>
@@ -426,6 +476,9 @@ Currently supported:
   - TuRF
 - **Correlation-Based Feature Selection (CFS)**
 - **Multifactor Dimensionality Reduction (MDR)**
+- **SPEC** — spectral feature selection on an RBF, kNN, supervised or supplied graph (three criteria; criterion 2 is the Laplacian Score), CPU
+- **MCFS** — unsupervised multi-cluster feature selection: spectral embedding plus LARS-Lasso sparse regression, CPU
+- **HSIC Lasso** — nonlinear, non-redundant selection by a feature-wise kernelized Lasso (vanilla or block), for classification or regression, CPU
 - **Minimum Redundancy Maximum Relevance (mRMR)** — MID/MIQ on discrete data, and FCD/FCQ (F-statistic relevance, absolute-correlation redundancy) on continuous features
 - **Chi Squared (Chi2)** — dense or SciPy sparse count matrices; sparse input is counted on the CPU without densifying and gives the same statistics as the dense array.
 - **Discrete mutual information** — `calculate_mi_single_pair` and `calculate_mi_matrices`, with the same CPU/GPU backend selection and a choice of bit or nat units.
@@ -526,7 +579,10 @@ branches in the estimators still count as uncovered.
 to float32, on the CPU, CUDA and Metal backends. SURF and SURF* compute the global
 radius and all pair distances in float64 and treat a distance within a relative
 `1e-12` of the radius as a tie, which is excluded from both the near and far
-sets; the remaining Relief-family kernels score in float32. Metal computes
+sets; ReliefF and MultiSURF/MultiSURF* score in float32. ReliefF fits with
+missing values and the CPU-only Relief estimators added after 0.4.1
+(RReliefF, SWRF, MultiSWRF, MuRelief, STIR and ReliefSeq) work in float64
+throughout. Metal computes
 distances in float32 with a conservative error bound and recomputes any
 neighbor or threshold decision inside that bound on the CPU in float64, so it
 makes the same decisions as the CPU backend.

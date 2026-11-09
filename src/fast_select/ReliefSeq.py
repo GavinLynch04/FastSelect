@@ -182,7 +182,7 @@ class ReliefSeq(TransformerMixin, BaseEstimator):
     best_k_ : ndarray of shape (n_features,)
         ``k_hat(a)`` (Eq. 5), the smallest ``k`` attaining the maximum.
 
-    scores_by_k_ : ndarray of shape (n_features, max_neighbors_)
+    scores_by_k_ : ndarray of shape (n_features, ``max_neighbors_``)
         ``W_{a,k}`` with column ``k - 1``; column ``k - 1`` is ReliefF's score
         with ``n_neighbors=k``.
 

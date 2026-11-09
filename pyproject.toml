@@ -26,7 +26,9 @@ keywords = [
   "scikit-learn", "sklearn", "skrebate", "numba", "cuda", "gpu", "metal", "mlx",
   "apple silicon", "SURF", "MultiSURF", "TuRF", "SURF*", "MultiSURF*",
   "mRMR", "chi2", "CFS", "MDR", "mutual information", "JMI", "CMIM", "FCBF",
-  "MIFS", "CIFE", "DISR", "gini index", "laplacian score", "epistasis", "GWAS"
+  "MIFS", "CIFE", "DISR", "gini index", "laplacian score", "epistasis", "GWAS",
+  "RReliefF", "SWRF", "MultiSWRF", "MuRelief", "STIR", "ReliefSeq", "VLS",
+  "HSIC Lasso", "SPEC", "MCFS", "spectral feature selection"
 ]
 
 classifiers = [
